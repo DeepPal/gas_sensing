@@ -34,8 +34,14 @@ gassensingvenv/
 *.swo
 
 # Project specific
+# Ignore outputs by default, but keep key artifacts for reports
 output/*
-!.gitkeep
+
+# Include selected artifacts under output for versioning
+!output/**/reports/**
+!output/**/metrics/**
+!output/**/plots/**
+!output/.gitkeep
 
 # Logs
 *.log
