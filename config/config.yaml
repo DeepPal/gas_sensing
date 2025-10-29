@@ -1,0 +1,196 @@
+
+# Configuration for the gas analysis project
+
+# Data loading settings
+data:
+  # Path to the root data directory
+  base_dir: "data/JOY_Data"
+  # Directory template for experiment runs
+  exp_dir_template: "{concentration} EtOH IPA MeOH-{run}"
+  # Reference files
+  ref_files:
+    IPA: 'ref AuMutiMIP-IPA.csv'
+    MIX: 'ref AuMutiMIP-MIX.csv'
+    MeOH: 'ref AuMutiMIP-MeOH.csv'
+    EtOH: 'ref MutiAuMIP-EtOH.csv'
+  # CSV parsing settings
+  skiprows: 0
+  header: null
+  names: ["wavelength", "intensity"]
+
+# Peak detection settings
+peak_detection:
+  prominence: 0.1
+  width: 5
+  distance: 10
+
+# Analysis settings
+analysis:
+  calibration_factor: 1.0
+
+# Calibration settings
+calibration:
+  model: linear
+  polynomial_degree: 2
+  x_transform: linear
+  use_transmittance: true
+  auto_select_by: r2_cv
+  cv:
+    enabled: true
+  shift_method: xcorr
+  xcorr_upsample: 10
+  centroid_weight: contrast
+  centroid_half_width: 5
+  ensemble:
+    enabled: true
+    top_n: 3
+  robust:
+    enabled: true
+    prefer: true
+    epsilon: 1.35
+    alpha: 0.0001
+  bootstrap:
+    enabled: false
+    iterations: 500
+    sample_fraction: 0.8
+    min_unique: 2
+    random_seed: null
+  multivariate:
+    enabled: true
+    max_components: 3
+    scale: true
+    select_mode: auto
+    # Robust selection gating
+    min_r2_cv: 0.80          # minimum acceptable CV R² to select any multivariate model
+    improve_margin: 0.02     # model must beat PLSR by at least this margin in R² to be selected
+    prefer_plsr_on_tie: true # prefer PLSR if within margin
+    wl_min: 500.0
+    wl_max: 900.0
+    feature_prep: derivative+snv
+    feature_selection:
+      enabled: true
+      method: coef_top_fraction
+      top_fraction: 0.2
+    absorbance: true
+  auto_band_search:
+    enabled: true
+    scan_range: [500.0, 900.0]
+    window_widths: [20.0, 30.0, 40.0]
+    stride: 5.0
+    prefer: best_plsr_cv
+
+# Preprocessing settings
+preprocessing:
+  enabled: true
+  apply_to_frames: false
+  apply_to_transmittance: true
+  smooth:
+    enabled: true
+    method: savgol
+    window: 21
+    poly_order: 3
+    extra_pass: false
+  baseline:
+    enabled: true
+    method: als
+    order: 2
+  normalization:
+    enabled: false
+    method: minmax
+  downsample:
+    enabled: false
+    factor: 1
+    target_points: null
+  outlier_rejection:
+    enabled: true
+    threshold: 2.5
+
+archiving:
+  enabled: false
+
+reporting:
+  generate_notebook: true
+  export_pdf: true
+  nbconvert_executable: "jupyter"
+  trend_plots: true
+
+dynamics:
+  enabled: true
+
+environment:
+  enabled: false
+  apply_to_frames: false
+  apply_to_transmittance: true
+  reference:
+    temperature: 25.0  # degC
+    humidity: 50.0     # %RH
+  # First-order additive compensation: signal -= cT*(T - T_ref) + cH*(H - H_ref)
+  coefficients:
+    temperature: 0.0
+    humidity: 0.0
+  # If true, write back estimated coefficients after a run
+  autosave_coefficients: false
+  # If no sensor columns available, override environment values here
+  override:
+    temperature: null
+    humidity: null
+
+advanced:
+  deconvolution:
+    ica:
+      enabled: true
+      n_components: 2
+      max_iter: 500
+      tol: 1.0e-4
+      random_state: 0
+    mcr_als:
+      enabled: true
+      n_components: 2
+      max_iter: 200
+      tol: 1.0e-5
+      random_state: 0
+
+roi:
+  debug_regressions: true
+  selection_metric: hybrid
+  min_r2: 0.3
+  r2_weight: 0.55
+  band_half_width: 12
+  min_wavelength: 500.0
+  max_wavelength: 900.0
+  band_window: 5
+  expected_trend: any
+  trend_modes:
+    - decreasing   # valleys
+    - increasing   # peaks
+  min_corr: 0.5
+  derivative_weight: 0.4
+  ratio_weight: 0.3
+  ratio_half_width: 5
+  slope_noise_weight: 0.6
+  min_slope_to_noise: 0.9
+  min_abs_slope: 0.0005
+  adaptive_thresholds:
+    enabled: true
+    relaxation_factor: 0.6
+  validation:
+    expected_center: 500.0
+    tolerance: 40.0
+    notes: "Focused ROI for ethanol sensitivity (450–950 nm)."
+  alternative_models:
+    enabled: true
+    polynomial_degree: 2
+  adaptive_band:
+    enabled: true
+    slope_fraction: 0.75
+    max_half_width: 50
+
+stability:
+  weight_mode: intensity   # options: uniform, intensity, max
+  top_k: 5                 # try 2–5 to keep the strongest frames
+  diff_threshold: 0.02     # relax if strong changes are still excluded
+
+# Dataset-level quality control thresholds (used in qc_summary.json)
+quality:
+  min_snr: 10.0
+  max_rsd: 5.0    # percent
