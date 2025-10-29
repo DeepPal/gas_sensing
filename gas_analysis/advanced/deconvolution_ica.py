@@ -124,9 +124,10 @@ def fit_ica_from_canonical(canonical: Dict[float, pd.DataFrame], cfg: Dict[str, 
     }
 
 
-def save_ica_outputs(res: Dict[str, object], out_root: str) -> Dict[str, str]:
+def save_ica_outputs(res: Dict[str, object], out_root: str, roi: Optional[Tuple[float, float]] = None) -> Dict[str, str]:
     metrics_path = None
     comp_plot_path = None
+    comp_plot_path_roi = None
     pred_plot_path = None
     try:
         import os
@@ -171,6 +172,31 @@ def save_ica_outputs(res: Dict[str, object], out_root: str) -> Dict[str, str]:
                 comp_plot_path = str(plots_dir / 'ica_components.png')
                 plt.savefig(comp_plot_path, dpi=200)
                 plt.close()
+                # ROI overlay with top-loading annotations (optional)
+                if roi is not None:
+                    try:
+                        r0, r1 = float(roi[0]), float(roi[1])
+                        plt.figure(figsize=(8, 4))
+                        for i in range(comps.shape[0]):
+                            plt.plot(wl, comps[i], label=f'C{i}')
+                            try:
+                                j = int(np.nanargmax(np.abs(comps[i])))
+                                if 0 <= j < wl.size:
+                                    plt.axvline(wl[j], color='gray', linestyle=':', linewidth=0.8)
+                            except Exception:
+                                pass
+                        plt.axvspan(r0, r1, color='orange', alpha=0.2, label='ROI')
+                        plt.xlabel('Wavelength (nm)')
+                        plt.ylabel('ICA Component (arb.)')
+                        plt.title('ICA Component Spectra (ROI overlay)')
+                        plt.grid(True, alpha=0.3)
+                        plt.legend(ncol=2, fontsize=8)
+                        plt.tight_layout()
+                        comp_plot_path_roi = str(plots_dir / 'ica_components_roi.png')
+                        plt.savefig(comp_plot_path_roi, dpi=200)
+                        plt.close()
+                    except Exception:
+                        comp_plot_path_roi = None
         except Exception:
             pass
 
@@ -204,5 +230,6 @@ def save_ica_outputs(res: Dict[str, object], out_root: str) -> Dict[str, str]:
     return {
         'metrics': metrics_path,
         'components_plot': comp_plot_path,
+        'components_plot_roi': comp_plot_path_roi,
         'pred_vs_actual_plot': pred_plot_path,
     }
