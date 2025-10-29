@@ -1,0 +1,21 @@
+{
+  "scores": {
+    "plsr": {
+      "r2_cv": 0.39033347523162043,
+      "rmse_cv": 2.945388052675595,
+      "metrics": "C:\\Users\\deepp\\Desktop\\Codes\\2_PYTHON_Multi_Sensing\\gas_analysis\\output\\meoh_topavg\\metrics\\calibration_metrics.json"
+    },
+    "ica": {
+      "r2_cv": null,
+      "rmse_cv": null,
+      "metrics": null
+    },
+    "mcr_als": {
+      "r2_cv": -0.16242657655671122,
+      "rmse_cv": 4.067046251737417,
+      "metrics": "C:\\Users\\deepp\\Desktop\\Codes\\2_PYTHON_Multi_Sensing\\gas_analysis\\output\\meoh_topavg\\metrics\\deconvolution_mcr_als.json"
+    }
+  },
+  "best_method": "plsr",
+  "best_r2_cv": 0.39033347523162043
+}

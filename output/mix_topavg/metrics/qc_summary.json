@@ -1,0 +1,16 @@
+{
+  "min_snr": 3.777147903783288,
+  "median_snr": 4.751912953805517,
+  "max_rsd_percent": 2.808556995750315,
+  "snr_threshold": 10.0,
+  "rsd_threshold_percent": 5.0,
+  "snr_pass": false,
+  "rsd_pass": true,
+  "overall_pass": false,
+  "rsd_by_concentration": {
+    "0.5": 1.1289252126159726,
+    "1.0": 1.270354454526658,
+    "10.0": 0.11858916949686076,
+    "5.0": 2.808556995750315
+  }
+}
