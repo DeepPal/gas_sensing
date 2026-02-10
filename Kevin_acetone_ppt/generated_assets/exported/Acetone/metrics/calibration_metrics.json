@@ -1,0 +1,613 @@
+{
+  "gas": "Acetone",
+  "timestamp": "2026-02-10T16:25:19.196693",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_range": [
+    595.0,
+    625.0
+  ],
+  "expected_center": 680.0,
+  "n_concentrations": 4,
+  "concentrations": [
+    1.0,
+    3.0,
+    5.0,
+    10.0
+  ],
+  "calibration_wavelength_shift": {
+    "centroid": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        607.4220222406583,
+        608.0331031235036,
+        608.3899538476404,
+        609.8745483503554
+      ],
+      "delta_lambda": [
+        0.0,
+        0.6110808828452718,
+        0.9679316069821198,
+        2.4525261096971462
+      ],
+      "reference_wavelength": 607.4220222406583,
+      "slope": 0.2692369482162307,
+      "slope_unit": "nm/ppm",
+      "intercept": -0.27099085414596136,
+      "r2": 0.9944792461322035,
+      "r_value": 0.9972358026726695,
+      "p_value": 0.0027641973273304647,
+      "std_err": 0.014184727333193667,
+      "rmse": 0.06709690904165484,
+      "spearman_r": 1.0,
+      "spearman_p": 0.0,
+      "noise_std": 0.06709690904165484,
+      "lod_ppm": 0.7476341135886859,
+      "loq_ppm": 2.492113711962286,
+      "slope_ci_95": [
+        0.23620494359306576,
+        0.275715532586085
+      ],
+      "n_points": 4,
+      "method": "centroid",
+      "roi_range": [
+        595.0,
+        625.0
+      ],
+      "r2_cv": 0.9735069303894721,
+      "rmse_cv": 0.14698379677513887
+    },
+    "minimum": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        597.83600795,
+        598.29521936,
+        597.6064208,
+        624.78239602
+      ],
+      "delta_lambda": [
+        0.0,
+        0.4592114100000799,
+        -0.22958714999992935,
+        26.946388070000012
+      ],
+      "reference_wavelength": 597.83600795,
+      "slope": 3.1420674997206692,
+      "slope_unit": "nm/ppm",
+      "intercept": -8.130817541173139,
+      "r2": 0.8155210181812882,
+      "r_value": 0.903062023440964,
+      "p_value": 0.09693797655903603,
+      "std_err": 1.0567113691040335,
+      "rmse": 4.998479346877358,
+      "spearman_r": 0.39999999999999997,
+      "spearman_p": 0.6,
+      "noise_std": 4.998479346877358,
+      "lod_ppm": 4.772474824925045,
+      "loq_ppm": 15.908249416416814,
+      "slope_ci_95": [
+        -0.08348792318180255,
+        4.24686723906541
+      ],
+      "n_points": 4,
+      "method": "minimum",
+      "roi_range": [
+        595.0,
+        625.0
+      ]
+    }
+  },
+  "calibration_absorbance": {
+    "raw": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.07458165484921729,
+        0.06755656702376006,
+        0.059515057507017445,
+        0.13082753850070758
+      ],
+      "delta_A": [
+        0.0,
+        -0.00702508782545723,
+        -0.015066597342199846,
+        0.05624588365149029
+      ],
+      "reference_absorbance": 0.07458165484921729,
+      "slope": 0.0067892322576385295,
+      "slope_unit": "AU/ppm",
+      "intercept": -0.02371030360282471,
+      "r2": 0.6551709475008713,
+      "spearman_r": 0.19999999999999998,
+      "rmse": 0.016474483172022,
+      "lod_ppm": 7.279681654793873,
+      "loq_ppm": 24.265605515979576,
+      "method": "raw",
+      "roi_range": [
+        595.0,
+        625.0
+      ]
+    },
+    "window_avg": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.03810923248461379,
+        0.02378148848785167,
+        0.03568976997458112,
+        0.11502232822921753
+      ],
+      "delta_A": [
+        0.0,
+        -0.014327743996762125,
+        -0.002419462510032673,
+        0.07691309574460373
+      ],
+      "reference_absorbance": 0.03810923248461379,
+      "slope": 0.00957011036929598,
+      "slope_unit": "AU/ppm",
+      "intercept": -0.03041655194470368,
+      "r2": 0.7848893979856979,
+      "spearman_r": 0.39999999999999997,
+      "rmse": 0.016757535457563935,
+      "lod_ppm": 5.253085328460019,
+      "loq_ppm": 17.510284428200062,
+      "method": "window_avg",
+      "roi_range": [
+        595.0,
+        625.0
+      ],
+      "r2_cv": -1.0791674777218732,
+      "rmse_cv": 0.052098350812865804
+    },
+    "differential": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.04106363278484378,
+        0.0820214940083468,
+        0.03800628254240329,
+        0.04932794033037077
+      ],
+      "delta_A": [
+        0.0,
+        0.04095786122350301,
+        -0.0030573502424404916,
+        0.00826430754552699
+      ],
+      "reference_absorbance": 0.04106363278484378,
+      "slope": -0.0006492286053122613,
+      "slope_unit": "AU/ppm",
+      "intercept": 0.01462504050688062,
+      "r2": 0.015430385873632217,
+      "spearman_r": 0.0,
+      "rmse": 0.017345986009556964,
+      "lod_ppm": 80.15352004343994,
+      "loq_ppm": 267.17840014479975,
+      "method": "differential",
+      "roi_range": [
+        595.0,
+        625.0
+      ]
+    }
+  },
+  "best_method_wavelength_shift": "centroid",
+  "best_method_absorbance": "window_avg",
+  "loocv_validation": {
+    "wavelength_shift": {
+      "r2_cv": 0.9735069303894721,
+      "rmse_cv": 0.14698379677513887,
+      "predictions": [
+        -0.004024989248997135,
+        0.5019776063754782,
+        1.1112148018448058,
+        2.22021780882784
+      ],
+      "residuals": [
+        0.004024989248997135,
+        0.10910327646979368,
+        -0.14328319486268604,
+        0.2323083008693061
+      ],
+      "n_folds": 4
+    },
+    "absorbance": {
+      "r2_cv": -1.0791674777218732,
+      "rmse_cv": 0.052098350812865804,
+      "predictions": [
+        -0.04783991079484585,
+        0.004190720311683809,
+        0.02410120742812996,
+        -0.009816461561488778
+      ],
+      "residuals": [
+        0.04783991079484585,
+        -0.018518464308445934,
+        -0.026520669938162635,
+        0.0867295573060925
+      ],
+      "n_folds": 4
+    }
+  },
+  "roi_scan": {
+    "best_roi": [
+      595.0,
+      625.0
+    ],
+    "best_center": 610.0,
+    "best_width": 30,
+    "best_method": "centroid",
+    "best_r2": 0.9944792461322035,
+    "best_spearman": 1.0,
+    "best_slope": 0.2692369482162307,
+    "best_lod": 0.7476341135886859,
+    "best_score": 1.095583396905763,
+    "calibration": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        607.4220222406583,
+        608.0331031235036,
+        608.3899538476404,
+        609.8745483503554
+      ],
+      "delta_lambda": [
+        0.0,
+        0.6110808828452718,
+        0.9679316069821198,
+        2.4525261096971462
+      ],
+      "reference_wavelength": 607.4220222406583,
+      "slope": 0.2692369482162307,
+      "slope_unit": "nm/ppm",
+      "intercept": -0.27099085414596136,
+      "r2": 0.9944792461322035,
+      "r_value": 0.9972358026726695,
+      "p_value": 0.0027641973273304647,
+      "std_err": 0.014184727333193667,
+      "rmse": 0.06709690904165484,
+      "spearman_r": 1.0,
+      "spearman_p": 0.0,
+      "noise_std": 0.06709690904165484,
+      "lod_ppm": 0.7476341135886859,
+      "loq_ppm": 2.492113711962286,
+      "slope_ci_95": [
+        0.23620494359306576,
+        0.275715532586085
+      ],
+      "n_points": 4,
+      "method": "centroid",
+      "roi_range": [
+        595.0,
+        625.0
+      ]
+    },
+    "n_candidates": 495,
+    "top_10_candidates": [
+      {
+        "roi_center": 585.0,
+        "roi_width": 10,
+        "roi_range": [
+          580.0,
+          590.0
+        ],
+        "method": "centroid",
+        "r2": 0.9997806097381011,
+        "spearman_r": 1.0,
+        "slope": 0.05473425966735002,
+        "lod_ppm": 0.14864287523429592,
+        "score": 1.099824487790481
+      },
+      {
+        "roi_center": 565.0,
+        "roi_width": 10,
+        "roi_range": [
+          560.0,
+          570.0
+        ],
+        "method": "centroid",
+        "r2": 0.9976995172600758,
+        "spearman_r": -1.0,
+        "slope": -0.10725066493850334,
+        "lod_ppm": 0.4818339392617485,
+        "score": 1.0981596138080607
+      },
+      {
+        "roi_center": 610.0,
+        "roi_width": 30,
+        "roi_range": [
+          595.0,
+          625.0
+        ],
+        "method": "centroid",
+        "r2": 0.9944792461322035,
+        "spearman_r": 1.0,
+        "slope": 0.2692369482162307,
+        "lod_ppm": 0.7476341135886859,
+        "score": 1.095583396905763
+      },
+      {
+        "roi_center": 890.0,
+        "roi_width": 10,
+        "roi_range": [
+          885.0,
+          895.0
+        ],
+        "method": "centroid",
+        "r2": 0.9889267962398977,
+        "spearman_r": -1.0,
+        "slope": -0.15422466820362263,
+        "lod_ppm": 1.0617990983993708,
+        "score": 1.0911414369919181
+      },
+      {
+        "roi_center": 820.0,
+        "roi_width": 20,
+        "roi_range": [
+          810.0,
+          830.0
+        ],
+        "method": "derivative",
+        "r2": 0.9887454723714267,
+        "spearman_r": 1.0,
+        "slope": 0.4129589240782112,
+        "lod_ppm": 1.0705554353907878,
+        "score": 1.0909963778971414
+      },
+      {
+        "roi_center": 585.0,
+        "roi_width": 30,
+        "roi_range": [
+          570.0,
+          600.0
+        ],
+        "method": "derivative",
+        "r2": 0.9825995636119961,
+        "spearman_r": 1.0,
+        "slope": 0.5437568506703913,
+        "lod_ppm": 1.3353022029658181,
+        "score": 1.086079650889597
+      },
+      {
+        "roi_center": 690.0,
+        "roi_width": 10,
+        "roi_range": [
+          685.0,
+          695.0
+        ],
+        "method": "derivative",
+        "r2": 0.9782965170631881,
+        "spearman_r": -1.0,
+        "slope": -0.34423792463686764,
+        "lod_ppm": 1.4945733786555078,
+        "score": 1.0826372136505504
+      },
+      {
+        "roi_center": 810.0,
+        "roi_width": 10,
+        "roi_range": [
+          805.0,
+          815.0
+        ],
+        "method": "minimum",
+        "r2": 0.9741759288948958,
+        "spearman_r": -1.0,
+        "slope": -0.6263872922905012,
+        "lod_ppm": 1.6337343341102848,
+        "score": 1.0793407431159168
+      },
+      {
+        "roi_center": 602.5,
+        "roi_width": 25,
+        "roi_range": [
+          590.0,
+          615.0
+        ],
+        "method": "derivative",
+        "r2": 0.9734776103410735,
+        "spearman_r": -1.0,
+        "slope": -0.34014762055865594,
+        "lod_ppm": 1.6562699439219624,
+        "score": 1.078782088272859
+      },
+      {
+        "roi_center": 747.5,
+        "roi_width": 15,
+        "roi_range": [
+          740.0,
+          755.0
+        ],
+        "method": "derivative",
+        "r2": 0.9722486688670827,
+        "spearman_r": 1.0,
+        "slope": 0.2767430544134036,
+        "lod_ppm": 1.6952783275764642,
+        "score": 1.0777989350936663
+      }
+    ]
+  },
+  "processing": {
+    "1.0": {
+      "n_trials": 3,
+      "trials": {
+        "T1": {
+          "n_total_frames": 571,
+          "n_selected": 10,
+          "baseline_response": 0.04081646824350564,
+          "max_response": 0.12459455659072283,
+          "selected_mean_response": 0.11807245464906702,
+          "response_enhancement": 2.8927650882331584
+        },
+        "T2": {
+          "n_total_frames": 681,
+          "n_selected": 10,
+          "baseline_response": 0.051457864143796696,
+          "max_response": 0.0797109532229967,
+          "selected_mean_response": 0.07878534331381053,
+          "response_enhancement": 1.53106516315061
+        },
+        "T3": {
+          "n_total_frames": 569,
+          "n_selected": 10,
+          "baseline_response": 0.11052427563519818,
+          "max_response": 0.15835613482126631,
+          "selected_mean_response": 0.1568738546567258,
+          "response_enhancement": 1.4193610735127113
+        }
+      }
+    },
+    "3.0": {
+      "n_trials": 3,
+      "trials": {
+        "T1": {
+          "n_total_frames": 689,
+          "n_selected": 10,
+          "baseline_response": 0.14380895258128537,
+          "max_response": 0.21276556448293027,
+          "selected_mean_response": 0.21134895134691395,
+          "response_enhancement": 1.4696508625253197
+        },
+        "T2": {
+          "n_total_frames": 695,
+          "n_selected": 10,
+          "baseline_response": 0.1996219867478585,
+          "max_response": 0.21241540835310735,
+          "selected_mean_response": 0.21168269779876522,
+          "response_enhancement": 1.0604177482718813
+        },
+        "T3": {
+          "n_total_frames": 684,
+          "n_selected": 10,
+          "baseline_response": 0.1600047396832161,
+          "max_response": 0.22797419618740133,
+          "selected_mean_response": 0.22623838889710463,
+          "response_enhancement": 1.4139480443118484
+        }
+      }
+    },
+    "5.0": {
+      "n_trials": 3,
+      "trials": {
+        "t1": {
+          "n_total_frames": 687,
+          "n_selected": 10,
+          "baseline_response": 0.2292681828054755,
+          "max_response": 0.23940779469028373,
+          "selected_mean_response": 0.23875336864325405,
+          "response_enhancement": 1.0413715746231091
+        },
+        "t2": {
+          "n_total_frames": 573,
+          "n_selected": 10,
+          "baseline_response": 0.18115495332116094,
+          "max_response": 0.1835282120004298,
+          "selected_mean_response": 0.18125549920133885,
+          "response_enhancement": 1.0005550263919316
+        },
+        "t3": {
+          "n_total_frames": 574,
+          "n_selected": 10,
+          "baseline_response": 0.1128442756183162,
+          "max_response": 0.11831093936881187,
+          "selected_mean_response": 0.11595732519263571,
+          "response_enhancement": 1.0275871279646507
+        }
+      }
+    },
+    "10.0": {
+      "n_trials": 3,
+      "trials": {
+        "t1": {
+          "n_total_frames": 624,
+          "n_selected": 10,
+          "baseline_response": 0.09898523865381606,
+          "max_response": 0.10344073685444055,
+          "selected_mean_response": 0.10254848501916372,
+          "response_enhancement": 1.0359977539096485
+        },
+        "t2": {
+          "n_total_frames": 691,
+          "n_selected": 10,
+          "baseline_response": 0.10639913155223132,
+          "max_response": 0.1484741336876101,
+          "selected_mean_response": 0.14633500313929684,
+          "response_enhancement": 1.3753402012489828
+        },
+        "t3": {
+          "n_total_frames": 611,
+          "n_selected": 10,
+          "baseline_response": 0.07708109680957828,
+          "max_response": 0.07875874890936163,
+          "selected_mean_response": 0.07736314946156733,
+          "response_enhancement": 1.0036591662975414
+        }
+      }
+    }
+  },
+  "benchmark_comparison": {
+    "paper_sensitivity": 0.116,
+    "paper_lod": 3.26,
+    "paper_roi": [
+      675,
+      689
+    ],
+    "achieved_sensitivity": 0.2692369482162307,
+    "achieved_lod": 0.7476341135886859,
+    "achieved_r2": 0.9944792461322035,
+    "achieved_spearman": 1.0
+  },
+  "provenance": {
+    "generated_at": "2026-02-10T16:25:19.101572",
+    "git_commit": "aff19078a8547cefd4a16b4d02bb8d0f72f1e367",
+    "config_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\config\\config.yaml",
+    "config_sha256": "eabbcbef3616648cbea17ab082a8619829f64cd1d004eaaf505d7b87facfedb4",
+    "data_dir": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Acetone",
+    "reference_file": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Acetone\\air1.csv",
+    "roi_range_nm": [
+      595.0,
+      625.0
+    ],
+    "selected_methods": {
+      "wavelength_shift": "centroid",
+      "absorbance": "window_avg"
+    },
+    "environment": {
+      "platform": "Windows-10-10.0.26200-SP0",
+      "versions": {
+        "python": "3.10.11",
+        "numpy": "2.2.6",
+        "pandas": "2.3.3",
+        "scipy": "1.15.3",
+        "sklearn": "1.7.2",
+        "matplotlib": "3.10.8"
+      }
+    },
+    "script": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\run_scientific_pipeline.py",
+    "gas": "Acetone"
+  }
+}

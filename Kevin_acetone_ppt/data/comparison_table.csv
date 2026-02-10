@@ -1,0 +1,7 @@
+gas,sensitivity_improvement_pct,lod_reduction_pct,r2_delta
+Acetone,192.91,37.60,0.1920
+Ethanol,-48.19,-138.18,-0.3803
+Methanol,77.48,-39.20,-0.1331
+Isopropanol,-42.98,-65.56,-0.2449
+Toluene,-57.43,-9.20,-0.0420
+Xylene,-90.00,-405.83,-0.1543

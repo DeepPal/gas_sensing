@@ -1,0 +1,107 @@
+{
+  "analysis_timestamp": "2025-12-08T16:45:19.623410",
+  "gas": "Acetone",
+  "roi_range_nm": [
+    580.0,
+    590.0
+  ],
+  "standard_analysis": {
+    "sensitivity_nm_per_ppm": 0.05429341290498122,
+    "r_squared": 0.9997014619971945,
+    "lod_ppm": 0.173401331034597,
+    "spearman_r": 1.0,
+    "source": "scientific_pipeline"
+  },
+  "feature_engineered_analysis": {
+    "method": "feature_engineered",
+    "concentrations_ppm": [
+      1.0,
+      3.0,
+      5.0,
+      10.0
+    ],
+    "wavelength_shifts_nm": [
+      0.0,
+      0.13318402575885102,
+      0.23490303548817337,
+      0.5075876230583845
+    ],
+    "calibration": {
+      "slope": 0.05565337954973346,
+      "intercept": -0.04543488178488175,
+      "r_squared": 0.9981494967711994,
+      "r_value": 0.9990743199438165,
+      "p_value": 0.0009256800561835425,
+      "std_error": 0.00169443015464936,
+      "se_estimate": 0.011334965210227574,
+      "slope_ci_95": [
+        0.048362835019551936,
+        0.06294392407991499
+      ],
+      "spearman_r": 1.0,
+      "spearman_p": 0.0,
+      "n_points": 4,
+      "residuals": [
+        -0.01021849776485171,
+        0.011658768894532379,
+        0.0020710195243878182,
+        -0.003511290654068411
+      ],
+      "predictions": [
+        0.01021849776485171,
+        0.12152525686431864,
+        0.23283201596378555,
+        0.5110989137124529
+      ],
+      "sensitivity_nm_per_ppm": 0.05565337954973346
+    },
+    "sensitivity_nm_per_ppm": 0.05565337954973346,
+    "r_squared": 0.9981494967711994,
+    "spearman_r": 1.0,
+    "lod_ppm": 3.600906057459844,
+    "loq_ppm": 10.911836537757102,
+    "feature_stats": {
+      "original_range": [
+        -0.3010299956639812,
+        6.0
+      ],
+      "convolved_range": [
+        -13.771338010749112,
+        35.8444115957494
+      ],
+      "dynamic_range_reduction": 0.12699656954948016
+    },
+    "dynamic_range_reduction": 0.12699656954948016
+  },
+  "comparison": {
+    "standard_method": {
+      "sensitivity_nm_per_ppm": 0.05429341290498122,
+      "r_squared": 0.9997014619971945,
+      "lod_ppm": 0.173401331034597
+    },
+    "feature_engineered_method": {
+      "sensitivity_nm_per_ppm": 0.05565337954973346,
+      "r_squared": 0.9981494967711994,
+      "lod_ppm": 3.600906057459844,
+      "dynamic_range_reduction": 0.12699656954948016
+    },
+    "improvement": {
+      "r_squared_delta": -0.0015519652259951,
+      "sensitivity_percent": 2.5048464804146127,
+      "lod_percent": -1976.6311504060834
+    },
+    "publication_metrics": {
+      "target_sensitivity": 0.156,
+      "target_lod": 0.76,
+      "target_r_squared": 0.98,
+      "baseline_sensitivity": 0.116,
+      "baseline_lod": 3.26
+    }
+  },
+  "publication_target": {
+    "journal": "Sensors & Actuators: B. Chemical",
+    "target_sensitivity": "0.156 nm/ppm",
+    "target_lod": "<1 ppm",
+    "target_improvement": "77% LoD reduction"
+  }
+}

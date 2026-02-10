@@ -48,22 +48,23 @@ def load_spectral_data(file_path: Union[str, Path],
         logger.error(f"Error loading data from {file_path}: {str(e)}")
         raise
 
-def load_experiment_directory(base_dir: Union[str, Path], 
-                            concentration: str, 
-                            run: int) -> Dict[str, pd.DataFrame]:
+def _format_experiment_dir(concentration: str, run: Union[int, str], template: Optional[str] = None) -> str:
+    """Format the experiment directory name using configured template.
+
+    The template can reference {concentration} and {run} tokens.
     """
-    Load all data files from a specific experiment run.
-    
-    Args:
-        base_dir: Base directory containing the 'Mixed gas' folder
-        concentration: Concentration level (e.g., '0.5 ppm')
-        run: Run number (1-5)
-        
-    Returns:
-        Dict[str, pd.DataFrame]: Dictionary mapping timestamps to dataframes
-    """
+    tpl = template or config['data'].get('exp_dir_template', '{concentration}-{run}')
+    return tpl.format(concentration=concentration, run=run)
+
+
+def load_experiment_directory(base_dir: Union[str, Path],
+                              concentration: str,
+                              run: int,
+                              template: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+    """Load all data files from a specific experiment run using template naming."""
     base_dir = Path(base_dir)
-    exp_dir = base_dir / f"{concentration} EtOH IPA MeOH-{run}"
+    exp_dir_name = _format_experiment_dir(concentration, run, template)
+    exp_dir = base_dir / exp_dir_name
     
     if not exp_dir.exists():
         raise FileNotFoundError(f"Directory not found: {exp_dir}")
@@ -156,8 +157,25 @@ def preprocess_spectra(data: pd.DataFrame,
     
     # Baseline correction
     if baseline_correction and reference is not None:
-        processed['intensity'] = processed['intensity'] - reference['intensity']
-    
+        if not {'wavelength', 'intensity'}.issubset(reference.columns):
+            raise ValueError("Reference data must contain 'wavelength' and 'intensity' columns")
+
+        ref_df = reference[['wavelength', 'intensity']].dropna()
+        if ref_df.empty:
+            raise ValueError("Reference spectrum is empty")
+
+        ref_df = ref_df.sort_values('wavelength', kind='mergesort')
+        ref_wl = ref_df['wavelength'].to_numpy(dtype=float)
+        ref_int = ref_df['intensity'].to_numpy(dtype=float)
+
+        wl = processed['wavelength'].to_numpy(dtype=float)
+        if ref_wl.size == 1:
+            ref_interp = np.full_like(wl, ref_int[0], dtype=float)
+        else:
+            ref_interp = np.interp(wl, ref_wl, ref_int, left=ref_int[0], right=ref_int[-1])
+
+        processed['intensity'] = processed['intensity'] - ref_interp
+
     # Normalization
     if normalize:
         min_val = processed['intensity'].min()

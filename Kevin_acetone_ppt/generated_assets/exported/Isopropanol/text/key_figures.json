@@ -1,0 +1,23 @@
+{
+  "gas": "Isopropanol",
+  "timestamp": "2026-02-10T16:34:39.378751",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    580.0,
+    590.0
+  ],
+  "sensitivity_nm_per_ppm": 0.05523494050840571,
+  "r_squared": 0.8131768040739288,
+  "spearman_r": 1.0,
+  "lod_ppm": 4.809619132561623,
+  "loq_ppm": 16.03206377520541,
+  "noise_std": 0.0885530088850437,
+  "loocv_r2": -0.8240319047165177,
+  "loocv_rmse": 0.2766968015806512,
+  "confidence_interval_nm_per_ppm": [
+    0.032869484373352256,
+    0.11241161757530707
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 0.6778083482597322
+}

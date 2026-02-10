@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import math
 import yaml
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union, Set
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.linear_model import TheilSenRegressor, RANSACRegressor, LinearRegression
 import scipy as sp
 import sklearn as sk
 
@@ -43,6 +45,60 @@ from ..advanced.mcr_als import (
     fit_mcrals_from_canonical,
     save_mcrals_outputs,
 )
+
+
+def _pelt_changepoint_detection(signal: np.ndarray, penalty: float = 3.0, min_size: int = 5) -> List[int]:
+    """
+    PELT (Pruned Exact Linear Time) change-point detection.
+    Returns list of change-point indices where signal statistics change.
+    """
+    signal = np.asarray(signal, dtype=float)
+    signal = np.nan_to_num(signal, nan=0.0)
+    n = len(signal)
+    if n < 2 * min_size:
+        return []
+    
+    # Cost function: sum of squared residuals from mean
+    def cost(start: int, end: int) -> float:
+        if end <= start:
+            return 0.0
+        segment = signal[start:end]
+        if len(segment) == 0:
+            return 0.0
+        mean_val = float(np.mean(segment))
+        return float(np.sum((segment - mean_val) ** 2))
+    
+    # PELT algorithm
+    F = np.full(n + 1, np.inf)
+    F[0] = -penalty
+    R = [0]
+    cp = {}
+    
+    for t in range(min_size, n + 1):
+        candidates = []
+        for s in R:
+            if t - s >= min_size:
+                val = F[s] + cost(s, t) + penalty
+                candidates.append((val, s))
+        
+        if candidates:
+            best_val, best_s = min(candidates)
+            F[t] = best_val
+            cp[t] = best_s
+            # Prune: keep only indices s where F[s] + cost(s,t) <= F[t]
+            R = [s for s in R if F[s] + cost(s, t) <= F[t]]
+            R.append(t)
+    
+    # Backtrack to get change-points
+    changepoints = []
+    t = n
+    while t > 0 and t in cp:
+        s = cp[t]
+        if s > 0:
+            changepoints.append(s)
+        t = s
+    
+    return sorted(set(changepoints))
 
 
 def _timestamp() -> str:
@@ -123,17 +179,27 @@ def _build_feature_matrix_from_canonical(canonical: Dict[float, pd.DataFrame]) -
     return X, concs, base_wl
 
 
-def _fit_plsr_calibration(canonical: Dict[float, pd.DataFrame], cfg: Dict[str, object]) -> Optional[Dict[str, object]]:
+def _fit_plsr_calibration(canonical: Dict[float, pd.DataFrame],
+                          cfg: Dict[str, object],
+                          matrix_cache: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None) -> Optional[Dict[str, object]]:
     """Fit PLSR to predict concentration from full spectrum, with simple CV model selection."""
     try:
-        X, y, wl = _build_feature_matrix_from_canonical(canonical)
+        if matrix_cache is None:
+            X, y, wl = _build_feature_matrix_from_canonical(canonical)
+        else:
+            X, y, wl = matrix_cache
     except ValueError:
         return None
 
     # Optional absorbance transform (useful if input is transmittance)
     if bool(cfg.get('absorbance', False)):
-        with np.errstate(divide='ignore', invalid='ignore'):
-            X = -np.log10(np.clip(X, 1e-6, None))
+        # Only convert to absorbance if inputs look like transmittance (bounded in 0-1 range)
+        # to avoid double -log10 when the canonical spectra are already absorbance.
+        x_max = np.nanmax(X)
+        x_min = np.nanmin(X)
+        if np.isfinite(x_max) and np.isfinite(x_min) and x_min >= 0.0 and x_max <= 1.2:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                X = -np.log10(np.clip(X, 1e-6, None))
 
     # Optional wavelength limits
     wl_min = cfg.get('wl_min', None)
@@ -247,7 +313,7 @@ def _fit_plsr_calibration(canonical: Dict[float, pd.DataFrame], cfg: Dict[str, o
                 # Update wavelength list to selected subset for export
                 wl = wl[selected_mask]
 
-    return {
+    result: Dict[str, object] = {
         'model': 'plsr',
         'n_components': int(best_n),
         'wavelengths': wl.tolist(),
@@ -264,6 +330,74 @@ def _fit_plsr_calibration(canonical: Dict[float, pd.DataFrame], cfg: Dict[str, o
         'n_components_candidates': list(range(1, max_components + 1)),
         'coef_': pls_final.coef_.ravel().tolist(),
     }
+
+    # Bootstrap uncertainty on predictions (and derived metrics) if requested.
+    bootstrap_cfg = cfg.get('bootstrap') if isinstance(cfg, dict) else None
+    if not bootstrap_cfg:
+        bootstrap_cfg = (CONFIG.get('calibration', {}) if isinstance(CONFIG, dict) else {}).get('bootstrap', {})
+
+    bootstrap_summary: Optional[Dict[str, object]] = None
+    if bootstrap_cfg and bootstrap_cfg.get('enabled', False) and n_samples >= 3:
+        rng = np.random.default_rng(bootstrap_cfg.get('random_seed', None))
+        iterations = int(max(1, bootstrap_cfg.get('iterations', 500)))
+        sample_fraction = float(np.clip(bootstrap_cfg.get('sample_fraction', 0.8), 0.1, 1.0))
+        min_unique = int(max(2, bootstrap_cfg.get('min_unique', 2)))
+
+        pred_samples: List[np.ndarray] = []
+        r2_samples: List[float] = []
+        rmse_samples: List[float] = []
+
+        draw_size = max(min_unique, int(round(sample_fraction * n_samples)))
+        for _ in range(iterations):
+            idx = rng.integers(0, n_samples, size=draw_size)
+            if np.unique(idx).size < min_unique:
+                continue
+            try:
+                pls_bs = PLSRegression(n_components=min(best_n, draw_size - 1), scale=bool(cfg.get('scale', True)))
+                pls_bs.fit(X[idx], y[idx])
+                preds_bs = pls_bs.predict(X).ravel()
+            except Exception:
+                continue
+            pred_samples.append(preds_bs)
+            try:
+                r2_samples.append(float(r2_score(y, preds_bs)))
+            except Exception:
+                r2_samples.append(float('nan'))
+            rmse_samples.append(float(np.sqrt(mean_squared_error(y, preds_bs))))
+
+        if pred_samples:
+            preds_arr = np.vstack(pred_samples)
+            pred_lo = np.percentile(preds_arr, 2.5, axis=0)
+            pred_hi = np.percentile(preds_arr, 97.5, axis=0)
+            pred_med = np.median(preds_arr, axis=0)
+
+            def _finite_stats(values: List[float]) -> Dict[str, float]:
+                arr = np.array(values, dtype=float)
+                arr = arr[np.isfinite(arr)]
+                if arr.size == 0:
+                    return {'mean': float('nan'), 'std': float('nan'), 'ci_low': float('nan'), 'ci_high': float('nan')}
+                return {
+                    'mean': float(np.mean(arr)),
+                    'std': float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0,
+                    'ci_low': float(np.percentile(arr, 2.5)),
+                    'ci_high': float(np.percentile(arr, 97.5)),
+                }
+
+            bootstrap_summary = {
+                'iterations': len(pred_samples),
+                'r2': _finite_stats(r2_samples),
+                'rmse': _finite_stats(rmse_samples),
+                'predictions': {
+                    'ci_low': pred_lo.tolist(),
+                    'ci_high': pred_hi.tolist(),
+                    'median': pred_med.tolist(),
+                    'concentrations': y.tolist(),
+                },
+            }
+
+    result['bootstrap'] = bootstrap_summary
+
+    return result
 
 
 def _preprocess_dataframe(df: pd.DataFrame, *, stage: str) -> pd.DataFrame:
@@ -568,8 +702,6 @@ def generate_trend_plots(out_root: str) -> Dict[str, str]:
 
     return {'roi_performance': str(trend_path)}
 
-
-# ----------------------
 # IO and utilities
 # ----------------------
 
@@ -588,6 +720,1378 @@ def _read_csv_spectrum(path: str) -> pd.DataFrame:
         return df.sort_values('wavelength').reset_index(drop=True)
     except Exception as e:
         raise RuntimeError(f"Failed to read spectrum {path}: {e}")
+
+
+def _sort_frame_paths(paths: Sequence[str]) -> List[str]:
+    def _key(p: str) -> Tuple[int, float, float]:
+        name = os.path.basename(p)
+
+        # Prefer explicit timestamp in names like: t1_20241029_11h25m41s826ms
+        # trial = t1, date = 20241029, time = 11:25:41.826
+        ts_match = re.search(
+            r"t(?P<trial>\d+)[^0-9]*(?P<date>\d{8})_(?P<hour>\d{1,2})h(?P<minute>\d{1,2})m(?P<second>\d{1,2})s(?P<msec>\d{1,3})ms",
+            name,
+        )
+        if ts_match:
+            try:
+                date_str = ts_match.group('date')  # YYYYMMDD
+                hour = int(ts_match.group('hour'))
+                minute = int(ts_match.group('minute'))
+                second = int(ts_match.group('second'))
+                msec = int(ts_match.group('msec'))
+
+                date_int = int(date_str)
+                time_key = ((hour * 3600 + minute * 60 + second) * 1000.0) + float(msec)
+                mtime = os.path.getmtime(p)
+                return date_int, time_key, mtime
+            except Exception:
+                # Fall back to generic numeric+mtime ordering
+                pass
+
+        # Fallback: original behavior based on last numeric token and modification time
+        digits = re.findall(r'(\d+)', name)
+        if digits:
+            try:
+                idx = int(digits[-1])
+            except ValueError:
+                idx = math.inf
+        else:
+            idx = math.inf
+        mtime = os.path.getmtime(p)
+        return int(idx if math.isfinite(idx) else math.inf), float(idx if math.isfinite(idx) else math.inf), mtime
+
+    return sorted(paths, key=_key)
+
+
+def _ensure_response_signal(df: pd.DataFrame, ref_df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    updated = df
+    has_trans = 'transmittance' in df.columns
+    if not has_trans and ref_df is not None and 'intensity' in df.columns:
+        updated = compute_transmittance(df, ref_df)
+    if 'absorbance' not in updated.columns:
+        updated = _append_absorbance_column(updated)
+    return updated
+
+
+def _smooth_vector(values: np.ndarray, window: int) -> np.ndarray:
+    window = int(max(1, window))
+    if window <= 1 or values.size == 0:
+        return values.astype(float)
+    kernel = np.ones(window, dtype=float) / float(window)
+    return np.convolve(values.astype(float), kernel, mode='same')
+
+
+def _detect_segments_above_threshold(values: np.ndarray,
+                                     high_threshold: float,
+                                     low_threshold: float,
+                                     min_length: int,
+                                     pad: int) -> List[Tuple[int, int]]:
+    segments: List[Tuple[int, int]] = []
+    if values.size == 0:
+        return segments
+
+    min_length = max(1, int(min_length))
+    pad = max(0, int(pad))
+    current_start: Optional[int] = None
+    below_counter = 0
+
+    for idx, val in enumerate(values):
+        if current_start is None:
+            if np.isfinite(val) and val >= high_threshold:
+                current_start = idx
+                below_counter = 0
+        else:
+            if np.isfinite(val) and val >= low_threshold:
+                below_counter = 0
+            else:
+                below_counter += 1
+                if below_counter > 0:
+                    end_idx = idx - below_counter
+                    if end_idx < current_start:
+                        end_idx = idx - 1
+                    segment_length = (end_idx - current_start) + 1
+                    if segment_length >= min_length:
+                        seg_start = max(0, current_start - pad)
+                        seg_end = min(values.size - 1, end_idx + pad)
+                        segments.append((seg_start, seg_end))
+                    current_start = None
+                    below_counter = 0
+
+    if current_start is not None:
+        seg_end = values.size - 1
+        segment_length = (seg_end - current_start) + 1
+        if segment_length >= min_length:
+            segments.append((max(0, current_start - pad), seg_end))
+
+    # Merge overlapping or adjacent segments
+    if not segments:
+        return segments
+    segments.sort()
+    merged: List[Tuple[int, int]] = [segments[0]]
+    for start, end in segments[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end + 1:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _compute_response_time_series(frames: Sequence[pd.DataFrame],
+                                  ref_df: Optional[pd.DataFrame],
+                                  *,
+                                  dataset_label: Optional[str],
+                                  response_cfg: Dict[str, object]) -> Tuple[pd.DataFrame, List[int], List[int]]:
+    if not frames:
+        return None, [], []
+
+    processed = [_ensure_response_signal(df, ref_df) for df in frames]
+    absorb_col = 'absorbance' if 'absorbance' in processed[0].columns else _signal_column(processed[0])
+
+    base_wl = processed[0]['wavelength'].to_numpy()
+    min_wl_roi, max_wl_roi = _resolve_roi_bounds(dataset_label)
+    if min_wl_roi is None:
+        min_wl_roi = float(base_wl.min())
+    if max_wl_roi is None:
+        max_wl_roi = float(base_wl.max())
+    roi_mask = (base_wl >= min_wl_roi) & (base_wl <= max_wl_roi)
+    if not np.any(roi_mask):
+        roi_mask = np.ones_like(base_wl, dtype=bool)
+    roi_wavelengths = base_wl[roi_mask]
+
+    absorb_matrix = []
+    mean_absorb = []
+    roi_matrix = []
+    for df in processed:
+        wl = df['wavelength'].to_numpy()
+        signal = df[absorb_col].to_numpy(dtype=float)
+        if not np.array_equal(wl, base_wl):
+            signal = np.interp(base_wl, wl, signal)
+        absorb_matrix.append(signal)
+        mean_absorb.append(float(np.nanmean(signal)))
+        roi_matrix.append(signal[roi_mask])
+    absorb_matrix = np.vstack(absorb_matrix)
+    mean_absorb = np.array(mean_absorb, dtype=float)
+    roi_matrix = np.vstack(roi_matrix)
+
+    smooth_window = int(response_cfg.get('smooth_window', 5) or 5)
+    if smooth_window > 1:
+        window = _ensure_odd_window(smooth_window)
+        absorb_matrix = savgol_filter(absorb_matrix, window_length=min(window, max(3, absorb_matrix.shape[1] - (absorb_matrix.shape[1] + 1) % 2)), polyorder=2, axis=1, mode='nearest')
+        roi_matrix = savgol_filter(roi_matrix, window_length=min(window, max(3, roi_matrix.shape[1] - (roi_matrix.shape[1] + 1) % 2)), polyorder=2, axis=1, mode='nearest')
+
+    baseline_target = int(response_cfg.get('baseline_frames', 12) or 12)
+    baseline_target = max(1, min(baseline_target, absorb_matrix.shape[0]))
+    baseline_indices = list(range(min(baseline_target, len(frames))))
+    baseline_indices = [idx for idx in baseline_indices if 0 <= idx < len(frames)]
+    if not baseline_indices:
+        baseline_indices = [0]
+
+    def _compute_baseline_outputs(indices: List[int]) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        float,
+        float,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        float,
+        np.ndarray,
+        np.ndarray,
+        float,
+    ]:
+        valid = [idx for idx in indices if 0 <= idx < len(frames)]
+        if not valid:
+            valid = [0]
+        base_matrix = absorb_matrix[valid]
+        base_roi_matrix = roi_matrix[valid]
+        baseline_ref = np.nanmean(base_matrix, axis=0)
+        roi_baseline_ref = np.nanmean(base_roi_matrix, axis=0)
+        baseline_mean_val = float(np.nanmean(mean_absorb[valid]))
+        baseline_std_val = float(np.nanstd(mean_absorb[valid], ddof=1)) if len(valid) > 1 else 0.0
+        baseline_std_val = float(np.nan_to_num(baseline_std_val, nan=0.0))
+        centered = absorb_matrix - baseline_ref
+        delta_mean_local = mean_absorb - baseline_mean_val
+        roi_delta_local = roi_matrix - roi_baseline_ref
+        # Determine whether the ROI extremum is a valley (default) or peak based on baseline reference
+        extremum_mode = 'valley'
+        if np.any(np.isfinite(roi_baseline_ref)):
+            roi_finite = roi_baseline_ref[np.isfinite(roi_baseline_ref)]
+            if roi_finite.size:
+                median_val = float(np.nanmedian(roi_finite))
+                min_val = float(np.nanmin(roi_finite))
+                max_val = float(np.nanmax(roi_finite))
+                if (max_val - median_val) > (median_val - min_val):
+                    extremum_mode = 'peak'
+        if roi_wavelengths.size:
+            if extremum_mode == 'valley':
+                baseline_peak_idx = int(np.nanargmin(np.where(np.isfinite(roi_baseline_ref), roi_baseline_ref, np.inf)))
+            else:
+                baseline_peak_idx = int(np.nanargmax(np.where(np.isfinite(roi_baseline_ref), roi_baseline_ref, -np.inf)))
+        else:
+            baseline_peak_idx = 0
+        baseline_peak_idx = int(np.clip(baseline_peak_idx, 0, max(0, roi_wavelengths.size - 1)))
+
+        wl_step = float(np.nanmedian(np.diff(roi_wavelengths))) if roi_wavelengths.size > 1 else 0.2
+        wl_step = wl_step if np.isfinite(wl_step) and wl_step > 0 else 0.2
+        search_radius = int(max(2, math.ceil(1.5 / wl_step)))
+
+        peak_idx = np.full(len(frames), baseline_peak_idx, dtype=int)
+        
+        for frame_idx, row in enumerate(roi_matrix):
+            if not np.any(np.isfinite(row)):
+                continue
+            start = max(0, baseline_peak_idx - search_radius)
+            end = min(row.size, baseline_peak_idx + search_radius + 1)
+            window = row[start:end].astype(float)
+            if window.size == 0:
+                continue
+            if extremum_mode == 'valley':
+                window[~np.isfinite(window)] = np.inf
+                local_idx = int(np.argmin(window))
+            else:
+                window[~np.isfinite(window)] = -np.inf
+                local_idx = int(np.argmax(window))
+            peak_idx[frame_idx] = start + local_idx
+        
+        peak_idx = np.clip(peak_idx, 0, max(0, roi_wavelengths.size - 1))
+        
+        # Simple grid-based peak wavelengths (sub-pixel interpolation disabled for performance)
+        peak_wls = roi_wavelengths[peak_idx] if roi_wavelengths.size else np.full(len(frames), float('nan'))
+        baseline_peak_val = float(peak_wls[valid].mean()) if len(valid) > 0 and np.any(np.isfinite(peak_wls[valid])) else (float(roi_wavelengths[baseline_peak_idx]) if roi_wavelengths.size else float('nan'))
+        delta_lambda_local = peak_wls - baseline_peak_val
+        abs_delta_lambda_local = np.abs(delta_lambda_local)
+        baseline_delta_local = delta_lambda_local[valid]
+        lambda_sigma_local = float(np.nanstd(baseline_delta_local, ddof=1)) if baseline_delta_local.size > 1 else 0.0
+        lambda_sigma_local = float(np.nan_to_num(lambda_sigma_local, nan=0.0))
+        return (
+            baseline_ref,
+            roi_baseline_ref,
+            baseline_mean_val,
+            baseline_std_val,
+            centered,
+            delta_mean_local,
+            roi_delta_local,
+            peak_wls,
+            baseline_peak_val,
+            delta_lambda_local,
+            abs_delta_lambda_local,
+            lambda_sigma_local,
+        )
+
+    (
+        baseline_reference,
+        roi_baseline_reference,
+        baseline_mean_abs,
+        baseline_std_abs,
+        centered_matrix,
+        delta_mean,
+        roi_delta_matrix,
+        peak_wavelengths,
+        baseline_peak_nm,
+        delta_lambda,
+        abs_delta_lambda,
+        lambda_sigma,
+    ) = _compute_baseline_outputs(baseline_indices)
+
+    activation_delta = float(response_cfg.get('activation_delta', 0.01) or 0.01)
+    sigma_multiplier = float(response_cfg.get('activation_sigma_multiplier', 1.5) or 1.5)
+    noise_floor = float(response_cfg.get('noise_floor', 1e-4) or 1e-4)
+    threshold = activation_delta + sigma_multiplier * max(lambda_sigma, noise_floor)
+
+    slope_sigma_multiplier = float(response_cfg.get('slope_sigma_multiplier', 1.0) or 1.0)
+    min_response_slope = float(response_cfg.get('min_response_slope', 0.0) or 0.0)
+
+    direction = float(np.sign(np.nanmedian(delta_lambda[np.isfinite(delta_lambda)]))) if np.any(np.isfinite(delta_lambda)) else 1.0
+    if not np.isfinite(direction) or direction == 0.0:
+        direction = 1.0
+
+    responsive_indices = [idx for idx, val in enumerate(abs_delta_lambda)
+                          if np.isfinite(val) and val >= threshold]
+
+    changepoint_cfg = response_cfg.get('changepoint', {}) if isinstance(response_cfg.get('changepoint', {}), dict) else {}
+    responsive_segments: List[Tuple[int, int]] = []
+
+    if changepoint_cfg.get('enabled', False):
+        cp_signal_mode = str(changepoint_cfg.get('signal', 'abs_delta_lambda')).lower()
+        if cp_signal_mode == 'delta_lambda':
+            change_signal = np.copy(delta_lambda)
+        elif cp_signal_mode == 'delta_mean':
+            change_signal = np.copy(delta_mean)
+        else:
+            change_signal = np.copy(abs_delta_lambda)
+
+        smooth_win = int(changepoint_cfg.get('smooth_window', 3) or 3)
+        if smooth_win > 1:
+            change_signal = _smooth_vector(change_signal, smooth_win)
+
+        cp_method = str(changepoint_cfg.get('method', 'pelt')).lower()
+        min_seg_size = int(changepoint_cfg.get('min_segment_size', 8) or 8)
+        
+        if cp_method == 'pelt':
+            penalty = float(changepoint_cfg.get('penalty', 3.0) or 3.0)
+            cps = _pelt_changepoint_detection(change_signal, penalty=penalty, min_size=min_seg_size)
+            
+            # Convert change-points to segments and filter by mean signal level
+            segments = []
+            boundaries = [0] + cps + [len(change_signal)]
+            for i in range(len(boundaries) - 1):
+                start, end = boundaries[i], boundaries[i + 1]
+                if end - start >= min_seg_size:
+                    seg_signal = change_signal[start:end]
+                    seg_mean = float(np.nanmean(seg_signal))
+                    # Keep segments with elevated signal
+                    if seg_mean >= threshold * 0.8:
+                        segments.append((start, end - 1))
+            responsive_segments = segments
+        else:
+            # Fallback to threshold-based detection
+            scale = float(changepoint_cfg.get('threshold_scale', 1.0) or 1.0)
+            release_mult = float(changepoint_cfg.get('release_multiplier', 0.6) or 0.6)
+            min_len = int(changepoint_cfg.get('min_length', 4) or 4)
+            pad = int(changepoint_cfg.get('pad', 1) or 1)
+            cp_high = threshold * scale
+            cp_low = cp_high * release_mult
+            segments = _detect_segments_above_threshold(change_signal, cp_high, cp_low, min_len, pad)
+            responsive_segments = segments
+
+        if responsive_segments:
+            responsive_indices = sorted({idx for start, end in responsive_segments for idx in range(start, end + 1)
+                                         if 0 <= idx < len(frames)})
+            roi_only_indices = list(responsive_indices)
+
+    # Ensure baseline frames occur before response onset if possible
+    if responsive_indices:
+        first_resp = min(responsive_indices)
+        trimmed = [idx for idx in baseline_indices if idx < first_resp]
+        if len(trimmed) >= max(1, baseline_target // 2):
+            baseline_indices = trimmed
+        elif first_resp > 0:
+            start = max(0, first_resp - baseline_target)
+            baseline_indices = list(range(start, first_resp)) or [max(0, first_resp - 1)]
+
+        (
+            baseline_reference,
+            roi_baseline_reference,
+            baseline_mean_abs,
+            baseline_std_abs,
+            centered_matrix,
+            delta_mean,
+            roi_delta_matrix,
+            peak_wavelengths,
+            baseline_peak_nm,
+            delta_lambda,
+            abs_delta_lambda,
+            lambda_sigma,
+        ) = _compute_baseline_outputs(baseline_indices)
+        direction = float(np.sign(np.nanmedian(delta_lambda[np.isfinite(delta_lambda)]))) if np.any(np.isfinite(delta_lambda)) else 1.0
+        if not np.isfinite(direction) or direction == 0.0:
+            direction = 1.0
+        threshold = activation_delta + sigma_multiplier * max(lambda_sigma, noise_floor)
+        responsive_indices = [idx for idx, val in enumerate(abs_delta_lambda)
+                              if np.isfinite(val) and val >= threshold]
+
+    roi_only_indices = list(responsive_indices)
+
+    min_activation_frames = int(response_cfg.get('min_activation_frames', 6) or 6)
+    min_activation_fraction = float(response_cfg.get('min_activation_fraction', 0.08) or 0.08)
+    required = max(min_activation_frames, int(math.ceil(min_activation_fraction * len(frames))))
+    if responsive_indices and len(responsive_indices) < required:
+        energy = abs_delta_lambda
+        top_idx = np.argsort(energy)[::-1][:required]
+        responsive_indices = sorted(set(list(responsive_indices) + top_idx.tolist()))
+
+    if not responsive_indices and int(response_cfg.get('fallback_window', 4) or 4) > 0:
+        responsive_indices = list(range(min(len(frames), int(response_cfg.get('fallback_window', 4) or 4))))
+
+    slope_threshold = max(min_response_slope, slope_sigma_multiplier * max(lambda_sigma, noise_floor))
+    selected_slope = float('nan')
+
+    if responsive_indices:
+        sorted_resp = sorted(responsive_indices)
+        monotonic_indices = list(sorted_resp)
+        monotonic_tol = float(response_cfg.get('monotonic_tolerance_nm', 0.05) or 0.0)
+        if len(sorted_resp) >= 2:
+            signed_trace = delta_lambda[sorted_resp] * direction
+            diffs = np.diff(signed_trace)
+            negative_diffs = np.where(diffs < -monotonic_tol)[0]
+            if negative_diffs.size > 0:
+                cutoff = negative_diffs[0] + 1
+                trimmed = sorted_resp[:cutoff]
+                if trimmed:
+                    monotonic_indices = trimmed
+        min_len_for_slope = max(3, min_activation_frames)
+        candidate_indices = list(monotonic_indices)
+        slope_pass = False
+        while candidate_indices and len(candidate_indices) >= min_len_for_slope:
+            candidate_lambda = delta_lambda[candidate_indices]
+            if len(candidate_indices) >= 2:
+                slope_val = linregress(candidate_indices, candidate_lambda).slope
+            else:
+                slope_val = 0.0
+            if not np.isfinite(slope_val):
+                slope_val = 0.0
+            slope_along_dir = slope_val * direction
+            selected_slope = slope_along_dir
+            if slope_along_dir >= slope_threshold:
+                slope_pass = True
+                break
+            candidate_indices = candidate_indices[1:]
+        if slope_pass:
+            responsive_indices = candidate_indices
+        else:
+            responsive_indices = []
+
+    records = []
+    segment_ids = np.full(len(mean_absorb), -1, dtype=int)
+    if responsive_segments:
+        for seg_id, (seg_start, seg_end) in enumerate(responsive_segments, start=1):
+            seg_start = int(max(0, seg_start))
+            seg_end = int(min(len(mean_absorb) - 1, seg_end))
+            segment_ids[seg_start:seg_end + 1] = seg_id
+
+    for idx, mean_val in enumerate(mean_absorb):
+        records.append({
+            'frame_index': idx,
+            'mean_signal': float(mean_val),
+            'delta_mean': float(delta_mean[idx]),
+            'delta_lambda_nm': float(delta_lambda[idx]) if np.isfinite(delta_lambda[idx]) else np.nan,
+            'delta_lambda_abs_nm': float(abs_delta_lambda[idx]) if np.isfinite(abs_delta_lambda[idx]) else np.nan,
+            'is_responsive': 1 if idx in responsive_indices else 0,
+            'peak_wavelength_nm': float(peak_wavelengths[idx]) if np.isfinite(peak_wavelengths[idx]) else np.nan,
+            'segment_id': int(segment_ids[idx]) if segment_ids.size else -1,
+        })
+
+    df_series = pd.DataFrame(records)
+    df_series['dataset_label'] = dataset_label
+    df_series['threshold_nm'] = threshold
+    df_series['baseline_mean'] = baseline_mean_abs
+    df_series['baseline_std'] = baseline_std_abs
+    df_series['baseline_std_abs'] = baseline_std_abs
+    df_series['baseline_std_delta_lambda_nm'] = lambda_sigma
+    df_series['baseline_peak_nm'] = baseline_peak_nm
+    df_series['slope_threshold'] = slope_threshold
+    df_series['responsive_slope'] = selected_slope
+    df_series['baseline_frames'] = len(baseline_indices)
+    df_series['activation_delta_nm'] = activation_delta
+    df_series['roi_min_nm'] = float(min_wl_roi)
+    df_series['roi_max_nm'] = float(max_wl_roi)
+    df_series['response_direction'] = direction
+    df_series['baseline_indices'] = [baseline_indices] * len(df_series)
+    if responsive_segments:
+        df_series['responsive_segments'] = [responsive_segments] * len(df_series)
+    return df_series, responsive_indices, roi_only_indices
+def _scale_reference_to_baseline(ref_df: Optional[pd.DataFrame],
+                                 baseline_frames: Sequence[pd.DataFrame],
+                                 percentile: float = 95.0) -> Tuple[Optional[pd.DataFrame], float]:
+    """Scale a reference spectrum so that it matches a trial's baseline intensity."""
+    if ref_df is None or not baseline_frames:
+        return ref_df, 1.0
+
+    if 'wavelength' not in ref_df.columns or 'intensity' not in ref_df.columns:
+        return ref_df, 1.0
+
+    ref_wl = ref_df['wavelength'].to_numpy(dtype=float)
+    ref_int = ref_df['intensity'].to_numpy(dtype=float)
+    if ref_wl.size == 0 or ref_int.size == 0:
+        return ref_df, 1.0
+
+    baseline_vals: List[float] = []
+    for frame in baseline_frames:
+        if frame is None or frame.empty:
+            continue
+        if 'wavelength' not in frame.columns or 'intensity' not in frame.columns:
+            continue
+        frame_wl = frame['wavelength'].to_numpy(dtype=float)
+        frame_int = frame['intensity'].to_numpy(dtype=float)
+        if frame_wl.size == 0 or frame_int.size == 0:
+            continue
+        interp = np.interp(ref_wl, frame_wl, frame_int)
+        baseline_vals.append(float(np.percentile(interp, percentile)))
+
+    if not baseline_vals:
+        return ref_df, 1.0
+
+    baseline_target = float(np.nanmean(baseline_vals))
+    ref_percentile = float(np.percentile(ref_int, percentile))
+    if ref_percentile <= 0 or not np.isfinite(baseline_target):
+        return ref_df, 1.0
+
+    scale_factor = baseline_target / ref_percentile
+    if scale_factor <= 0 or not np.isfinite(scale_factor):
+        return ref_df, 1.0
+
+    scaled = ref_df.copy(deep=True)
+    scaled['intensity'] = scaled['intensity'].astype(float) * scale_factor
+    return scaled, float(scale_factor)
+
+
+def _score_trial_quality(df: pd.DataFrame,
+                         *,
+                         roi_bounds: Tuple[Optional[float], Optional[float]],
+                         expected_center: Optional[float]) -> Tuple[float, Dict[str, float]]:
+    """Return a 0–1 quality score using SNR, contrast, and peak alignment."""
+    details: Dict[str, float] = {}
+    if df is None or df.empty or 'wavelength' not in df.columns:
+        return 0.0, details
+
+    wl = df['wavelength'].to_numpy(dtype=float)
+    signal_col = _signal_column(df)
+    signal = df[signal_col].to_numpy(dtype=float)
+
+    min_wl, max_wl = roi_bounds
+    if min_wl is None:
+        min_wl = float(np.nanmin(wl))
+    if max_wl is None:
+        max_wl = float(np.nanmax(wl))
+    mask = (wl >= min_wl) & (wl <= max_wl)
+    if not np.any(mask):
+        mask = np.ones_like(wl, dtype=bool)
+
+    roi_signal = signal[mask]
+    roi_wl = wl[mask]
+    if roi_signal.size == 0:
+        return 0.0, details
+
+    baseline_window = min(len(signal), 200)
+    baseline_noise = float(np.nanstd(signal[:baseline_window], ddof=1)) if baseline_window else 0.0
+    if not np.isfinite(baseline_noise) or baseline_noise <= 0:
+        baseline_noise = 1e-3
+
+    peak_idx = int(np.nanargmax(roi_signal)) if np.any(np.isfinite(roi_signal)) else 0
+    peak_val = float(roi_signal[peak_idx]) if roi_signal.size else 0.0
+    snr = peak_val / baseline_noise
+    details['snr'] = float(snr)
+
+    snr_score = 0.0
+    if snr >= 5:
+        snr_score = 0.5
+    elif snr >= 3:
+        snr_score = 0.35
+    elif snr >= 2:
+        snr_score = 0.2
+    elif snr >= 1:
+        snr_score = 0.1
+
+    contrast = float(np.nanmax(roi_signal) - np.nanmin(roi_signal)) if roi_signal.size else 0.0
+    details['contrast'] = contrast
+    contrast_score = 0.0
+    if contrast >= 0.5:
+        contrast_score = 0.3
+    elif contrast >= 0.25:
+        contrast_score = 0.2
+    elif contrast >= 0.1:
+        contrast_score = 0.1
+
+    if expected_center is None:
+        expected_center = float((min_wl + max_wl) / 2.0)
+    peak_wl = float(roi_wl[peak_idx]) if roi_wl.size else expected_center
+    shift = abs(peak_wl - expected_center)
+    details['peak_wavelength'] = peak_wl
+    details['expected_center'] = expected_center
+    details['shift_nm'] = shift
+    shift_score = max(0.0, 0.2 - min(shift, 1.0) * 0.2)
+
+    total_score = min(1.0, snr_score + contrast_score + shift_score)
+    details['total_score'] = total_score
+    return total_score, details
+def _simple_response_selection(frames: Sequence[pd.DataFrame],
+                               ref_df: Optional[pd.DataFrame],
+                               *,
+                               dataset_label: Optional[str],
+                               response_cfg: Dict[str, object]) -> Tuple[pd.DataFrame, List[int], List[int]]:
+    """Lightweight frame selection that ranks frames by ROI absorbance energy."""
+    if not frames:
+        return None, [], []
+
+    processed = [_ensure_response_signal(df, ref_df) for df in frames]
+    base_wl = processed[0]['wavelength'].to_numpy()
+    absorb_col = 'absorbance' if 'absorbance' in processed[0].columns else _signal_column(processed[0])
+
+    min_wl_roi, max_wl_roi = _resolve_roi_bounds(dataset_label)
+    if min_wl_roi is None:
+        min_wl_roi = float(base_wl.min())
+    if max_wl_roi is None:
+        max_wl_roi = float(base_wl.max())
+    roi_mask = (base_wl >= min_wl_roi) & (base_wl <= max_wl_roi)
+    if not np.any(roi_mask):
+        roi_mask = np.ones_like(base_wl, dtype=bool)
+
+    response_metrics: List[float] = []
+    for df in processed:
+        wl = df['wavelength'].to_numpy(dtype=float)
+        signal = df[absorb_col].to_numpy(dtype=float)
+        if not np.array_equal(wl, base_wl):
+            signal = np.interp(base_wl, wl, signal)
+        roi_signal = signal[roi_mask]
+        metric = float(np.nansum(np.clip(roi_signal, 0.0, None)))
+        response_metrics.append(metric)
+
+    response_arr = np.array(response_metrics, dtype=float)
+    smooth_window = int(response_cfg.get('simple_smooth_window', 5) or 5)
+    if smooth_window > 1 and response_arr.size >= smooth_window:
+        kernel = np.ones(smooth_window, dtype=float) / float(smooth_window)
+        smoothed = np.convolve(response_arr, kernel, mode='same')
+    else:
+        smoothed = response_arr.copy()
+
+    top_n = int(response_cfg.get('top_n_frames', 20) or 20)
+    top_n = max(1, min(top_n, len(frames)))
+    if np.all(~np.isfinite(smoothed)):
+        smoothed = np.nan_to_num(smoothed, nan=0.0)
+
+    finite_mask = np.isfinite(smoothed)
+    if not np.any(finite_mask):
+        smoothed = np.zeros_like(smoothed)
+        finite_mask = np.ones_like(smoothed, dtype=bool)
+
+    rank_indices = np.argsort(smoothed[finite_mask])
+    finite_indices = np.where(finite_mask)[0][rank_indices]
+    if finite_indices.size >= top_n:
+        top_indices = finite_indices[-top_n:]
+    else:
+        fallback = np.arange(len(frames))[-top_n:]
+        top_indices = np.unique(np.concatenate([finite_indices, fallback]))[-top_n:]
+
+    top_indices = sorted(int(idx) for idx in top_indices)
+
+    time_series_df = pd.DataFrame({
+        'frame_index': np.arange(len(frames)),
+        'response_metric': response_arr,
+        'smoothed_response': smoothed,
+        'selected': [idx in top_indices for idx in range(len(frames))],
+    })
+
+    return time_series_df, top_indices, top_indices
+def _save_response_series(df: pd.DataFrame,
+                          out_root: str,
+                          concentration: float,
+                          trial: str,
+                          dataset_label: Optional[str]) -> Tuple[Path, Path]:
+    series_dir = Path(out_root) / 'time_series'
+    series_dir.mkdir(parents=True, exist_ok=True)
+    safe_trial = re.sub(r"[^A-Za-z0-9._-]+", "_", trial)
+    prefix = f"{dataset_label or 'dataset'}_{concentration:g}_{safe_trial}"
+    csv_path = series_dir / f"{prefix}.csv"
+    df.to_csv(csv_path, index=False)
+
+    plot_path = series_dir / f"{prefix}.png"
+    try:
+        # Build multi-panel visualization
+        fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+
+        indices = df['frame_index'].to_numpy(dtype=float)
+        delta_peak = df.get('delta_peak', pd.Series([np.nan] * len(df))).to_numpy(dtype=float)
+        delta_peak_raw = df.get('delta_peak_raw', pd.Series([np.nan] * len(df))).to_numpy(dtype=float)
+        delta_mean = df.get('delta_mean', pd.Series([np.nan] * len(df))).to_numpy(dtype=float)
+        threshold = df.get('threshold', pd.Series([np.nan])).iloc[0]
+        responsive_mask = df['is_responsive'].to_numpy(dtype=int) == 1
+
+        ax0 = axes[0]
+        ax0.plot(indices, delta_peak_raw, marker='o', label='Δ peak (raw)')
+        ax0.plot(indices, delta_peak, marker='^', label='Δ peak (directed)')
+        if np.any(np.isfinite(delta_mean)):
+            ax0.plot(indices, delta_mean, marker='s', label='Δ mean')
+        if np.isfinite(threshold):
+            ax0.axhline(threshold, color='r', linestyle='--', linewidth=1.0, label='activation threshold')
+        if responsive_mask.any():
+            ax0.scatter(indices[responsive_mask], delta_peak_raw[responsive_mask], color='red', zorder=3, label='responsive frames')
+            ymin = np.nanmin(delta_peak_raw[responsive_mask]) if np.any(np.isfinite(delta_peak_raw[responsive_mask])) else np.nanmin(delta_peak_raw)
+            ymax = np.nanmax(delta_peak_raw[responsive_mask]) if np.any(np.isfinite(delta_peak_raw[responsive_mask])) else np.nanmax(delta_peak_raw)
+            ax0.fill_between(indices, ymin, ymax, where=responsive_mask,
+                             color='red', alpha=0.08, step='mid')
+        ax0.set_ylabel('Δ absorbance')
+        ax0.legend(loc='best')
+        ax0.grid(alpha=0.25)
+
+        ax1 = axes[1]
+        peak_wl = df.get('peak_wavelength_nm', pd.Series([np.nan] * len(df))).to_numpy(dtype=float)
+        if np.isfinite(peak_wl).any():
+            ax1.plot(indices, peak_wl, color='tab:blue', marker='.', label='peak λ')
+        mean_signal = df.get('mean_signal', pd.Series([np.nan] * len(df))).to_numpy(dtype=float)
+        ax1b = ax1.twinx()
+        ax1b.plot(indices, mean_signal, color='tab:orange', alpha=0.6, label='mean absorbance')
+        if responsive_mask.any():
+            ax1.fill_between(indices, np.nanmin(peak_wl) if np.isfinite(peak_wl).any() else 0,
+                             np.nanmax(peak_wl) if np.isfinite(peak_wl).any() else 1,
+                             where=responsive_mask, color='red', alpha=0.1, step='mid', label='responsive window')
+        ax1.set_ylabel('Peak λ (nm)')
+        ax1b.set_ylabel('Mean absorbance (a.u.)')
+        ax1.grid(alpha=0.25)
+
+        # Combine legends for bottom axis
+        handles, labels = ax1.get_legend_handles_labels()
+        handles_b, labels_b = ax1b.get_legend_handles_labels()
+        if handles or handles_b:
+            ax1.legend(handles + handles_b, labels + labels_b, loc='best')
+
+        axes[-1].set_xlabel('Frame index (acquisition order)')
+
+        title_label = dataset_label or 'dataset'
+        fig.suptitle(f'Response diagnostics: {title_label} {concentration:g} ppm ({trial})', fontsize=11)
+        fig.tight_layout(rect=[0, 0.03, 1, 0.97])
+        fig.savefig(plot_path, dpi=200)
+        plt.close(fig)
+    except Exception:
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+    return csv_path, plot_path
+
+
+def _summarize_responsive_delta(df: pd.DataFrame) -> Dict[str, object]:
+    if df is None or df.empty:
+        return {}
+
+    try:
+        delta_series = pd.to_numeric(df.get('delta_lambda_nm'), errors='coerce')
+    except Exception:
+        delta_series = pd.Series(dtype=float)
+
+    if 'is_responsive' in df.columns:
+        responsive_mask = pd.to_numeric(df['is_responsive'], errors='coerce').fillna(0).astype(int) == 1
+    else:
+        responsive_mask = pd.Series([False] * len(df))
+
+    segment_ids = None
+    try:
+        if 'segment_id' in df.columns:
+            segment_ids = pd.to_numeric(df['segment_id'], errors='coerce').fillna(-1).astype(int)
+    except Exception:
+        segment_ids = None
+
+    segment_definitions: Optional[List[Tuple[int, int]]] = None
+    if 'responsive_segments' in df.columns and len(df.index) > 0:
+        try:
+            raw_segments = df['responsive_segments'].iloc[0]
+            if isinstance(raw_segments, list):
+                segment_definitions = []
+                for entry in raw_segments:
+                    if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                        try:
+                            start = int(entry[0])
+                            end = int(entry[1])
+                        except (TypeError, ValueError):
+                            continue
+                        if start <= end:
+                            segment_definitions.append((start, end))
+        except Exception:
+            segment_definitions = None
+
+    delta_values = delta_series.to_numpy(dtype=float) if delta_series.size else np.array([], dtype=float)
+    responsive_values = delta_series[responsive_mask].to_numpy(dtype=float) if delta_series.size else np.array([], dtype=float)
+    responsive_finite = responsive_values[np.isfinite(responsive_values)]
+    all_finite = delta_values[np.isfinite(delta_values)]
+
+    # Derive segments if definitions missing but segment ids present
+    if segment_definitions is None and segment_ids is not None and segment_ids.size:
+        segment_definitions = []
+        current_id = None
+        start_idx = None
+        for idx, seg_id in enumerate(segment_ids):
+            if seg_id > 0:
+                if current_id != seg_id:
+                    if current_id is not None and start_idx is not None:
+                        segment_definitions.append((start_idx, idx - 1))
+                    current_id = seg_id
+                    start_idx = idx
+            else:
+                if current_id is not None and start_idx is not None:
+                    segment_definitions.append((start_idx, idx - 1))
+                current_id = None
+                start_idx = None
+        if current_id is not None and start_idx is not None:
+            segment_definitions.append((start_idx, len(segment_ids) - 1))
+        if not segment_definitions:
+            segment_definitions = None
+
+    baseline_peak_nm = float('nan')
+    if 'baseline_peak_nm' in df.columns:
+        try:
+            baseline_vals = pd.to_numeric(df['baseline_peak_nm'], errors='coerce').dropna()
+            if not baseline_vals.empty:
+                baseline_peak_nm = float(baseline_vals.iloc[0])
+        except Exception:
+            baseline_peak_nm = float('nan')
+
+    responsive_frame_count = int(responsive_mask.sum()) if hasattr(responsive_mask, 'sum') else 0
+    total_frame_count = int(len(df))
+    responsive_fraction = float(responsive_frame_count / max(1, total_frame_count))
+
+    median_delta = float('nan')
+    mean_delta = float('nan')
+    std_delta = float('nan')
+    max_abs_delta = float('nan')
+    signed_consistency = float('nan')
+    if responsive_finite.size:
+        median_delta = float(np.nanmedian(responsive_finite))
+        mean_delta = float(np.nanmean(responsive_finite))
+        std_delta = float(np.nanstd(responsive_finite, ddof=1)) if responsive_finite.size > 1 else 0.0
+        idx_max = int(np.abs(responsive_finite).argmax())
+        max_abs_delta = float(responsive_finite[idx_max])
+        total = responsive_finite.size
+        if total > 0:
+            same_sign = float(np.sum(np.sign(responsive_finite) == np.sign(median_delta)))
+            signed_consistency = same_sign / total if total else float('nan')
+    elif all_finite.size:
+        mean_delta = float(np.nanmean(all_finite))
+        std_delta = float(np.nanstd(all_finite, ddof=1)) if all_finite.size > 1 else 0.0
+        idx_max = int(np.abs(all_finite).argmax())
+        max_abs_delta = float(all_finite[idx_max])
+
+    fallback_delta = float('nan')
+    if all_finite.size:
+        idx_fb = int(np.abs(all_finite).argmax())
+        fallback_delta = float(all_finite[idx_fb])
+
+    selected_delta = median_delta if np.isfinite(median_delta) else fallback_delta
+    direction = float(np.sign(selected_delta)) if np.isfinite(selected_delta) and selected_delta != 0 else float('nan')
+
+    median_peak_nm = baseline_peak_nm + median_delta if np.isfinite(baseline_peak_nm) and np.isfinite(median_delta) else float('nan')
+    mean_peak_nm = baseline_peak_nm + mean_delta if np.isfinite(baseline_peak_nm) and np.isfinite(mean_delta) else float('nan')
+    selected_peak_nm = baseline_peak_nm + selected_delta if np.isfinite(baseline_peak_nm) and np.isfinite(selected_delta) else float('nan')
+
+    segment_count = 0
+    segment_lengths: List[int] = []
+    segment_coverage = float('nan')
+    if segment_definitions:
+        segment_count = len(segment_definitions)
+        segment_lengths = [max(0, int(end) - int(start) + 1) for start, end in segment_definitions]
+        total_len = sum(segment_lengths)
+        if total_frame_count > 0:
+            segment_coverage = total_len / float(total_frame_count)
+
+    return {
+        'responsive_frame_count': responsive_frame_count,
+        'total_frame_count': total_frame_count,
+        'responsive_fraction': responsive_fraction,
+        'responsive_finite_count': int(responsive_finite.size),
+        'median_delta_nm': median_delta if np.isfinite(median_delta) else float('nan'),
+        'mean_delta_nm': mean_delta if np.isfinite(mean_delta) else float('nan'),
+        'selected_delta_nm': selected_delta if np.isfinite(selected_delta) else float('nan'),
+        'std_delta_nm': std_delta if np.isfinite(std_delta) else float('nan'),
+        'max_abs_delta_nm': max_abs_delta if np.isfinite(max_abs_delta) else float('nan'),
+        'fallback_delta_nm': fallback_delta if np.isfinite(fallback_delta) else float('nan'),
+        'median_peak_nm': median_peak_nm if np.isfinite(median_peak_nm) else float('nan'),
+        'mean_peak_nm': mean_peak_nm if np.isfinite(mean_peak_nm) else float('nan'),
+        'selected_peak_nm': selected_peak_nm if np.isfinite(selected_peak_nm) else float('nan'),
+        'baseline_peak_nm': baseline_peak_nm if np.isfinite(baseline_peak_nm) else float('nan'),
+        'direction': direction if np.isfinite(direction) else float('nan'),
+        'signed_consistency': signed_consistency if np.isfinite(signed_consistency) else float('nan'),
+        'responsive_segment_count': float(segment_count),
+        'responsive_segment_lengths': segment_lengths,
+        'responsive_segment_coverage': segment_coverage if np.isfinite(segment_coverage) else float('nan'),
+    }
+
+
+def _aggregate_responsive_delta_maps(responsive_delta_by_conc: Dict[float, Dict[str, Dict[str, object]]]
+                                     ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[float, Dict[str, float]]]:
+    if not responsive_delta_by_conc:
+        empty_df = pd.DataFrame()
+        return empty_df, empty_df.copy(), {}
+
+    rows_trial: List[Dict[str, object]] = []
+    rows_conc: List[Dict[str, object]] = []
+    summary_by_conc: Dict[float, Dict[str, float]] = {}
+
+    for conc, trial_map in sorted(responsive_delta_by_conc.items(), key=lambda kv: kv[0]):
+        if not isinstance(trial_map, dict) or not trial_map:
+            continue
+
+        trial_count = 0
+        responsive_trial_count = 0
+        total_responsive_frames = 0
+        total_frames = 0
+
+        selected_delta_vals: List[float] = []
+        median_delta_vals: List[float] = []
+        mean_delta_vals: List[float] = []
+        selected_peak_vals: List[float] = []
+        baseline_peak_vals: List[float] = []
+        responsive_fraction_vals: List[float] = []
+        direction_vals: List[float] = []
+        segment_count_vals: List[float] = []
+        segment_coverage_vals: List[float] = []
+        segment_length_mean_vals: List[float] = []
+
+        for trial, summary in sorted(trial_map.items()):
+            if not isinstance(summary, dict) or not summary:
+                continue
+            trial_count += 1
+
+            responsive_frames = int(summary.get('responsive_frame_count', 0) or 0)
+            frame_total = int(summary.get('total_frame_count', 0) or 0)
+            total_responsive_frames += responsive_frames
+            total_frames += frame_total
+
+            selected_delta = _safe_float(summary.get('selected_delta_nm'))
+            median_delta = _safe_float(summary.get('median_delta_nm'))
+            mean_delta = _safe_float(summary.get('mean_delta_nm'))
+            selected_peak = _safe_float(summary.get('selected_peak_nm'))
+            baseline_peak = _safe_float(summary.get('baseline_peak_nm'))
+            responsive_fraction = _safe_float(summary.get('responsive_fraction'))
+            direction = _safe_float(summary.get('direction'))
+
+            seg_count = _safe_float(summary.get('responsive_segment_count'))
+            seg_coverage = _safe_float(summary.get('responsive_segment_coverage'))
+            seg_lengths = summary.get('responsive_segment_lengths') if isinstance(summary.get('responsive_segment_lengths'), list) else None
+            mean_seg_len = float('nan')
+            if isinstance(seg_lengths, list) and seg_lengths:
+                try:
+                    mean_seg_len = float(np.nanmean([float(v) for v in seg_lengths]))
+                except Exception:
+                    mean_seg_len = float('nan')
+
+            if np.isfinite(selected_delta):
+                selected_delta_vals.append(selected_delta)
+            if np.isfinite(median_delta):
+                median_delta_vals.append(median_delta)
+            if np.isfinite(mean_delta):
+                mean_delta_vals.append(mean_delta)
+            if np.isfinite(selected_peak):
+                selected_peak_vals.append(selected_peak)
+            if np.isfinite(baseline_peak):
+                baseline_peak_vals.append(baseline_peak)
+            if np.isfinite(responsive_fraction):
+                responsive_fraction_vals.append(responsive_fraction)
+            if np.isfinite(direction) and direction != 0.0:
+                direction_vals.append(float(np.sign(direction)))
+            if np.isfinite(seg_count):
+                segment_count_vals.append(seg_count)
+            if np.isfinite(seg_coverage):
+                segment_coverage_vals.append(seg_coverage)
+            if np.isfinite(mean_seg_len):
+                segment_length_mean_vals.append(mean_seg_len)
+
+            if responsive_frames > 0:
+                responsive_trial_count += 1
+
+            row = {
+                'concentration': float(conc),
+                'trial': trial,
+                'selected_delta_nm': selected_delta if np.isfinite(selected_delta) else float('nan'),
+                'median_delta_nm': median_delta if np.isfinite(median_delta) else float('nan'),
+                'mean_delta_nm': mean_delta if np.isfinite(mean_delta) else float('nan'),
+                'selected_peak_nm': selected_peak if np.isfinite(selected_peak) else float('nan'),
+                'median_peak_nm': _safe_float(summary.get('median_peak_nm')),
+                'mean_peak_nm': _safe_float(summary.get('mean_peak_nm')),
+                'baseline_peak_nm': baseline_peak if np.isfinite(baseline_peak) else float('nan'),
+                'responsive_frame_count': responsive_frames,
+                'total_frame_count': frame_total,
+                'responsive_fraction': responsive_fraction if np.isfinite(responsive_fraction) else float('nan'),
+                'std_delta_nm': _safe_float(summary.get('std_delta_nm')),
+                'max_abs_delta_nm': _safe_float(summary.get('max_abs_delta_nm')),
+                'fallback_delta_nm': _safe_float(summary.get('fallback_delta_nm')),
+                'direction': direction if np.isfinite(direction) else float('nan'),
+                'responsive_segment_count': seg_count if np.isfinite(seg_count) else float('nan'),
+                'responsive_segment_coverage': seg_coverage if np.isfinite(seg_coverage) else float('nan'),
+                'responsive_segment_mean_length': mean_seg_len if np.isfinite(mean_seg_len) else float('nan'),
+            }
+            rows_trial.append(row)
+
+        if trial_count == 0:
+            continue
+
+        selected_arr = np.array(selected_delta_vals, dtype=float) if selected_delta_vals else np.array([])
+        median_arr = np.array(median_delta_vals, dtype=float) if median_delta_vals else np.array([])
+        mean_arr = np.array(mean_delta_vals, dtype=float) if mean_delta_vals else np.array([])
+        selected_peak_arr = np.array(selected_peak_vals, dtype=float) if selected_peak_vals else np.array([])
+        baseline_peak_arr = np.array(baseline_peak_vals, dtype=float) if baseline_peak_vals else np.array([])
+        responsive_fraction_arr = np.array(responsive_fraction_vals, dtype=float) if responsive_fraction_vals else np.array([])
+        segment_count_arr = np.array(segment_count_vals, dtype=float) if segment_count_vals else np.array([])
+        segment_cov_arr = np.array(segment_coverage_vals, dtype=float) if segment_coverage_vals else np.array([])
+        segment_len_arr = np.array(segment_length_mean_vals, dtype=float) if segment_length_mean_vals else np.array([])
+
+        def _nan_stat(arr: np.ndarray, func: str) -> float:
+            if arr.size == 0 or not np.isfinite(arr).any():
+                return float('nan')
+            if func == 'mean':
+                return float(np.nanmean(arr))
+            if func == 'median':
+                return float(np.nanmedian(arr))
+            if func == 'std':
+                return float(np.nanstd(arr, ddof=1)) if arr.size > 1 else 0.0
+            if func == 'min':
+                return float(np.nanmin(arr))
+            if func == 'max':
+                return float(np.nanmax(arr))
+            return float('nan')
+
+        dominant_direction = float('nan')
+        if direction_vals:
+            pos = sum(1 for d in direction_vals if d > 0)
+            neg = sum(1 for d in direction_vals if d < 0)
+            if pos or neg:
+                dominant_direction = 1.0 if pos >= neg else -1.0
+
+        summary = {
+            'trial_count': float(trial_count),
+            'responsive_trial_count': float(responsive_trial_count),
+            'total_responsive_frames': float(total_responsive_frames),
+            'total_frames': float(total_frames),
+            'selected_delta_nm_median': _nan_stat(selected_arr, 'median'),
+            'selected_delta_nm_mean': _nan_stat(selected_arr, 'mean'),
+            'selected_delta_nm_std': _nan_stat(selected_arr, 'std'),
+            'selected_delta_nm_min': _nan_stat(selected_arr, 'min'),
+            'selected_delta_nm_max': _nan_stat(selected_arr, 'max'),
+            'median_delta_nm_median': _nan_stat(median_arr, 'median'),
+            'median_delta_nm_mean': _nan_stat(median_arr, 'mean'),
+            'mean_delta_nm_mean': _nan_stat(mean_arr, 'mean'),
+            'selected_peak_nm_median': _nan_stat(selected_peak_arr, 'median'),
+            'selected_peak_nm_mean': _nan_stat(selected_peak_arr, 'mean'),
+            'baseline_peak_nm_median': _nan_stat(baseline_peak_arr, 'median'),
+            'responsive_fraction_mean': _nan_stat(responsive_fraction_arr, 'mean'),
+            'responsive_fraction_median': _nan_stat(responsive_fraction_arr, 'median'),
+            'dominant_direction': dominant_direction,
+            'responsive_segment_count_mean': _nan_stat(segment_count_arr, 'mean'),
+            'responsive_segment_count_median': _nan_stat(segment_count_arr, 'median'),
+            'responsive_segment_coverage_mean': _nan_stat(segment_cov_arr, 'mean'),
+            'responsive_segment_coverage_median': _nan_stat(segment_cov_arr, 'median'),
+            'responsive_segment_mean_length': _nan_stat(segment_len_arr, 'mean'),
+        }
+
+        rows_conc.append({'concentration': float(conc), **summary})
+        summary_by_conc[float(conc)] = summary
+
+    per_trial_df = pd.DataFrame(rows_trial)
+    per_conc_df = pd.DataFrame(rows_conc)
+    return per_trial_df, per_conc_df, summary_by_conc
+
+
+def _safe_float(val: object) -> float:
+    try:
+        fval = float(val)
+    except (TypeError, ValueError):
+        return float('nan')
+    return fval if np.isfinite(fval) else float('nan')
+
+
+def _compute_responsive_trend_fallback(summary: Dict[str, object]) -> Dict[str, float]:
+    if not summary:
+        return {}
+
+    def _get(name: str) -> float:
+        try:
+            return float(summary.get(name))
+        except (TypeError, ValueError):
+            return float('nan')
+
+    responsive_fraction = _get('responsive_fraction')
+    signed_consistency = _get('signed_consistency')
+    std_delta = _get('std_delta_nm')
+    median_delta = _get('median_delta_nm')
+    selected_delta = _get('selected_delta_nm')
+    fallback_delta = _get('fallback_delta_nm')
+    median_peak = _get('median_peak_nm')
+    selected_peak = _get('selected_peak_nm')
+    baseline_peak = _get('baseline_peak_nm')
+
+    config = CONFIG.get('responsive_trend', {}) if isinstance(CONFIG, dict) else {}
+    min_fraction = float(config.get('min_fraction', 0.1))
+    min_consistency = float(config.get('min_consistency', 0.6))
+    max_noise = float(config.get('max_std_nm', 5.0))
+
+    usable_delta = selected_delta if np.isfinite(selected_delta) else median_delta
+    usable_peak = selected_peak if np.isfinite(selected_peak) else median_peak
+    fallback_peak = baseline_peak + fallback_delta if np.isfinite(baseline_peak) and np.isfinite(fallback_delta) else usable_peak
+
+    quality_flags = [
+        bool(np.isfinite(responsive_fraction) and responsive_fraction >= min_fraction),
+        bool(np.isfinite(signed_consistency) and signed_consistency >= min_consistency),
+        bool(np.isfinite(std_delta) and std_delta <= max_noise),
+    ]
+
+    quality_ok = all(quality_flags)
+
+    return {
+        'responsive_fraction': responsive_fraction,
+        'signed_consistency': signed_consistency,
+        'std_delta_nm': std_delta,
+        'usable_delta_nm': usable_delta if np.isfinite(usable_delta) else float('nan'),
+        'usable_peak_nm': usable_peak if np.isfinite(usable_peak) else float('nan'),
+        'fallback_delta_nm': fallback_delta if np.isfinite(fallback_delta) else float('nan'),
+        'fallback_peak_nm': fallback_peak if np.isfinite(fallback_peak) else float('nan'),
+        'quality_ok': bool(quality_ok),
+        'quality_flags': quality_flags,
+    }
+
+
+def _first_finite(values: Sequence[object]) -> float:
+    for val in values:
+        try:
+            fval = float(val)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(fval):
+            return fval
+    return float('nan')
+
+
+def _weighted_linear(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> Optional[Dict[str, float]]:
+    if w is None or w.size != x.size:
+        return None
+    mask = np.isfinite(w) & (w > 0)
+    if mask.sum() < 2:
+        return None
+    xw = x[mask]
+    yw = y[mask]
+    ww = w[mask]
+    ww = ww / np.nanmax(ww)
+    lr = LinearRegression()
+    lr.fit(xw.reshape(-1, 1), yw, sample_weight=ww)
+    preds = lr.predict(x.reshape(-1, 1))
+    residuals = y - preds
+    r2_val = float(r2_score(yw, lr.predict(xw.reshape(-1, 1)))) if xw.size > 1 else float('nan')
+    rmse_val = float(np.sqrt(np.nanmean(residuals ** 2)))
+    if np.isnan(r2_val):
+        return None
+    return {
+        'model': 'weighted_ols',
+        'slope': float(lr.coef_[0]),
+        'intercept': float(lr.intercept_),
+        'r2': r2_val,
+        'rmse': rmse_val,
+        'slope_stderr': float('nan'),
+        'slope_ci_low': float('nan'),
+        'slope_ci_high': float('nan'),
+        'preds': preds,
+        'residuals': residuals,
+    }
+
+
+def _theil_sen(x: np.ndarray, y: np.ndarray) -> Optional[Dict[str, float]]:
+    if x.size < 2:
+        return None
+    try:
+        model = TheilSenRegressor(random_state=0)
+        model.fit(x.reshape(-1, 1), y)
+        preds = model.predict(x.reshape(-1, 1))
+        residuals = y - preds
+        r2_val = float(r2_score(y, preds))
+        rmse_val = float(np.sqrt(np.mean(residuals ** 2)))
+        return {
+            'model': 'theil_sen',
+            'slope': float(model.coef_[0]),
+            'intercept': float(model.intercept_),
+            'r2': r2_val,
+            'rmse': rmse_val,
+            'slope_stderr': float('nan'),
+            'slope_ci_low': float('nan'),
+            'slope_ci_high': float('nan'),
+            'preds': preds,
+            'residuals': residuals,
+        }
+    except Exception:
+        return None
+
+
+def _ransac(x: np.ndarray, y: np.ndarray) -> Optional[Dict[str, float]]:
+    if x.size < 3:
+        return None
+    try:
+        base_estimator = LinearRegression()
+        model = RANSACRegressor(base_estimator=base_estimator, random_state=0)
+        model.fit(x.reshape(-1, 1), y)
+        preds = model.predict(x.reshape(-1, 1))
+        residuals = y - preds
+        r2_val = float(r2_score(y, preds))
+        rmse_val = float(np.sqrt(np.mean(residuals ** 2)))
+        slope = float(model.estimator_.coef_[0]) if hasattr(model.estimator_, 'coef_') else float('nan')
+        intercept = float(model.estimator_.intercept_) if hasattr(model.estimator_, 'intercept_') else float('nan')
+        return {
+            'model': 'ransac',
+            'slope': slope,
+            'intercept': intercept,
+            'r2': r2_val,
+            'rmse': rmse_val,
+            'slope_stderr': float('nan'),
+            'slope_ci_low': float('nan'),
+            'slope_ci_high': float('nan'),
+            'preds': preds,
+            'residuals': residuals,
+        }
+    except Exception:
+        return None
+
+
+    models: List[Dict[str, object]] = []
+    baseline_model = _linreg_model(concs, deltas)
+    models.append(baseline_model)
+    weighted_model = _weighted_linear(concs, deltas, weights)
+    if weighted_model:
+        models.append(weighted_model)
+    ts_model = _theil_sen(concs, deltas)
+    if ts_model:
+        models.append(ts_model)
+    ransac_model = _ransac(concs, deltas)
+    if ransac_model:
+        models.append(ransac_model)
+
+    best_model = max(models, key=lambda m: (m.get('r2', float('-inf')), -m.get('rmse', float('inf'))))
+    preds = best_model['preds']
+    residuals = best_model['residuals']
+    rmse = float(best_model['rmse'])
+    r2 = float(best_model['r2'])
+    slope = float(best_model['slope'])
+    intercept = float(best_model['intercept'])
+    slope_stderr = float(best_model.get('slope_stderr', float('nan')))
+    slope_ci_low = float(best_model.get('slope_ci_low', float('nan')))
+    slope_ci_high = float(best_model.get('slope_ci_high', float('nan')))
+    model_name = str(best_model.get('model', 'ols'))
+
+    def _loocv_scores(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
+        nloc = x.size
+        if nloc < 3:
+            return float('nan'), float('nan')
+        y_pred = np.empty(nloc, dtype=float)
+        for i in range(nloc):
+            mask = np.ones(nloc, dtype=bool)
+            mask[i] = False
+            res_cv = linregress(x[mask], y[mask])
+            y_pred[i] = res_cv.intercept + res_cv.slope * x[i]
+        try:
+            ss_res = float(np.sum((y - y_pred) ** 2))
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            r2_cv = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
+            rmse_cv = float(np.sqrt(np.mean((y - y_pred) ** 2)))
+            return float(r2_cv), float(rmse_cv)
+        except Exception:
+            return float('nan'), float('nan')
+
+    r2_cv, rmse_cv = _loocv_scores(concs, deltas)
+
+    baseline_conc = float(concs.min())
+    baseline_stats = summary_by_conc.get(baseline_conc) if baseline_conc in summary_by_conc else None
+    baseline_noise = float('nan')
+    if isinstance(baseline_stats, dict):
+        baseline_noise = _first_finite([
+            baseline_stats.get('selected_delta_nm_std'),
+            baseline_stats.get('median_delta_nm_mean'),
+        ])
+
+    lod = (_compute_lod_lsq(slope=slope, sigma=baseline_noise) if np.isfinite(baseline_noise)
+           else float('nan'))
+    loq = (_compute_loq_lsq(slope=slope, sigma=baseline_noise) if np.isfinite(baseline_noise)
+           else float('nan'))
+
+    metrics_dir = Path(out_root) / 'metrics'
+    plots_dir = Path(out_root) / 'plots'
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    table_path = metrics_dir / 'responsive_delta_by_concentration.csv'
+    df.to_csv(table_path, index=False)
+
+    quality_true = sum(1 for q in quality_per_conc if q)
+    total_quality = len(quality_per_conc)
+    quality_ratio = (quality_true / total_quality) if total_quality else 0.0
+    required_quality = max(min_quality_count, int(np.ceil(min_quality_ratio * total_quality))) if total_quality else min_quality_count
+    calibration_quality_ok = (
+        total_quality > 0
+        and quality_true >= required_quality
+        and np.isfinite(r2)
+        and r2 >= min_r2_required
+    )
+
+    metrics_payload = {
+        'dataset_label': dataset_label,
+        'concentrations': concs.tolist(),
+        'delta_nm': deltas.tolist(),
+        'slope_nm_per_ppm': float(slope),
+        'intercept_nm': float(intercept),
+        'r2': r2,
+        'rmse_nm': rmse,
+        'slope_stderr': float(slope_stderr),
+        'slope_ci_low': float(slope_ci_low),
+        'slope_ci_high': float(slope_ci_high),
+        'predictions': preds.tolist(),
+        'residuals': residuals.tolist(),
+        'r2_cv': r2_cv,
+        'rmse_cv': rmse_cv,
+        'lod_ppm': float(lod),
+        'loq_ppm': float(loq),
+        'baseline_noise_nm': float(baseline_noise),
+        'trend_fallbacks': detailed_fallbacks,
+        'quality_flags': {
+            'min_fraction': float(CONFIG.get('responsive_trend', {}).get('min_fraction', 0.1)) if isinstance(CONFIG, dict) else 0.1,
+            'min_consistency': float(CONFIG.get('responsive_trend', {}).get('min_consistency', 0.6)) if isinstance(CONFIG, dict) else 0.6,
+            'max_std_nm': float(CONFIG.get('responsive_trend', {}).get('max_std_nm', 5.0)) if isinstance(CONFIG, dict) else 5.0,
+            'min_quality_ratio': min_quality_ratio,
+            'min_quality_count': min_quality_count,
+            'min_r2': min_r2_required,
+        },
+        'quality_per_concentration': quality_per_conc,
+        'quality_true_count': int(quality_true),
+        'quality_total': int(total_quality),
+        'quality_ratio': float(quality_ratio),
+        'calibration_quality_ok': bool(calibration_quality_ok),
+    }
+
+    metrics_path = metrics_dir / 'responsive_delta_calibration.json'
+    _write_json(metrics_path, metrics_payload)
+
+    plot_path = plots_dir / 'responsive_delta_calibration.png'
+    try:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.scatter(concs, deltas, color='tab:blue', label='Responsive Δλ (median)')
+        x_line = np.linspace(float(concs.min()), float(concs.max()), 200)
+        y_line = intercept + slope * x_line
+        ax.plot(x_line, y_line, color='tab:orange', label=f'Linear fit (R²={r2:.3f})')
+        ax.set_xlabel('Concentration (ppm)')
+        ax.set_ylabel('Δλ (nm)')
+        title = 'Responsive Δλ Calibration'
+        if dataset_label:
+            title += f' – {dataset_label}'
+        ax.set_title(title)
+        ax.grid(alpha=0.3)
+        ax.legend(loc='best')
+        fig.tight_layout()
+        fig.savefig(plot_path, dpi=200)
+        plt.close(fig)
+    except Exception:
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+        plot_path = None
+
+    result = {
+        'dataset_label': dataset_label,
+        'concentrations': concs.tolist(),
+        'delta_nm': deltas.tolist(),
+        'slope_nm_per_ppm': float(slope),
+        'intercept_nm': float(intercept),
+        'r2': r2,
+        'rmse_nm': rmse,
+        'slope_stderr': float(slope_stderr),
+        'slope_ci_low': float(slope_ci_low),
+        'slope_ci_high': float(slope_ci_high),
+        'predictions': preds.tolist(),
+        'residuals': residuals.tolist(),
+        'r2_cv': r2_cv,
+        'rmse_cv': rmse_cv,
+        'lod_ppm': float(lod),
+        'loq_ppm': float(loq),
+        'baseline_noise_nm': float(baseline_noise),
+        'metrics_path': str(metrics_path),
+        'table_path': str(table_path),
+        'plot_path': str(plot_path) if plot_path else None,
+        'trend_fallbacks': detailed_fallbacks,
+        'quality_per_concentration': quality_per_conc,
+        'quality_ratio': float(quality_ratio),
+        'quality_true_count': int(quality_true),
+        'quality_total': int(total_quality),
+        'calibration_quality_ok': bool(calibration_quality_ok),
+        'quality_thresholds': {
+            'min_quality_ratio': min_quality_ratio,
+            'min_quality_count': min_quality_count,
+            'min_r2': min_r2_required,
+        },
+    }
+
+    return result
 
 
 def load_reference_csv(ref_path: str) -> pd.DataFrame:
@@ -883,6 +2387,10 @@ def compute_transmittance(sample_df: pd.DataFrame, ref_df: Optional[pd.DataFrame
         return sample_df
     if ref_df is None or ref_df.empty:
         return sample_df
+    if 'intensity' not in sample_df.columns:
+        # Already in transmittance or another signal space
+        return sample_df
+
     ref_int = np.interp(sample_df['wavelength'].values, ref_df['wavelength'].values, ref_df['intensity'].values)
     with np.errstate(divide='ignore', invalid='ignore'):
         T = np.clip(np.where(ref_int != 0, sample_df['intensity'].values / ref_int, 0.0), 0.0, 1.0)
@@ -891,35 +2399,148 @@ def compute_transmittance(sample_df: pd.DataFrame, ref_df: Optional[pd.DataFrame
     return out
 
 
+def _append_absorbance_column(df: pd.DataFrame, *, inplace: bool = False) -> pd.DataFrame:
+    """Ensure an absorbance column A = -log10(T) exists when transmittance is available."""
+    if 'transmittance' not in df.columns:
+        return df if inplace else df.copy()
+
+    target = df if inplace else df.copy()
+    trans = target['transmittance'].to_numpy(dtype=float, copy=True)
+    trans = np.clip(trans, 1e-6, None)
+    target['absorbance'] = -np.log10(trans)
+    return target
+
+
+def _ensure_odd_window(window: int) -> int:
+    w = max(3, int(window))
+    if w % 2 == 0:
+        w += 1
+    return w
+
+
+def _apply_signal_strategy(df: pd.DataFrame, signal: str) -> pd.DataFrame:
+    strategies = CONFIG.get('analysis', {}).get('signal_strategies', {}) if isinstance(CONFIG, dict) else {}
+    strat = strategies.get(signal, {}) if isinstance(strategies, dict) else {}
+    if not strat:
+        return df
+
+    out = df.copy(deep=True)
+    wl = out['wavelength'].to_numpy(dtype=float, copy=True)
+    y = out[signal].to_numpy(dtype=float, copy=True)
+
+    smooth_cfg = strat.get('smooth', {}) if isinstance(strat, dict) else {}
+    if smooth_cfg.get('enabled', False):
+        method = smooth_cfg.get('method', 'savgol')
+        window = _ensure_odd_window(smooth_cfg.get('window', 11))
+        poly = int(max(1, smooth_cfg.get('poly_order', 3)))
+        y = smooth_spectrum(y, window=window, poly_order=poly, method=method)
+
+    baseline_cfg = strat.get('baseline', {}) if isinstance(strat, dict) else {}
+    if baseline_cfg.get('enabled', False):
+        method = baseline_cfg.get('method', 'als')
+        order = int(baseline_cfg.get('order', 2))
+        y = baseline_correction(wl, y, method=method, poly_order=order)
+
+    normalize_cfg = strat.get('normalize', {}) if isinstance(strat, dict) else {}
+    if normalize_cfg.get('enabled', False):
+        method = normalize_cfg.get('method', 'minmax')
+        y = normalize_spectrum(y, method=method)
+
+    clip_cfg = strat.get('clip', {}) if isinstance(strat, dict) else {}
+    if clip_cfg.get('enabled', False):
+        vmin = clip_cfg.get('min', None)
+        vmax = clip_cfg.get('max', None)
+        y = np.clip(y, vmin if vmin is not None else y, vmax if vmax is not None else y)
+
+    center_cfg = strat.get('center', {}) if isinstance(strat, dict) else {}
+    if center_cfg.get('enabled', False):
+        mode = str(center_cfg.get('mode', 'mean')).lower()
+        if mode == 'median':
+            y = y - float(np.nanmedian(y))
+        else:
+            y = y - float(np.nanmean(y))
+
+    out[signal] = y
+    return out
+
+
+def _build_signal_views(processed: Dict[float, Dict[str, pd.DataFrame]],
+                        raw: Dict[float, Dict[str, pd.DataFrame]]) -> Dict[str, Dict[float, Dict[str, pd.DataFrame]]]:
+    signal_views: Dict[str, Dict[float, Dict[str, pd.DataFrame]]] = {}
+    for signal in ('intensity', 'transmittance', 'absorbance'):
+        view_map: Dict[float, Dict[str, pd.DataFrame]] = {}
+        source = raw if (signal == 'intensity' and raw) else processed
+        for conc, trials in source.items():
+            trial_views: Dict[str, pd.DataFrame] = {}
+            for name, df in trials.items():
+                if signal not in df.columns:
+                    continue
+                cols = ['wavelength', signal]
+                extracted = df[cols].copy(deep=True)
+                prepared = _apply_signal_strategy(extracted, signal)
+                trial_views[name] = prepared
+            if trial_views:
+                view_map[conc] = trial_views
+        if view_map:
+            signal_views[signal] = view_map
+    return signal_views
+
+
+def _resolve_primary_signal(signal_views: Dict[str, Dict[float, Dict[str, pd.DataFrame]]]) -> str:
+    analysis_cfg = CONFIG.get('analysis', {}) if isinstance(CONFIG, dict) else {}
+    preferred = str(analysis_cfg.get('primary_signal', '') or '').lower()
+    candidates = [preferred] if preferred else []
+    if analysis_cfg.get('enable_absorbance', False):
+        candidates.append('absorbance')
+    candidates.extend(['transmittance', 'intensity'])
+    for candidate in candidates:
+        if candidate and candidate in signal_views:
+            return candidate
+    return next(iter(signal_views.keys())) if signal_views else 'intensity'
+
+
 def compute_transmittance_on_frames(frames: List[pd.DataFrame], ref_df: pd.DataFrame) -> List[pd.DataFrame]:
     return [compute_transmittance(df, ref_df) for df in frames]
+
+
 # ----------------------
 # Stability on multi-frame spectral trials
 # ----------------------
 
-def _align_on_grid(frames: List[pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray, bool]:
-    """Return (wl, Y, has_T). Y is frames x wavelengths matrix (prefers transmittance)."""
+def _align_on_grid(frames: List[pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray, Optional[str]]:
+    """Return (wl, Y, signal_col) using a signal present across all frames."""
+    if not frames:
+        raise ValueError("No frames provided for alignment")
+
     base = frames[0]
     wl = base['wavelength'].values
-    has_T = 'transmittance' in base.columns
+    signal_col = _select_common_signal(frames)
+    if signal_col is None:
+        signal_col = _signal_column(base)
+
     Y = []
     for df in frames:
-        vec = df['transmittance'].values if has_T and 'transmittance' in df.columns else df['intensity'].values
+        col = signal_col if signal_col in df.columns else _signal_column(df)
+        vec = df[col].values
         if not np.array_equal(df['wavelength'].values, wl):
             vec = np.interp(wl, df['wavelength'].values, vec)
         Y.append(vec)
-    return wl, np.vstack(Y), has_T
+
+    return wl, np.vstack(Y), signal_col if signal_col in base.columns else _signal_column(base)
 
 
 def find_stable_block(frames: List[pd.DataFrame],
                       diff_threshold: float = 0.01,
                       weight_mode: str = 'uniform',
-                      top_k: Optional[int] = None) -> Tuple[int, int, np.ndarray]:
+                      top_k: Optional[int] = None,
+                      min_block: Optional[int] = None,
+                      **_unused: object) -> Tuple[int, int, np.ndarray]:
     """Identify a stable frame range and optional weighting for averaging.
 
     Returns the start/end indices of the longest stable block along with per-frame
     weights that bias averaging toward stronger intensity frames if requested."""
     wl, Y, _ = _align_on_grid(frames)
+
     if Y.shape[0] == 1:
         return 0, 0, np.array([1.0])
     diffs = []
@@ -955,6 +2576,19 @@ def find_stable_block(frames: List[pd.DataFrame],
 
     start_idx = best_start
     end_idx = best_start + best_len - 1
+
+    if min_block and min_block > 0:
+        desired = min(int(min_block), Y.shape[0])
+        current = end_idx - start_idx + 1
+        if current < desired:
+            padding = desired - current
+            pad_left = padding // 2
+            pad_right = padding - pad_left
+            start_idx = max(0, start_idx - pad_left)
+            end_idx = min(Y.shape[0] - 1, end_idx + pad_right)
+            current = end_idx - start_idx + 1
+            if current < desired:
+                start_idx = max(0, end_idx - desired + 1)
 
     frame_window = np.zeros(Y.shape[0], dtype=bool)
     frame_window[start_idx:end_idx + 1] = True
@@ -996,24 +2630,63 @@ def average_stable_block(frames: List[pd.DataFrame],
                          start_idx: int,
                          end_idx: int,
                          weights: Optional[np.ndarray] = None) -> pd.DataFrame:
-    wl, Y, has_T = _align_on_grid(frames)
-    start_idx = max(0, min(start_idx, Y.shape[0] - 1))
-    end_idx = max(start_idx, min(end_idx, Y.shape[0] - 1))
-    selected = Y[start_idx:end_idx + 1]
-    if weights is not None and weights.size == Y.shape[0]:
-        block_weights = weights[start_idx:end_idx + 1]
-        if np.any(block_weights > 0):
-            block_weights = block_weights / np.sum(block_weights)
-            avg_vec = np.average(selected, axis=0, weights=block_weights)
-        else:
-            avg_vec = selected.mean(axis=0)
+    if not frames:
+        return pd.DataFrame()
+
+    base_wl = frames[0]['wavelength'].values
+    start_idx = max(0, min(start_idx, len(frames) - 1))
+    end_idx = max(start_idx, min(end_idx, len(frames) - 1))
+
+    frame_indices = list(range(start_idx, end_idx + 1))
+    if not frame_indices:
+        return pd.DataFrame({'wavelength': base_wl})
+
+    if weights is not None and weights.size == len(frames):
+        frame_weights = weights[frame_indices]
     else:
-        avg_vec = selected.mean(axis=0)
-    out = pd.DataFrame({'wavelength': wl})
-    if has_T:
-        out['transmittance'] = avg_vec
-    else:
-        out['intensity'] = avg_vec
+        frame_weights = None
+
+    common_cols = _common_signal_columns(frames)
+    out = pd.DataFrame({'wavelength': base_wl})
+
+    for col in common_cols:
+        accum = np.zeros_like(base_wl, dtype=float)
+        total_weight = 0.0
+        for idx, frame_idx in enumerate(frame_indices):
+            df = frames[frame_idx]
+            if col not in df.columns:
+                continue
+            weight = frame_weights[idx] if frame_weights is not None else 1.0
+            if weight <= 0:
+                continue
+            vec = df[col].to_numpy(dtype=float, copy=True)
+            wl = df['wavelength'].to_numpy(dtype=float, copy=True)
+            if not np.array_equal(wl, base_wl):
+                vec = np.interp(base_wl, wl, vec)
+            accum += weight * vec
+            total_weight += weight
+        if total_weight > 0:
+            out[col] = accum / total_weight
+
+    # If no common columns were averaged, fall back to the signal column of the first frame
+    if len(out.columns) == 1:
+        col = _signal_column(frames[0])
+        accum = np.zeros_like(base_wl, dtype=float)
+        total_weight = 0.0
+        for idx, frame_idx in enumerate(frame_indices):
+            df = frames[frame_idx]
+            weight = frame_weights[idx] if frame_weights is not None else 1.0
+            if weight <= 0 or col not in df.columns:
+                continue
+            vec = df[col].to_numpy(dtype=float, copy=True)
+            wl = df['wavelength'].to_numpy(dtype=float, copy=True)
+            if not np.array_equal(wl, base_wl):
+                vec = np.interp(base_wl, wl, vec)
+            accum += weight * vec
+            total_weight += weight
+        if total_weight > 0:
+            out[col] = accum / total_weight
+
     return out
 
 
@@ -1024,18 +2697,30 @@ def average_top_frames(frames: List[pd.DataFrame], top_k: int = 5) -> pd.DataFra
     top_k = max(1, min(len(frames), top_k))
     selected = frames[:top_k]
     base_wl = selected[0]['wavelength'].values
+    signal_col = 'intensity' if all('intensity' in df.columns for df in selected) else _select_common_signal(selected, ('intensity', 'transmittance', 'absorbance'))
+    if signal_col is None:
+        return pd.DataFrame({'wavelength': base_wl})
+
     accum = np.zeros_like(base_wl, dtype=float)
     count = 0
     for df in selected:
         wl = df['wavelength'].values
+        if signal_col not in df.columns:
+            continue
+        values = df[signal_col].values
         if not np.array_equal(wl, base_wl):
-            intensity = np.interp(base_wl, wl, df['intensity'].values)
-        else:
-            intensity = df['intensity'].values
-        accum += intensity
+            values = np.interp(base_wl, wl, values)
+        accum += values
         count += 1
     avg_intensity = accum / max(count, 1)
-    return pd.DataFrame({'wavelength': base_wl, 'intensity': avg_intensity})
+    result = pd.DataFrame({'wavelength': base_wl})
+    result[signal_col] = avg_intensity
+    if signal_col != 'intensity':
+        # Retain compatibility with downstream steps expecting an intensity column
+        result['intensity'] = avg_intensity
+    if signal_col == 'transmittance' and 'absorbance' not in result.columns:
+        result = _append_absorbance_column(result)
+    return result
 
 
 def compute_roi_linearity(df: pd.DataFrame,
@@ -1067,25 +2752,40 @@ def compute_roi_linearity(df: pd.DataFrame,
 # ----------------------
 
 def select_canonical_per_concentration(stable_results: Dict[float, Dict[str, pd.DataFrame]]) -> Dict[float, pd.DataFrame]:
-    """Aggregate trials per concentration using an averaged spectrum for robustness."""
+    """Aggregate trials per concentration using robust outlier rejection and weighted averaging."""
     canonical: Dict[float, pd.DataFrame] = {}
     for conc, trials in stable_results.items():
         if not trials:
             continue
 
         base_wl: Optional[np.ndarray] = None
-        accum: Dict[str, List[np.ndarray]] = {}
-        weights_by_col: Dict[str, List[float]] = {}
+        accum: Dict[str, np.ndarray] = {}
+        weight_sums: Dict[str, float] = {}
 
-        for df in trials.values():
+        for trial_name, df in trials.items():
             wl = df['wavelength'].to_numpy()
             if base_wl is None:
                 base_wl = wl
             elif not np.array_equal(base_wl, wl):
-                # Interpolate onto the first trial's wavelength grid
-                wl_interp = base_wl
-            else:
-                wl_interp = wl
+                # interpolate onto the first trial's wavelength grid when needed
+                pass
+
+            # Optional per-trial weight (e.g. quality score); defaults to 1.0
+            weight = 1.0
+            try:
+                # trial_weights may be provided in the caller via a closure or outer scope
+                trial_weights: Optional[Dict[float, Dict[str, float]]] = globals().get('TRIAL_WEIGHTS_FOR_CANONICAL')  # type: ignore[assignment]
+            except Exception:
+                trial_weights = None
+            if isinstance(trial_weights, dict):
+                conc_weights = trial_weights.get(conc, {}) if isinstance(trial_weights.get(conc, {}), dict) else {}
+                w_val = conc_weights.get(trial_name, 1.0)
+                try:
+                    weight = float(w_val)
+                except Exception:
+                    weight = 1.0
+            if not np.isfinite(weight) or weight <= 0.0:
+                continue
 
             for col in df.columns:
                 if col == 'wavelength':
@@ -1093,24 +2793,33 @@ def select_canonical_per_concentration(stable_results: Dict[float, Dict[str, pd.
                 series = df[col].to_numpy()
                 if base_wl is not None and not np.array_equal(base_wl, wl):
                     series = np.interp(base_wl, wl, series)
-                accum.setdefault(col, []).append(series)
+                arr = series.astype(float)
+                if col not in accum:
+                    accum[col] = weight * arr
+                    weight_sums[col] = weight
+                else:
+                    accum[col] += weight * arr
+                    weight_sums[col] += weight
 
-                metrics = estimate_noise_metrics(base_wl if base_wl is not None else wl, series)
-                weight = float(max(metrics.snr, 1e-6) / (metrics.mad + 1e-6))
-                weights_by_col.setdefault(col, []).append(weight)
-
-        if base_wl is None:
+        if base_wl is None or not accum:
             continue
 
         canonical_df = pd.DataFrame({'wavelength': base_wl})
-        for col, stacks in accum.items():
-            mat = np.vstack(stacks)
-            weights = np.array(weights_by_col.get(col, [1.0] * len(stacks)), dtype=float)
-            weights = np.clip(weights, 1e-6, None)
-            weights /= np.sum(weights)
-            canonical_df[col] = np.average(mat, axis=0, weights=weights)
+        for col, s in accum.items():
+            wsum = weight_sums.get(col, 0.0)
+            if wsum > 0.0:
+                canonical_df[col] = s / wsum
         canonical[conc] = canonical_df
 
+    return canonical
+
+
+def _baseline_correct_canonical(canonical: Dict[float, pd.DataFrame]) -> Dict[float, pd.DataFrame]:
+    # Return canonical spectra without subtracting the lowest concentration.
+    # Previous behavior used the minimum concentration (e.g., 1 ppm) as a
+    # surrogate “zero” baseline, which inverted the calibration trend when the
+    # true baseline should be an external air reference. Until we wire in the
+    # dedicated zero-gas reference, keep spectra in absolute wavelength space.
     return canonical
 
 
@@ -1134,18 +2843,119 @@ def _apply_wavelength_limits(x: np.ndarray,
                              max_wl: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray]:
     mask = np.ones_like(x, dtype=bool)
     if min_wl is not None:
-        mask &= (x >= float(min_wl))
+        mask &= (x >= min_wl)
     if max_wl is not None:
-        mask &= (x <= float(max_wl))
-    if not np.any(mask):
-        raise ValueError("No data points remain after applying wavelength constraints")
+        mask &= (x <= max_wl)
+    if mask.sum() == 0:
+        return x, y
     return x[mask], y[mask]
+
+
+def _resolve_roi_bounds(dataset_label: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
+    roi_cfg = CONFIG.get('roi', {}) if isinstance(CONFIG, dict) else {}
+    min_global = roi_cfg.get('min_wavelength')
+    max_global = roi_cfg.get('max_wavelength')
+    overrides = roi_cfg.get('per_gas_overrides', {}) if isinstance(roi_cfg, dict) else {}
+    if dataset_label and isinstance(overrides, dict):
+        entry = overrides.get(dataset_label, {})
+        if isinstance(entry, dict):
+            rng = entry.get('range', {})
+            if isinstance(rng, dict):
+                min_override = rng.get('min_wavelength', min_global)
+                max_override = rng.get('max_wavelength', max_global)
+                return min_override, max_override
+    return min_global, max_global
+
+
+def _resolve_expected_center(dataset_label: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
+    roi_cfg = CONFIG.get('roi', {}) if isinstance(CONFIG, dict) else {}
+    overrides = roi_cfg.get('per_gas_overrides', {}) if isinstance(roi_cfg, dict) else {}
+    if dataset_label and isinstance(overrides, dict):
+        entry = overrides.get(dataset_label, {})
+        if isinstance(entry, dict):
+            validation = entry.get('validation', {})
+            if isinstance(validation, dict):
+                return validation.get('expected_center'), validation.get('tolerance')
+    validation_cfg = roi_cfg.get('validation', {}) if isinstance(roi_cfg, dict) else {}
+    if isinstance(validation_cfg, dict):
+        return validation_cfg.get('expected_center'), validation_cfg.get('tolerance')
+    return None, None
+
+
+def _refine_centroid_with_derivative(df: pd.DataFrame,
+                                      centroid_cfg: Optional[Dict[str, object]],
+                                      expected_center: Optional[float],
+                                      span_nm: float = 2.0,
+                                      smooth_window: int = 7) -> float:
+    if expected_center is None or not np.isfinite(expected_center):
+        return float('nan')
+
+    centroid_cfg = centroid_cfg or {}
+    try:
+        span_nm = float(centroid_cfg.get('derivative_span_nm', span_nm) or span_nm)
+    except Exception:
+        span_nm = span_nm
+    try:
+        smooth_window = int(centroid_cfg.get('derivative_smooth_window', smooth_window) or smooth_window)
+    except Exception:
+        smooth_window = smooth_window
+
+    if span_nm <= 0:
+        return float('nan')
+
+    x, y = _prepare_calibration_signal(df, centroid_cfg)
+    if x.size < 3:
+        return float('nan')
+
+    mask = (x >= expected_center - span_nm) & (x <= expected_center + span_nm)
+    if np.count_nonzero(mask) < 3:
+        idx_closest = int(np.argmin(np.abs(x - expected_center)))
+        return float(x[idx_closest])
+
+    xx = x[mask]
+    yy = y[mask]
+
+    # Ensure odd window length within range
+    smooth_window = max(5, smooth_window)
+    smooth_window = _ensure_odd_window(smooth_window)
+    if smooth_window >= xx.size:
+        smooth_window = xx.size - 1 if xx.size % 2 == 0 else xx.size
+    smooth_window = max(3, smooth_window)
+    if smooth_window >= xx.size:
+        # if still too large, fall back to gradient
+        smooth_window = 0
+
+    delta = float(np.mean(np.diff(xx))) if xx.size > 1 else 1.0
+    try:
+        if smooth_window >= 3:
+            deriv = savgol_filter(
+                yy,
+                window_length=smooth_window,
+                polyorder=min(3, smooth_window - 1),
+                deriv=1,
+                delta=delta,
+                mode='interp',
+            )
+        else:
+            raise RuntimeError('window_too_small')
+    except Exception:
+        deriv = np.gradient(yy, xx)
+
+    idx_peak = int(np.argmax(np.abs(deriv)))
+    idx_peak = int(np.clip(idx_peak, 0, xx.size - 1))
+    return float(xx[idx_peak])
 
 
 def _prepare_calibration_signal(df: pd.DataFrame,
                                 centroid_cfg: Optional[Dict[str, object]] = None) -> Tuple[np.ndarray, np.ndarray]:
     centroid_cfg = centroid_cfg or {}
-    ycol = 'transmittance' if 'transmittance' in df.columns else 'intensity'
+    ycol = _signal_column(df)
+    if ycol not in df.columns:
+        # Fallback: use first non-wavelength column if present
+        candidates = [c for c in df.columns if c != 'wavelength']
+        if not candidates:
+            raise KeyError("No signal column available for calibration")
+        ycol = candidates[0]
     x = df['wavelength'].values
     y = _smooth(df[ycol].values)
     min_wl = centroid_cfg.get('min_wavelength')
@@ -1209,7 +3019,7 @@ def _gaussian_peak_center(x: np.ndarray,
 
     # Guess baseline and amplitude
     baseline = float(np.median(yy))
-    is_min = bool(yy.min() < baseline)
+    is_min = bool(yy.min() < (np.median(yy) - 0.25 * (yy.max() - yy.min())))
     if is_min:
         A0 = float(yy.min() - baseline)
         idx0 = int(np.argmin(yy))
@@ -1238,6 +3048,7 @@ def _gaussian_peak_center(x: np.ndarray,
         # fallback to centroid inside window
         weights = np.abs(yy - baseline) + 1e-9
         return float(np.sum(xx * weights) / np.sum(weights))
+
 
 def _compute_band_ratio_matrix(Y: np.ndarray, half_width: int) -> np.ndarray:
     n_samples, n_wl = Y.shape
@@ -1271,7 +3082,11 @@ def _find_peak_wavelength(df: pd.DataFrame, centroid_cfg: Optional[Dict[str, obj
 
     # Decide if peak is max or min using overall skew
     is_min_peak = (y.min() < (np.median(y) - 0.25 * (y.max() - y.min())))
-    idx = int(np.argmin(y) if is_min_peak else np.argmax(y))
+    centroid_hint = centroid_cfg.get('centroid_hint')
+    if centroid_hint is not None and np.isfinite(centroid_hint):
+        idx = int(np.argmin(np.abs(x - centroid_hint)))
+    else:
+        idx = int(np.argmin(y) if is_min_peak else np.argmax(y))
 
     half_width = int(centroid_cfg.get('centroid_half_width', 5))
     half_width = max(1, min(half_width, len(x) // 2))
@@ -1321,11 +3136,557 @@ def _transform_concentrations(concs: np.ndarray, mode: str) -> Tuple[np.ndarray,
     return transformed, meta
 
 
-def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, object]:
+def _measure_peak_within_window(df: pd.DataFrame,
+                                center_nm: float,
+                                window_nm: float,
+                                centroid_cfg: Optional[Dict[str, object]] = None) -> float:
+    df_sorted = df.sort_values('wavelength').reset_index(drop=True)
+    if df_sorted.empty:
+        return float('nan')
+
+    half = max(window_nm / 2.0, 0.1)
+    min_wl = center_nm - half
+    max_wl = center_nm + half
+    mask = (df_sorted['wavelength'] >= min_wl) & (df_sorted['wavelength'] <= max_wl)
+    subset = df_sorted.loc[mask].copy()
+
+    expand_step = 0.5
+    expand_limit = max(window_nm, 6.0)
+    expand = expand_step
+    while subset.empty and expand <= expand_limit:
+        lower = min_wl - expand
+        upper = max_wl + expand
+        mask = (df_sorted['wavelength'] >= lower) & (df_sorted['wavelength'] <= upper)
+        subset = df_sorted.loc[mask].copy()
+        expand += expand_step
+
+    if subset.empty:
+        return float('nan')
+
+    cfg = dict(centroid_cfg or {})
+    cfg['min_wavelength'] = subset['wavelength'].min()
+    cfg['max_wavelength'] = subset['wavelength'].max()
+    cfg['centroid_hint'] = center_nm
+    cfg.setdefault('centroid_half_width', max(3, int(np.ceil(subset.shape[0] / 6.0))))
+
+    try:
+        return _find_peak_wavelength(subset, centroid_cfg=cfg)
+    except Exception:
+        try:
+            signal_col = _signal_column(subset)
+            wl = subset['wavelength'].to_numpy(dtype=float)
+            signal = subset[signal_col].to_numpy(dtype=float)
+            weights = np.abs(signal - np.median(signal)) + 1e-9
+            return float(np.sum(wl * weights) / np.sum(weights))
+        except Exception:
+            wl = subset['wavelength'].to_numpy(dtype=float)
+            return float(np.nanmean(wl)) if wl.size else float('nan')
+
+
+def _evaluate_roi_candidate(canonical_items: List[Tuple[float, pd.DataFrame]],
+                            center_nm: float,
+                            window_nm: float,
+                            centroid_cfg: Optional[Dict[str, object]],
+                            gates: Dict[str, float],
+                            prior_center: Optional[float],
+                            prior_weight: float,
+                            weights: Dict[str, float]) -> Dict[str, object]:
+    concs = np.array([c for c, _ in canonical_items], dtype=float)
+    peaks: List[float] = []
+    deltas: List[float] = []
+    baseline_peak = float('nan')
+
+    for _, df in canonical_items:
+        peak = _measure_peak_within_window(df, center_nm, window_nm, centroid_cfg)
+        peaks.append(float(peak))
+        if not np.isfinite(baseline_peak) and np.isfinite(peak):
+            baseline_peak = float(peak)
+        if np.isfinite(peak) and np.isfinite(baseline_peak):
+            deltas.append(float(peak) - float(baseline_peak))
+        else:
+            deltas.append(float('nan'))
+
+    peaks_arr = np.array(peaks, dtype=float)
+    deltas_arr = np.array(deltas, dtype=float)
+    valid_mask = np.isfinite(peaks_arr) & np.isfinite(deltas_arr) & np.isfinite(concs)
+    concs_valid = concs[valid_mask]
+    deltas_valid = deltas_arr[valid_mask]
+
+    slope = float('nan')
+    intercept = float('nan')
+    r2 = float('nan')
+    rmse = float('nan')
+    residuals = np.full_like(deltas_valid, float('nan'))
+    if concs_valid.size >= 2:
+        try:
+            slope_lin, intercept_lin, r_val_lin, _, _ = linregress(concs_valid, deltas_valid)
+            preds = intercept_lin + slope_lin * concs_valid
+            residuals = deltas_valid - preds
+            ss_tot = np.sum((deltas_valid - np.nanmean(deltas_valid)) ** 2)
+            ss_res = np.sum(residuals ** 2)
+            r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float('nan')
+            slope = float(slope_lin)
+            intercept = float(intercept_lin)
+            rmse = float(np.sqrt(ss_res / residuals.size)) if residuals.size else float('nan')
+        except Exception:
+            slope = float('nan')
+            intercept = float('nan')
+            r2 = float('nan')
+            rmse = float('nan')
+
+    consistency = float('nan')
+    if concs_valid.size >= 2:
+        finite_mask = np.isfinite(deltas_valid)
+        if np.count_nonzero(finite_mask) > 0:
+            finite_deltas = deltas_valid[finite_mask]
+            sign_ref = np.sign(np.nanmedian(finite_deltas))
+            if sign_ref == 0:
+                sign_ref = np.sign(slope)
+            if sign_ref == 0:
+                sign_ref = 1.0
+            same = np.sum(np.sign(finite_deltas) == sign_ref)
+            consistency = float(same / finite_deltas.size)
+
+    snr = float('nan')
+    if np.isfinite(slope) and np.isfinite(rmse) and rmse > 0:
+        snr = float(abs(slope) / rmse)
+
+    gate_min_r2 = float(gates.get('min_r2', 0.7))
+    gate_min_consistency = float(gates.get('min_consistency', 0.8))
+    gate_min_snr = float(gates.get('min_snr', 3.0))
+    gate_min_abs_slope = float(gates.get('min_abs_slope', 0.02))
+    gate_min_count = int(gates.get('min_conc_count', 3))
+
+    valid_conc_count = int(np.unique(np.round(concs_valid, decimals=6)).size)
+    slope_abs = abs(slope) if np.isfinite(slope) else float('nan')
+
+    quality_flags = {
+        'min_conc_count': bool(valid_conc_count >= gate_min_count),
+        'min_r2': bool(np.isfinite(r2) and r2 >= gate_min_r2),
+        'min_consistency': bool(np.isfinite(consistency) and consistency >= gate_min_consistency),
+        'min_snr': bool(np.isfinite(snr) and snr >= gate_min_snr),
+        'min_abs_slope': bool(np.isfinite(slope_abs) and slope_abs >= gate_min_abs_slope),
+    }
+    quality_ok = all(quality_flags.values())
+
+    w_r2 = float(weights.get('r2', 1.5))
+    w_slope = float(weights.get('slope', 0.6))
+    w_snr = float(weights.get('snr', 0.4))
+    penalty = prior_weight * abs(center_nm - prior_center) if (prior_center is not None and np.isfinite(prior_center)) else 0.0
+    score_components = {
+        'r2': float(r2),
+        'abs_slope': float(abs(slope)) if np.isfinite(slope) else float('nan'),
+        'snr': float(snr) if np.isfinite(snr) else float('nan'),
+    }
+    score = 0.0
+    if np.isfinite(r2):
+        score += w_r2 * r2
+    if np.isfinite(slope):
+        score += w_slope * abs(slope)
+    if np.isfinite(snr):
+        score += w_snr * snr
+    score -= penalty
+
+    candidate = {
+        'center_nm': float(center_nm),
+        'window_nm': float(window_nm),
+        'min_wavelength_nm': float(center_nm - window_nm / 2.0),
+        'max_wavelength_nm': float(center_nm + window_nm / 2.0),
+        'slope_nm_per_ppm': float(slope) if np.isfinite(slope) else float('nan'),
+        'intercept_nm': float(intercept) if np.isfinite(intercept) else float('nan'),
+        'r2': float(r2) if np.isfinite(r2) else float('nan'),
+        'rmse_nm': float(rmse) if np.isfinite(rmse) else float('nan'),
+        'snr': float(snr) if np.isfinite(snr) else float('nan'),
+        'consistency': float(consistency) if np.isfinite(consistency) else float('nan'),
+        'valid_points': int(concs_valid.size),
+        'unique_concentrations': valid_conc_count,
+        'baseline_peak_nm': float(baseline_peak) if np.isfinite(baseline_peak) else float('nan'),
+        'quality_flags': quality_flags,
+        'quality_ok': bool(quality_ok),
+        'score': float(score),
+        'score_components': score_components,
+        'deltas_nm': deltas_arr.tolist(),
+        'peaks_nm': peaks_arr.tolist(),
+    }
+    if concs_valid.size:
+        candidate['concentrations_ppm'] = concs_valid.tolist()
+        candidate['deltas_valid_nm'] = deltas_valid.tolist()
+        candidate['residuals_nm'] = residuals.tolist() if residuals.size else []
+    else:
+        candidate['concentrations_ppm'] = []
+        candidate['deltas_valid_nm'] = []
+        candidate['residuals_nm'] = []
+    return candidate
+
+
+def _discover_roi_in_band(canonical: Dict[float, pd.DataFrame],
+                          dataset_label: Optional[str] = None,
+                          out_root: Optional[str] = None) -> Dict[str, object]:
+    print("[DEBUG] _discover_roi_in_band called")
+    roi_cfg = CONFIG.get('roi', {}) if isinstance(CONFIG, dict) else {}
+    discovery_cfg = roi_cfg.get('discovery', {}) if isinstance(roi_cfg.get('discovery', {}), dict) else {}
+    if not discovery_cfg.get('enabled', False):
+        return {}
+
+    band = discovery_cfg.get('band', [600.0, 700.0])
+    band_min = float(band[0]) if isinstance(band, (list, tuple)) and len(band) >= 2 else 600.0
+    band_max = float(band[1]) if isinstance(band, (list, tuple)) and len(band) >= 2 else 700.0
+    window_nm = float(discovery_cfg.get('window_nm', 12.0))
+    step_nm_cfg = discovery_cfg.get('step_nm', 0.2)
+    try:
+        step_nm = float(step_nm_cfg)
+    except Exception:
+        step_nm = 0.2
+    if step_nm <= 0:
+        step_nm = 0.2
+    expected_center = discovery_cfg.get('expected_center', None)
+    prior_center = float(expected_center) if expected_center is not None else None
+    prior_weight = float(discovery_cfg.get('prior_weight', 0.03))
+    gates = discovery_cfg.get('gates', {}) if isinstance(discovery_cfg.get('gates', {}), dict) else {}
+    weights = discovery_cfg.get('weights', {}) if isinstance(discovery_cfg.get('weights', {}), dict) else {}
+
+    calib_cfg = CONFIG.get('calibration', {}) if isinstance(CONFIG, dict) else {}
+    centroid_cfg = calib_cfg.copy() if isinstance(calib_cfg, dict) else {}
+
+    canonical_items = sorted(canonical.items(), key=lambda kv: kv[0])
+    if not canonical_items:
+        return {}
+
+    # Build an instrument-aware set of candidate centers from the actual wavelength grid.
+    try:
+        wl_all: List[float] = []
+        for _, df in canonical_items:
+            if 'wavelength' in df.columns:
+                wl_vals = df['wavelength'].to_numpy(dtype=float)
+                wl_all.append(wl_vals)
+        if wl_all:
+            wl_concat = np.unique(np.concatenate(wl_all))
+            mask_band = (wl_concat >= band_min) & (wl_concat <= band_max)
+            wl_band = wl_concat[mask_band]
+        else:
+            wl_band = np.array([], dtype=float)
+    except Exception:
+        wl_band = np.array([], dtype=float)
+
+    if wl_band.size == 0:
+        # Fallback to uniform centers if wavelength grid could not be resolved.
+        centers = np.arange(band_min, band_max + step_nm / 2.0, step_nm)
+    else:
+        # Use step_nm as an approximate stride in units of the native wavelength spacing.
+        if wl_band.size > 1:
+            diffs = np.diff(wl_band)
+            median_spacing = float(np.median(diffs[diffs > 0])) if np.any(diffs > 0) else step_nm
+            if median_spacing <= 0:
+                median_spacing = step_nm
+            stride = max(1, int(round(step_nm / median_spacing)))
+        else:
+            stride = 1
+        centers = wl_band[::stride]
+    candidates: List[Dict[str, object]] = []
+    for center_nm in centers:
+        candidate = _evaluate_roi_candidate(
+            canonical_items,
+            float(center_nm),
+            window_nm,
+            centroid_cfg,
+            gates,
+            prior_center,
+            prior_weight,
+            weights,
+        )
+        candidates.append(candidate)
+
+    if not candidates:
+        return {}
+
+    candidates_sorted = sorted(candidates, key=lambda c: c.get('score', float('-inf')), reverse=True)
+
+    min_r2_for_sensitivity = float(discovery_cfg.get('best_sensitivity_min_r2', float('nan')))
+    print(f"[DEBUG] min_r2_for_sensitivity = {min_r2_for_sensitivity}")
+    print(f"[DEBUG] Is finite: {np.isfinite(min_r2_for_sensitivity)}")
+    top_candidate = None
+    if np.isfinite(min_r2_for_sensitivity):
+        print(f"[DEBUG] Entering sensitivity-first selection logic")
+        best_sens_candidate: Optional[Dict[str, object]] = None
+        best_abs_slope = float('-inf')
+        print(f"[DEBUG] Checking {len(candidates_sorted)} candidates for sensitivity-first selection")
+        for i, cand in enumerate(candidates_sorted):
+            print(f"[DEBUG] Candidate {i}: ROI {cand.get('roi_range')} nm, R²={cand.get('r2'):.4f}, slope={cand.get('slope_nm_per_ppm', cand.get('slope')):.4f}")
+            if not cand.get('quality_ok'):
+                print(f"[DEBUG]   Failed quality_ok")
+                continue
+            r2_val = cand.get('r2')
+            slope_val = cand.get('slope_nm_per_ppm') or cand.get('slope')  # Fix: check both keys
+            if not isinstance(r2_val, (int, float)) or not np.isfinite(r2_val):
+                continue
+            if r2_val < min_r2_for_sensitivity:
+                print(f"[DEBUG]   Failed R² threshold: {r2_val} < {min_r2_for_sensitivity}")
+                continue
+            if not isinstance(slope_val, (int, float)) or not np.isfinite(slope_val):
+                continue
+            abs_slope = abs(float(slope_val))
+            if abs_slope > best_abs_slope:
+                best_abs_slope = abs_slope
+                best_sens_candidate = cand
+                print(f"[DEBUG]   New best sensitivity: {abs_slope:.4f}")
+        if best_sens_candidate is not None:
+            top_candidate = best_sens_candidate
+            print(f"[DEBUG] Selected sensitivity-first candidate: ROI {top_candidate.get('roi_range')} nm")
+        else:
+            print(f"[DEBUG] No candidate met sensitivity criteria")
+    else:
+        print(f"[DEBUG] Skipping sensitivity-first selection (min_r2 is NaN)")
+        
+    if top_candidate is None:
+        print(f"[DEBUG] Using fallback selection")
+        top_candidate = next((c for c in candidates_sorted if c.get('quality_ok')), candidates_sorted[0])
+        print(f"[DEBUG] Fallback selected: ROI {top_candidate.get('roi_range')} nm")
+
+    discovery = {
+        'selected': top_candidate,
+        'candidates': candidates_sorted[:int(discovery_cfg.get('retain_top', 10))],
+        'band': [band_min, band_max],
+        'window_nm': window_nm,
+        'step_nm': step_nm,
+        'prior_center': prior_center,
+        'prior_weight': prior_weight,
+        'gates': gates,
+        'weights': weights,
+        'dataset_label': dataset_label,
+    }
+
+    if out_root:
+        try:
+            metrics_dir = Path(out_root) / 'metrics'
+            metrics_dir.mkdir(parents=True, exist_ok=True)
+            _write_json(metrics_dir / 'roi_discovery.json', discovery)
+        except Exception:
+            pass
+
+    return discovery
+
+
+def _merge_discovered_bounds(min_wl: float,
+                             max_wl: float,
+                             expected_center: Optional[float],
+                             discovered_roi: Optional[Dict[str, object]]) -> Tuple[float, float, Optional[float], Optional[Dict[str, object]]]:
+    info: Optional[Dict[str, object]] = None
+    if isinstance(discovered_roi, dict):
+        selected = discovered_roi.get('selected', {})
+        if isinstance(selected, dict) and bool(selected.get('quality_ok', False)):
+            sel_min = selected.get('min_wavelength_nm')
+            sel_max = selected.get('max_wavelength_nm')
+            try:
+                sel_min = float(sel_min)
+                sel_max = float(sel_max)
+            except (TypeError, ValueError):
+                sel_min = sel_max = None
+            if sel_min is not None and sel_max is not None and np.isfinite(sel_min) and np.isfinite(sel_max) and sel_min < sel_max:
+                min_wl = max(min_wl, sel_min)
+                max_wl = min(max_wl, sel_max)
+                info = {
+                    'min_wavelength_nm': float(min_wl),
+                    'max_wavelength_nm': float(max_wl),
+                    'center_nm': float(selected.get('center_nm', (sel_min + sel_max) * 0.5)),
+                    'window_nm': float(selected.get('window_nm', sel_max - sel_min)),
+                    'score': selected.get('score'),
+                }
+                if expected_center is None and info.get('center_nm') is not None:
+                    expected_center = info.get('center_nm')
+    return min_wl, max_wl, expected_center, info
+
+
+def _select_multi_roi_candidates(discovered_roi: Dict[str, object], max_features: int = 4) -> List[Dict[str, object]]:
+    if not isinstance(discovered_roi, dict):
+        return []
+
+    candidates = discovered_roi.get('candidates') or []
+    if not isinstance(candidates, list):
+        candidates = []
+
+    quality: List[Dict[str, object]] = []
+    seen_centers: Set[float] = set()
+
+    def _maybe_add(cand: Dict[str, object]):
+        if not isinstance(cand, dict):
+            return
+        if not bool(cand.get('quality_ok', False)):
+            return
+        center = cand.get('center_nm')
+        deltas = cand.get('deltas_valid_nm') or cand.get('deltas_nm')
+        concs = cand.get('concentrations_ppm')
+        if center is None or not isinstance(deltas, (list, tuple)) or not isinstance(concs, (list, tuple)):
+            return
+        if len(deltas) != len(concs) or len(deltas) < 2:
+            return
+        center_val = float(center)
+        if center_val in seen_centers:
+            return
+        seen_centers.add(center_val)
+        quality.append(cand)
+
+    _maybe_add(discovered_roi.get('selected'))
+    for cand in candidates:
+        _maybe_add(cand)
+
+    def _score(cand: Dict[str, object]) -> float:
+        slope = cand.get('slope_nm_per_ppm')
+        r2 = cand.get('r2')
+        slope_val = abs(float(slope)) if isinstance(slope, (int, float)) else 0.0
+        r2_val = float(r2) if isinstance(r2, (int, float)) else 0.0
+        return (slope_val, r2_val)
+
+    quality.sort(key=_score, reverse=True)
+    return quality[:max_features]
+
+
+def _compute_multi_roi_fusion_calibration(discovered_roi: Optional[Dict[str, object]],
+                                          calib: Dict[str, object],
+                                          out_root: str,
+                                          dataset_label: Optional[str],
+                                          max_features: int = 4) -> Optional[Dict[str, object]]:
+    if not discovered_roi or not isinstance(calib, dict):
+        return None
+
+    concentrations = calib.get('concentrations') or []
+    if not isinstance(concentrations, list) or len(concentrations) < 3:
+        return None
+    y = np.array(concentrations, dtype=float)
+    if not np.all(np.isfinite(y)):
+        return None
+
+    selected = _select_multi_roi_candidates(discovered_roi, max_features=max_features)
+    if len(selected) < 2:
+        return None
+
+    feature_vectors: List[np.ndarray] = []
+    feature_details: List[Dict[str, object]] = []
+    for cand in selected:
+        deltas = cand.get('deltas_valid_nm') or cand.get('deltas_nm')
+        concs = cand.get('concentrations_ppm') or []
+        vec = np.array(deltas, dtype=float)
+        conc_vec = np.array(concs, dtype=float)
+        if vec.shape[0] != y.shape[0]:
+            continue
+        if not np.all(np.isfinite(vec)):
+            continue
+        if np.std(vec) < 1e-6:
+            continue
+        feature_vectors.append(vec)
+        feature_details.append({
+            'center_nm': float(cand.get('center_nm', float('nan'))),
+            'slope_nm_per_ppm': float(cand.get('slope_nm_per_ppm', float('nan'))),
+            'r2': float(cand.get('r2', float('nan'))),
+            'snr': float(cand.get('snr', float('nan'))),
+        })
+
+    if len(feature_vectors) < 2:
+        return None
+
+    X = np.column_stack(feature_vectors)
+    model = LinearRegression()
+    model.fit(X, y)
+    y_pred = model.predict(X)
+    r2 = r2_score(y, y_pred)
+    rmse = math.sqrt(mean_squared_error(y, y_pred))
+    residuals = y_pred - y
+    lod_ppm = float('nan')
+    if residuals.size > 1:
+        sigma = np.std(residuals, ddof=1)
+        if np.isfinite(sigma):
+            lod_ppm = 3.0 * sigma
+
+    r2_cv = float('nan')
+    rmse_cv = float('nan')
+    cv_preds = None
+    n = y.shape[0]
+    if n >= 4:
+        cv_preds = np.empty(n, dtype=float)
+        for i in range(n):
+            X_train = np.delete(X, i, axis=0)
+            y_train = np.delete(y, i)
+            try:
+                model_cv = LinearRegression()
+                model_cv.fit(X_train, y_train)
+                cv_preds[i] = model_cv.predict(X[i:i+1])[0]
+            except Exception:
+                cv_preds = None
+                break
+        if cv_preds is not None and np.all(np.isfinite(cv_preds)):
+            r2_cv = r2_score(y, cv_preds)
+            rmse_cv = math.sqrt(mean_squared_error(y, cv_preds))
+
+    metrics = {
+        'dataset': dataset_label,
+        'n_points': int(n),
+        'n_features': int(X.shape[1]),
+        'feature_centers_nm': [fd['center_nm'] for fd in feature_details],
+        'coefficients': model.coef_.tolist(),
+        'intercept_ppm': float(model.intercept_),
+        'r2': float(r2),
+        'rmse_ppm': float(rmse),
+        'lod_ppm': float(lod_ppm),
+        'r2_cv': float(r2_cv),
+        'rmse_cv_ppm': float(rmse_cv),
+        'actual_concentrations_ppm': y.tolist(),
+        'predicted_concentrations_ppm': y_pred.tolist(),
+        'cv_predictions_ppm': cv_preds.tolist() if isinstance(cv_preds, np.ndarray) else None,
+        'residuals_ppm': residuals.tolist(),
+        'features': feature_details,
+    }
+
+    metrics_dir = os.path.join(out_root, 'metrics')
+    plots_dir = os.path.join(out_root, 'plots')
+    _ensure_dir(metrics_dir)
+    _ensure_dir(plots_dir)
+
+    fusion_metrics_path = os.path.join(metrics_dir, 'multi_roi_fusion_metrics.json')
+    with open(fusion_metrics_path, 'w', encoding='utf-8') as f:
+        json.dump(metrics, f, indent=2)
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.5))
+    ax.scatter(y, y_pred, color='#1f77b4', label='Train fit')
+    if isinstance(cv_preds, np.ndarray) and np.all(np.isfinite(cv_preds)):
+        ax.scatter(y, cv_preds, color='#ff7f0e', marker='s', label='LOOCV')
+    min_c = min(np.min(y), np.min(y_pred))
+    max_c = max(np.max(y), np.max(y_pred))
+    ax.plot([min_c, max_c], [min_c, max_c], 'k--', linewidth=1, label='y = x')
+    ax.set_xlabel('Actual concentration (ppm)')
+    ax.set_ylabel('Predicted concentration (ppm)')
+    ax.set_title('Multi-ROI Fusion Calibration')
+    ax.grid(True, alpha=0.3)
+    text_lines = [
+        f"R² = {r2:.3f}",
+        f"RMSE = {rmse:.3f} ppm",
+    ]
+    if np.isfinite(r2_cv):
+        text_lines.append(f"R²_LOOCV = {r2_cv:.3f}")
+    if np.isfinite(lod_ppm):
+        text_lines.append(f"LOD ≈ {lod_ppm:.2f} ppm")
+    ax.text(0.05, 0.05, '\n'.join(text_lines), transform=ax.transAxes,
+            fontsize=9, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    ax.legend()
+    fig.tight_layout()
+    fusion_plot_path = os.path.join(plots_dir, 'calibration_multi_roi_fusion.png')
+    fig.savefig(fusion_plot_path, dpi=200)
+    plt.close(fig)
+
+    metrics['metrics_path'] = fusion_metrics_path
+    metrics['plot_path'] = fusion_plot_path
+    return metrics
+
+
+def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame],
+                             dataset_label: Optional[str] = None,
+                             responsive_delta: Optional[Dict[str, object]] = None,
+                             discovered_roi: Optional[Dict[str, object]] = None) -> Dict[str, object]:
     """Compute wavelength shift vs concentration and fit linear calibration.
 
     Returns dict with keys: 'concentrations', 'peak_wavelengths', 'slope', 'intercept',
     'r2', 'rmse', 'slope_se', 'slope_ci_low', 'slope_ci_high', 'lod', 'loq', 'roi_center'.
+    If ``responsive_delta`` is provided, responsive-frame Δλ statistics are used to
+    override the canonical calibration metrics while preserving canonical details in
+    the ``canonical_model`` field for auditability.
     """
     if not canonical:
         raise ValueError("No canonical spectra provided")
@@ -1338,10 +3699,110 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     xcorr_upsample = int(max(1, calib_cfg.get('xcorr_upsample', 1)))
 
     # Apply ROI wavelength limits to calibration
-    roi_cfg = CONFIG.get('roi', {}) or {}
-    min_wl_roi = roi_cfg.get('min_wavelength', 500.0)
-    max_wl_roi = roi_cfg.get('max_wavelength', 900.0)
+    min_wl_roi, max_wl_roi = _resolve_roi_bounds(dataset_label)
+    if min_wl_roi is None:
+        min_wl_roi = 500.0
+    if max_wl_roi is None:
+        max_wl_roi = 900.0
+
+    expected_center, expected_tol = _resolve_expected_center(dataset_label)
+    expected_min = None
+    expected_max = None
+    if expected_center is not None and expected_tol is not None and expected_tol > 0:
+        expected_min = expected_center - expected_tol
+        expected_max = expected_center + expected_tol
+        if expected_min is not None:
+            min_wl_roi = max(min_wl_roi, expected_min)
+        if expected_max is not None:
+            max_wl_roi = min(max_wl_roi, expected_max)
+        if min_wl_roi >= max_wl_roi:
+            min_wl_roi = expected_min if expected_min is not None else min_wl_roi
+            max_wl_roi = expected_max if expected_max is not None else max_wl_roi
+
+    min_wl_roi, max_wl_roi, expected_center, discovery_applied = _merge_discovered_bounds(
+        min_wl_roi,
+        max_wl_roi,
+        expected_center,
+        discovered_roi,
+    )
+
+    # Trim canonical spectra to ROI bounds (with minor expansion fallback)
+    roi_center_guess = expected_center if expected_center is not None else 0.5 * (min_wl_roi + max_wl_roi)
+    trimmed_canonical: Dict[float, pd.DataFrame] = {}
+    for conc, df in items:
+        df_sorted = df.sort_values('wavelength').reset_index(drop=True)
+        mask = (df_sorted['wavelength'] >= min_wl_roi) & (df_sorted['wavelength'] <= max_wl_roi)
+        df_roi = df_sorted.loc[mask].copy()
+        expand_step = 0.5
+        expand_limit = 3.0
+        current_expand = expand_step
+        while df_roi.empty and current_expand <= expand_limit:
+            lower = min_wl_roi - current_expand
+            upper = max_wl_roi + current_expand
+            mask = (df_sorted['wavelength'] >= lower) & (df_sorted['wavelength'] <= upper)
+            df_roi = df_sorted.loc[mask].copy()
+            current_expand += expand_step
+        if df_roi.empty and not df_sorted.empty:
+            wl = df_sorted['wavelength'].to_numpy()
+            nearest_indices = np.argsort(np.abs(wl - roi_center_guess))[:min(25, wl.size)]
+            df_roi = df_sorted.iloc[np.sort(nearest_indices)].copy()
+        trimmed_canonical[conc] = df_roi if not df_roi.empty else df_sorted.copy()
+        if df_roi.empty and df_sorted.empty:
+            trimmed_canonical[conc] = df.copy()
     
+    # Apply Savitzky-Golay smoothing to ROI spectra for noise reduction
+    smoothing_cfg = CONFIG.get('preprocessing', {}).get('smoothing', {}) if isinstance(CONFIG, dict) else {}
+    smoothing_enabled = bool(smoothing_cfg.get('enabled', False))  # Default to False
+    if smoothing_enabled:
+        try:
+            from scipy.signal import savgol_filter
+            window_length = int(smoothing_cfg.get('window', 11))
+            poly_order = int(smoothing_cfg.get('poly_order', 2))
+            
+            # Ensure window_length is odd and valid
+            if window_length % 2 == 0:
+                window_length += 1
+            
+            print(f"[SMOOTHING] Applying Savitzky-Golay filter (window={window_length}, poly={poly_order})")
+            import sys; sys.stdout.flush()
+            
+            smoothed_canonical = {}
+            for conc, df in trimmed_canonical.items():
+                if df is None or df.empty:
+                    smoothed_canonical[conc] = df
+                    continue
+                
+                df_smooth = df.copy()
+                signal_cols = [c for c in df.columns if c != 'wavelength']
+                
+                for col in signal_cols:
+                    if col in df_smooth.columns and len(df_smooth) >= window_length:
+                        try:
+                            smoothed_signal = savgol_filter(
+                                df_smooth[col].values,
+                                window_length=window_length,
+                                polyorder=poly_order,
+                                mode='interp'
+                            )
+                            df_smooth[col] = smoothed_signal
+                        except Exception as e:
+                            print(f"[WARNING] Smoothing failed for {col}: {e}")
+                
+                smoothed_canonical[conc] = df_smooth
+            
+            trimmed_canonical = smoothed_canonical
+            print(f"[SMOOTHING] Successfully smoothed {len(trimmed_canonical)} concentration spectra")
+            import sys; sys.stdout.flush()
+            
+        except ImportError:
+            print("[WARNING] scipy not available, skipping Savitzky-Golay smoothing")
+            import sys; sys.stdout.flush()
+        except Exception as e:
+            print(f"[WARNING] Smoothing failed: {e}")
+            import sys; sys.stdout.flush()
+
+    items = sorted(trimmed_canonical.items(), key=lambda kv: kv[0])
+
     # Merge ROI limits into calibration config for feature tracking
     calib_cfg_with_limits = calib_cfg.copy() if isinstance(calib_cfg, dict) else {}
     calib_cfg_with_limits['min_wavelength'] = min_wl_roi
@@ -1355,7 +3816,28 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     # Base reference
     base_index = 0
     base_df = items[base_index][1]
+    shift_cfg = CONFIG.get('roi', {}).get('shift', {}) if isinstance(CONFIG.get('roi', {}), dict) else {}
+    seed_span_nm = float(shift_cfg.get('seed_derivative_span_nm', 2.0) or 2.0)
+    seed_window = int(shift_cfg.get('seed_derivative_smooth_window', 7) or 7)
+    derivative_seed = _refine_centroid_with_derivative(
+        base_df,
+        {
+            **calib_cfg_with_limits,
+            'derivative_span_nm': seed_span_nm,
+            'derivative_smooth_window': seed_window,
+        },
+        expected_center,
+        span_nm=seed_span_nm,
+        smooth_window=seed_window,
+    )
     base_center_centroid = _find_peak_wavelength(base_df, centroid_cfg=calib_cfg_with_limits)
+    if np.isfinite(derivative_seed) and min_wl_roi <= derivative_seed <= max_wl_roi:
+        base_center_centroid = derivative_seed
+        calib_cfg_with_limits['centroid_hint'] = derivative_seed
+        print(f"  [SEED] Derivative-based centroid refinement to {derivative_seed:.2f} nm")
+        import sys; sys.stdout.flush()
+    else:
+        calib_cfg_with_limits['centroid_hint'] = base_center_centroid
     base_wl, base_signal = _prepare_calibration_signal(base_df, calib_cfg_with_limits)
 
     # 1) Centroid track (always computed)
@@ -1389,61 +3871,67 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     
     # Add best wavelength from intensity-based analysis
     try:
-        # Quick intensity-based scan to find best wavelength
-        best_wl_intensity = None
-        best_r2_intensity = -1
-        
-        # Sample a subset of wavelengths for speed
         ref_df = items[-1][1]  # Highest concentration
-        all_wl = ref_df['wavelength'].values
-        wl_mask = (all_wl >= min_wl_roi) & (all_wl <= max_wl_roi)
-        candidate_wl = all_wl[wl_mask][::10]  # Sample every 10th wavelength
-        
-        for test_wl in candidate_wl:
-            intensities_at_wl = []
-            for _, df in items:
-                df_wl = df['wavelength'].values
-                df_int = df['intensity'].values
-                closest_idx = np.argmin(np.abs(df_wl - test_wl))
-                intensities_at_wl.append(df_int[closest_idx])
-            
-            if len(intensities_at_wl) == len(concs):
-                slope_i, intercept_i, r_val_i, _, _ = linregress(concs, intensities_at_wl)
-                r2_i = r_val_i ** 2
-                if r2_i > best_r2_intensity:
-                    best_r2_intensity = r2_i
-                    best_wl_intensity = test_wl
-        
-        # Add as a feature if found
-        if best_wl_intensity is not None and best_r2_intensity > 0.1:
-            # Track intensities at this wavelength across all concentrations
-            intensity_values = []
-            for _, df in items:
-                df_wl = df['wavelength'].values
-                df_int = df['intensity'].values
-                closest_idx = np.argmin(np.abs(df_wl - best_wl_intensity))
-                intensity_values.append(df_int[closest_idx])
-            
-            feature_results.append({
-                'type': 'intensity_best',
-                'wavelengths': intensity_values,  # Store intensities here for evaluation
-                'center': best_wl_intensity,
-                'is_intensity_based': True,  # Flag to handle differently
-                'r2_precalculated': best_r2_intensity
-            })
-            print(f"  [SCAN] Found best intensity wavelength: {best_wl_intensity:.2f} nm (R²={best_r2_intensity:.4f})")
-            import sys; sys.stdout.flush()
+        intensity_col = 'intensity' if 'intensity' in ref_df.columns else None
+        has_intensity_everywhere = intensity_col is not None and all(intensity_col in df.columns for _, df in items)
+        if has_intensity_everywhere:
+            # Quick intensity-based scan to find best wavelength
+            best_wl_intensity = None
+            best_r2_intensity = -1
+
+            all_wl = ref_df['wavelength'].values
+            wl_mask = (all_wl >= min_wl_roi) & (all_wl <= max_wl_roi)
+            candidate_wl = all_wl[wl_mask][::10]  # Sample every 10th wavelength
+
+            for test_wl in candidate_wl:
+                intensities_at_wl = []
+                for _, df in items:
+                    df_wl = df['wavelength'].values
+                    df_int = df[intensity_col].values
+                    closest_idx = np.argmin(np.abs(df_wl - test_wl))
+                    intensities_at_wl.append(df_int[closest_idx])
+
+                if len(intensities_at_wl) == len(concs):
+                    slope_i, intercept_i, r_val_i, _, _ = linregress(concs, intensities_at_wl)
+                    r2_i = r_val_i ** 2
+                    if r2_i > best_r2_intensity:
+                        best_r2_intensity = r2_i
+                        best_wl_intensity = test_wl
+
+            if best_wl_intensity is not None and best_r2_intensity > 0.1:
+                intensity_values = []
+                for _, df in items:
+                    df_wl = df['wavelength'].values
+                    df_int = df[intensity_col].values
+                    closest_idx = np.argmin(np.abs(df_wl - best_wl_intensity))
+                    intensity_values.append(df_int[closest_idx])
+
+                feature_results.append({
+                    'type': 'intensity_best',
+                    'wavelengths': intensity_values,
+                    'center': best_wl_intensity,
+                    'is_intensity_based': True,
+                    'r2_precalculated': best_r2_intensity
+                })
+                print(f"  [SCAN] Found best intensity wavelength: {best_wl_intensity:.2f} nm (R²={best_r2_intensity:.4f})")
+                import sys; sys.stdout.flush()
     except Exception as e:
         print(f"  [SCAN] Intensity scan failed: {e}")
     
     # Additional feature tracking (peaks/valleys)
     try:
         from scipy.signal import find_peaks
-        
+
         # Use highest concentration spectrum for feature detection - APPLY LIMITS
         ref_df = items[-1][1]  # Highest concentration
         ref_wl_full = ref_df['wavelength'].values
-        ref_intensity_full = ref_df['intensity'].values
+        ref_signal_col = 'intensity' if 'intensity' in ref_df.columns else _signal_column(ref_df)
+        if ref_signal_col not in ref_df.columns:
+            other_cols = [c for c in ref_df.columns if c != 'wavelength']
+            if not other_cols:
+                raise KeyError("No usable signal column for feature detection")
+            ref_signal_col = other_cols[0]
+        ref_intensity_full = ref_df[ref_signal_col].values
         
         # Apply wavelength limits to reference spectrum
         mask_roi = (ref_wl_full >= min_wl_roi) & (ref_wl_full <= max_wl_roi)
@@ -1472,7 +3960,10 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
             
             for _, df in items:
                 df_wl = df['wavelength'].values
-                df_intensity = df['intensity'].values
+                sig_col = ref_signal_col if ref_signal_col in df.columns else _signal_column(df)
+                if sig_col not in df.columns:
+                    continue
+                df_intensity = df[sig_col].values
                 # Find closest wavelength point
                 closest_idx = np.argmin(np.abs(df_wl - feature_wl))
                 tracked_wavelengths.append(df_wl[closest_idx])
@@ -1499,7 +3990,8 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
             
             for _, df in items:
                 df_wl = df['wavelength'].values
-                df_intensity = df['intensity'].values
+                sig_col = _signal_column(df)
+                df_intensity = df[sig_col].values
                 # Find closest wavelength point
                 closest_idx = np.argmin(np.abs(df_wl - feature_wl))
                 tracked_wavelengths.append(df_wl[closest_idx])
@@ -1520,7 +4012,18 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     best_r2 = -1
     best_result = None
     best_peak_list = None
-    quality_threshold = 0.05
+    shift_preferences = (CONFIG.get('roi', {}) or {}).get('shift', {}) if isinstance(CONFIG.get('roi', {}), dict) else {}
+    min_r2_required = float(shift_preferences.get('min_r2_w', 0.8))
+    min_slope_required = float(shift_preferences.get('min_slope_nm_per_ppm', 0.05))
+    if min_slope_required <= 0:
+        min_slope_required = 0.05
+    if min_r2_required <= 0:
+        min_r2_required = 0.25
+
+    # Stricter quality gates to favor physically meaningful Δλ tracks
+    quality_threshold = max(0.25, min_r2_required)
+    peak_list = None
+    rejection_log = []
     
     for result in feature_results:
         wavelengths = result['wavelengths']
@@ -1535,9 +4038,19 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                 valid_wavelengths = np.array(wavelengths)[valid_indices]
                 
                 if center_wl < min_wl_roi or center_wl > max_wl_roi:
-                    print(f"  [FILTER] Rejecting {feature_type} at {center_wl:.2f} nm (outside ROI)")
+                    reason = f"{feature_type} at {center_wl:.2f} nm (outside ROI)"
+                    rejection_log.append(reason)
+                    print(f"  [FILTER] Rejecting {reason}")
                     import sys; sys.stdout.flush()
                     continue
+
+                if expected_min is not None and expected_max is not None:
+                    if center_wl < expected_min or center_wl > expected_max:
+                        reason = f"{feature_type} at {center_wl:.2f} nm (outside expected {expected_center:.2f}±{expected_tol:.2f} nm)"
+                        rejection_log.append(reason)
+                        print(f"  [FILTER] Rejecting {reason}")
+                        import sys; sys.stdout.flush()
+                        continue
                 
                 # For intensity-based features, use pre-calculated R² or recalculate
                 if is_intensity_based and 'r2_precalculated' in result:
@@ -1559,8 +4072,33 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                 result['cv'] = cv
                 result['wl_std'] = wl_std
                 
-                if r2 < quality_threshold and cv > 0.01:
-                    print(f"  [FILTER] Rejecting {feature_type} at {center_wl:.2f} nm (R2={r2:.4f}, CV={cv:.4f})")
+                if is_intensity_based and bool(CONFIG.get('roi', {}).get('shift', {}).get('prefer_expected_center', True)):
+                    # deprioritize intensity-only tracks when centroid/gaussian options exist
+                    reason = f"{feature_type} at {center_wl:.2f} nm (intensity-based not allowed)"
+                    rejection_log.append(reason)
+                    print(f"  [FILTER] Rejecting {reason}")
+                    import sys; sys.stdout.flush()
+                    continue
+
+                if abs(slope) < min_slope_required:
+                    reason = f"{feature_type} at {center_wl:.2f} nm (slope {slope:+.6f} below {min_slope_required:.6f} nm/ppm)"
+                    rejection_log.append(reason)
+                    print(f"  [FILTER] Rejecting {reason}")
+                    import sys; sys.stdout.flush()
+                    continue
+
+                if r2 < quality_threshold or cv > 0.02:
+                    reason = f"{feature_type} at {center_wl:.2f} nm (R2={r2:.4f}, CV={cv:.4f})"
+                    rejection_log.append(reason)
+                    print(f"  [FILTER] Rejecting {reason}")
+                    import sys; sys.stdout.flush()
+                    continue
+
+                if (expected_center is not None and
+                        abs(center_wl - expected_center) > max(expected_tol or 0.0, 0.5)):
+                    reason = f"{feature_type} at {center_wl:.2f} nm (drifts > tolerance from expected {expected_center:.2f} nm)"
+                    rejection_log.append(reason)
+                    print(f"  [FILTER] Rejecting {reason}")
                     import sys; sys.stdout.flush()
                     continue
                 
@@ -1577,9 +4115,12 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                     best_peak_list = valid_wavelengths.tolist()
     
     # Use the best feature for final calibration
+    roi_min_wl = min_wl_roi
+    roi_max_wl = max_wl_roi
+
     if best_result is not None:
         peak_list = best_peak_list
-        base_center = best_result['center']
+        base_center = np.clip(best_result['center'], roi_min_wl, roi_max_wl)
         is_intensity = best_result.get('is_intensity_based', False)
         method_label = "intensity" if is_intensity else "wavelength-shift"
         print(f"\n✓ Selected feature: {best_result['type']} at {base_center:.2f} nm (R² = {best_r2:.4f}, {method_label})")
@@ -1622,10 +4163,25 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                         peak_list = ens_wl.tolist()
                         best_r2 = ens_r2
     else:
-        print("\n⚠ No suitable feature found, using original centroid method")
-        import sys; sys.stdout.flush()
+        import sys
+        print("\n⚠ No suitable feature passed ROI gates; falling back to centroid track")
+        if rejection_log:
+            print("   Rejection summary:")
+            for reason in rejection_log[:10]:
+                print(f"    • {reason}")
+            if len(rejection_log) > 10:
+                remaining = len(rejection_log) - 10
+                print(f"    • … {remaining} more")
+        sys.stdout.flush()
+        peak_list = [np.clip(p, roi_min_wl, roi_max_wl) for p in centroid_list]
+        base_center = np.clip(base_center_centroid, roi_min_wl, roi_max_wl)
+        best_r2 = float('nan')
 
+    if peak_list is None:
+        # As an absolute fallback, copy centroid list to avoid runtime failure
+        peak_list = [np.clip(p, roi_min_wl, roi_max_wl) for p in centroid_list]
     peaks = np.array(peak_list, dtype=float)
+    peaks = np.clip(peaks, roi_min_wl, roi_max_wl)
 
     x_mode = str(calib_cfg.get('x_transform', 'linear')).lower()
     concs_x, transform_meta = _transform_concentrations(concs, x_mode)
@@ -1641,7 +4197,7 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     tcrit = t.ppf(0.975, dfree)
     ci_low_lin = slope_lin - tcrit * stderr_lin
     ci_high_lin = slope_lin + tcrit * stderr_lin
-
+    
     linear_model = {
         'model': 'linear',
         'x_transform': x_mode,
@@ -1654,6 +4210,10 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
         'slope_ci_high': float(ci_high_lin),
         'predictions': preds_lin.tolist(),
     }
+    
+    # Compute residual sum of squares for AIC calculation (needed for Langmuir comparison)
+    ss_res_lin = float(np.sum((peaks - preds_lin) ** 2))
+    ss_tot_lin = float(np.sum((peaks - np.mean(peaks)) ** 2))
 
     best_model = linear_model
     best_predictions = preds_lin
@@ -1662,7 +4222,7 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     cv_cfg = calib_cfg.get('cv', {}) if isinstance(calib_cfg, dict) else {}
     cv_enabled = bool(cv_cfg.get('enabled', True))
 
-    def _loocv_scores(model_type: str = 'linear', degree: int = 2) -> Tuple[float, float]:
+    def _loocv_scores(model_type: str = 'linear', degree: int = 2, langmuir_params: tuple = None) -> Tuple[float, float]:
         """Return (r2_cv, rmse_cv) using leave-one-out CV on current peaks vs concs_x."""
         nloc = len(concs_x)
         if nloc < 3:
@@ -1689,6 +4249,17 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                 try:
                     coeffs_cv = np.polyfit(x_tr, y_tr, deg)
                     y_pred[i] = float(np.polyval(coeffs_cv, x_te))
+                except Exception:
+                    return float('nan'), float('nan')
+            elif model_type == 'langmuir':
+                try:
+                    from scipy.optimize import curve_fit
+                    def langmuir_cv(C, a, b):
+                        return (a * C) / (1.0 + b * C)
+                    # Use provided params as initial guess
+                    p0 = langmuir_params if langmuir_params else [0.05, 0.001]
+                    popt_cv, _ = curve_fit(langmuir_cv, x_tr, y_tr, p0=p0, maxfev=5000, bounds=([0, 0], [np.inf, np.inf]))
+                    y_pred[i] = float(langmuir_cv(x_te, *popt_cv))
                 except Exception:
                     return float('nan'), float('nan')
             else:
@@ -1785,9 +4356,19 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                 'rmse': rmse_poly,
                 'predictions': preds_poly.tolist(),
             }
+            # CV for polynomial model (compute before selection to check for overfitting)
+            if cv_enabled and poly_info:
+                r2cv_pl, rmsecv_pl = _loocv_scores('poly', degree=poly_degree)
+                poly_info['r2_cv'] = r2cv_pl
+                poly_info['rmse_cv'] = rmsecv_pl
+            
             if np.isfinite(r2_poly):
                 model_mode = str(calib_cfg.get('model', 'linear')).lower()
-                if (model_mode == 'polynomial') or (model_mode == 'auto' and r2_poly > best_model['r2']):
+                # Only select polynomial if CV R² is positive (prevents overfitting)
+                r2cv_poly = poly_info.get('r2_cv', float('nan')) if poly_info else float('nan')
+                cv_acceptable = not cv_enabled or (np.isfinite(r2cv_poly) and r2cv_poly > 0.5)
+                
+                if (model_mode == 'polynomial') or (model_mode == 'auto' and r2_poly > best_model['r2'] and cv_acceptable):
                     best_model = {
                         'model': poly_info['model'],
                         'x_transform': x_mode,
@@ -1802,35 +4383,142 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
                         'ref_concentration': ref_conc,
                     }
                     best_predictions = preds_poly
-            # CV for polynomial model
-            if cv_enabled and poly_info:
-                r2cv_pl, rmsecv_pl = _loocv_scores('poly', degree=poly_degree)
-                poly_info['r2_cv'] = r2cv_pl
-                poly_info['rmse_cv'] = rmsecv_pl
+                    print(f"[INFO] Polynomial model selected (R²={r2_poly:.4f}, R²_CV={r2cv_poly:.4f})")
+                elif model_mode == 'auto' and not cv_acceptable:
+                    print(f"[WARNING] Polynomial model rejected due to poor CV (R²_CV={r2cv_poly:.4f})")
         except (np.linalg.LinAlgError, ValueError):
             poly_info = None
 
+    # Langmuir saturation model: Δλ = (a*C) / (1 + b*C)
+    langmuir_info: Optional[Dict[str, object]] = None
+    langmuir_enabled = str(calib_cfg.get('model', 'linear')).lower() in {'auto', 'langmuir'}
+    if langmuir_enabled and len(concs_x) >= 3:
+        try:
+            from scipy.optimize import curve_fit
+            
+            def langmuir_model(C, a, b):
+                """Langmuir saturation model: Δλ = (a*C) / (1 + b*C)"""
+                return (a * C) / (1.0 + b * C)
+            
+            # Initial guess: a ~ linear slope, b ~ 1/max_concentration
+            a_init = slope_lin if np.isfinite(slope_lin) else 0.05
+            b_init = 1.0 / np.max(concs_x) if np.max(concs_x) > 0 else 0.001
+            
+            # Fit Langmuir model
+            popt, pcov = curve_fit(
+                langmuir_model, 
+                concs_x, 
+                peaks,
+                p0=[a_init, b_init],
+                maxfev=5000,
+                bounds=([0, 0], [np.inf, np.inf])  # Both parameters must be positive
+            )
+            
+            a_lang, b_lang = popt
+            preds_lang = langmuir_model(concs_x, a_lang, b_lang)
+            
+            # Compute R² and RMSE
+            ss_res_lang = float(np.sum((peaks - preds_lang) ** 2))
+            ss_tot_lang = float(np.sum((peaks - np.mean(peaks)) ** 2))
+            r2_lang = 1.0 - ss_res_lang / ss_tot_lang if ss_tot_lang > 0 else float('nan')
+            rmse_lang = float(np.sqrt(np.mean((peaks - preds_lang) ** 2)))
+            
+            # Compute effective slope at reference concentration (derivative)
+            ref_conc_lang = float(np.mean(concs_x))
+            # dΔλ/dC = a / (1 + b*C)²
+            slope_lang = float(a_lang / ((1.0 + b_lang * ref_conc_lang) ** 2))
+            intercept_lang = float(langmuir_model(ref_conc_lang, a_lang, b_lang) - slope_lang * ref_conc_lang)
+            
+            # Compute parameter uncertainties from covariance matrix
+            perr = np.sqrt(np.diag(pcov))
+            a_se = float(perr[0]) if len(perr) > 0 else float('nan')
+            b_se = float(perr[1]) if len(perr) > 1 else float('nan')
+            
+            langmuir_info = {
+                'model': 'langmuir',
+                'parameter_a': float(a_lang),
+                'parameter_b': float(b_lang),
+                'parameter_a_se': a_se,
+                'parameter_b_se': b_se,
+                'ref_concentration': ref_conc_lang,
+                'slope': slope_lang,
+                'intercept': intercept_lang,
+                'r2': float(r2_lang),
+                'rmse': rmse_lang,
+                'predictions': preds_lang.tolist(),
+            }
+            
+            # Model selection: prefer Langmuir if R² is better (with AIC penalty for extra parameter)
+            if np.isfinite(r2_lang):
+                model_mode = str(calib_cfg.get('model', 'linear')).lower()
+                
+                # Compute AIC for model comparison (lower is better)
+                n = len(concs_x)
+                k_linear = 2  # slope + intercept
+                k_langmuir = 2  # a + b
+                
+                aic_linear = n * np.log(ss_res_lin / n) + 2 * k_linear if ss_res_lin > 0 else np.inf
+                aic_langmuir = n * np.log(ss_res_lang / n) + 2 * k_langmuir if ss_res_lang > 0 else np.inf
+                
+                langmuir_info['aic'] = float(aic_langmuir)
+                linear_model['aic'] = float(aic_linear)
+                
+                # Select Langmuir if explicitly requested or if AIC is better in auto mode
+                if model_mode == 'langmuir' or (model_mode == 'auto' and aic_langmuir < aic_linear - 2):
+                    best_model = {
+                        'model': 'langmuir',
+                        'x_transform': x_mode,
+                        'slope': slope_lang,
+                        'intercept': intercept_lang,
+                        'r2': r2_lang,
+                        'rmse': rmse_lang,
+                        'slope_se': float('nan'),  # Not directly applicable
+                        'slope_ci_low': float('nan'),
+                        'slope_ci_high': float('nan'),
+                        'predictions': preds_lang.tolist(),
+                        'ref_concentration': ref_conc_lang,
+                        'parameter_a': float(a_lang),
+                        'parameter_b': float(b_lang),
+                        'aic': float(aic_langmuir),
+                    }
+                    best_predictions = preds_lang
+            
+            # CV for Langmuir model
+            if cv_enabled and langmuir_info:
+                r2cv_lang, rmsecv_lang = _loocv_scores('langmuir', langmuir_params=(a_lang, b_lang))
+                langmuir_info['r2_cv'] = r2cv_lang
+                langmuir_info['rmse_cv'] = rmsecv_lang
+                
+        except Exception as exc:  # noqa: BLE001
+            langmuir_info = {'error': str(exc)}
+            print(f"[WARNING] Langmuir model fitting failed: {exc}")
+
     # Final model selection metric (prefer CV if enabled)
     try:
-        select_metric = str(calib_cfg.get('auto_select_by', 'r2_cv' if cv_enabled else 'r2')).lower()
-        metric_key = 'r2_cv' if select_metric in {'cv', 'r2_cv', 'cv_r2'} else 'r2'
-        candidates: List[Tuple[Dict[str, object], np.ndarray]] = []
-        candidates.append((linear_model, preds_lin))
-        if isinstance(robust_info, dict) and robust_info.get('model') == 'robust_huber':
-            candidates.append((robust_info, preds_robust))
-        if isinstance(poly_info, dict) and poly_info.get('model'):
-            candidates.append((poly_info, preds_poly))
-        best_score = float('-inf')
-        chosen = best_model
-        chosen_preds = best_predictions
-        for cand, preds in candidates:
-            score = float(cand.get(metric_key, float('-inf')))
-            if np.isfinite(score) and score > best_score:
-                best_score = score
-                chosen = cand
-                chosen_preds = preds
-        best_model = chosen
-        best_predictions = chosen_preds
+        sel = str(result_payload.get('selected_model', 'linear')).lower()
+        r2_cv_sel = float('nan')
+        rmse_cv_sel = float('nan')
+        if sel.startswith('poly') and isinstance(poly_info, dict):
+            r2_cv_sel = float(poly_info.get('r2_cv', float('nan')))
+            rmse_cv_sel = float(poly_info.get('rmse_cv', float('nan')))
+        elif sel == 'langmuir' and isinstance(langmuir_info, dict):
+            r2_cv_sel = float(langmuir_info.get('r2_cv', float('nan')))
+            rmse_cv_sel = float(langmuir_info.get('rmse_cv', float('nan')))
+        elif sel == 'robust_huber' and isinstance(robust_info, dict):
+            r2_cv_sel = float(robust_info.get('r2_cv', float('nan')))
+            rmse_cv_sel = float(robust_info.get('rmse_cv', float('nan')))
+        elif sel == 'linear' and isinstance(linear_model, dict):
+            r2_cv_sel = float(linear_model.get('r2_cv', float('nan')))
+            rmse_cv_sel = float(linear_model.get('rmse_cv', float('nan')))
+        elif sel == 'plsr_cv' and isinstance(result_payload.get('plsr_model', None), dict):
+            pm = result_payload['plsr_model']
+            r2_cv_sel = float(pm.get('r2_cv', float('nan')))
+            rmse_cv_sel = float(pm.get('rmse_cv', float('nan')))
+        result_payload['uncertainty'] = {
+            'r2_cv': r2_cv_sel,
+            'rmse_cv': rmse_cv_sel,
+            'bootstrap': bootstrap_info,
+        }
     except Exception:
         pass
 
@@ -1879,9 +4567,27 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     # LOD and LOQ from residual-based noise (approximation)
     eps = 1e-12
     slope_for_lod = best_model['slope'] if abs(best_model['slope']) > eps else slope_lin
-    residuals = peaks - best_predictions
-    rmse_best = float(np.sqrt(np.mean(residuals ** 2)))
-    if abs(slope_for_lod) < eps:
+    best_predictions_arr = np.asarray(best_predictions, dtype=float) if best_predictions is not None else np.array([], dtype=float)
+    predictions_list: Optional[List[float]] = None
+    residuals_arr: Optional[np.ndarray] = None
+    residual_summary: Optional[Dict[str, float]] = None
+    if best_predictions_arr.size == peaks.size:
+        predictions_list = best_predictions_arr.tolist()
+        residuals_arr = peaks - best_predictions_arr
+        try:
+            residual_summary = {
+                'mean': float(np.nanmean(residuals_arr)),
+                'std': float(np.nanstd(residuals_arr, ddof=1)) if residuals_arr.size > 1 else 0.0,
+                'max_abs': float(np.nanmax(np.abs(residuals_arr))),
+                'min': float(np.nanmin(residuals_arr)),
+                'max': float(np.nanmax(residuals_arr)),
+            }
+        except Exception:
+            residual_summary = None
+    else:
+        residuals_arr = None
+    rmse_best = float(np.sqrt(np.mean((peaks - best_predictions_arr) ** 2))) if best_predictions_arr.size == peaks.size else float('nan')
+    if abs(slope_for_lod) < eps or not np.isfinite(rmse_best):
         lod = float('inf')
         loq = float('inf')
     else:
@@ -1889,6 +4595,32 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
         loq = 10.0 * rmse_best / abs(slope_for_lod)
 
     roi_center = float(np.median(peaks))
+
+    absolute_shift_info: Optional[Dict[str, object]] = None
+    try:
+        if concs.size >= 2:
+            baseline_wavelength = float(peaks[0])
+            delta_wavelengths = peaks - baseline_wavelength
+            abs_delta = np.abs(delta_wavelengths)
+            abs_reg = linregress(concs, abs_delta)
+            abs_preds = abs_reg.intercept + abs_reg.slope * concs
+            abs_residuals = abs_delta - abs_preds
+            abs_rmse = float(np.sqrt(np.mean(abs_residuals ** 2)))
+            absolute_shift_info = {
+                'concentrations': concs.tolist(),
+                'baseline_wavelength': baseline_wavelength,
+                'delta_wavelengths': delta_wavelengths.tolist(),
+                'absolute_delta_wavelengths': abs_delta.tolist(),
+                'slope': float(abs_reg.slope),
+                'intercept': float(abs_reg.intercept),
+                'r2': float(abs_reg.rvalue ** 2),
+                'rmse': abs_rmse,
+                'predicted_absolute_delta': abs_preds.tolist(),
+            }
+        else:
+            absolute_shift_info = None
+    except Exception:
+        absolute_shift_info = None
 
     # Summarize feature candidates if available
     feature_summary = []
@@ -1922,9 +4654,29 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
         'roi_center': roi_center,
         'linear_model': linear_model,
         'polynomial_model': poly_info,
+        'langmuir_model': langmuir_info,
         'robust_model': robust_info,
         'bootstrap': bootstrap_info,
         'feature_candidates': feature_summary,
+        'predictions': predictions_list,
+        'residuals': residuals_arr.tolist() if residuals_arr is not None else None,
+        'residual_summary': residual_summary,
+        'absolute_shift': absolute_shift_info,
+        'calibration_mode': 'canonical',
+    }
+
+    result_payload['canonical_model'] = {
+        'concentrations': concs.tolist(),
+        'peak_wavelengths': peaks.tolist(),
+        'slope_nm_per_ppm': float(best_model['slope']),
+        'intercept_nm': float(best_model['intercept']),
+        'r2': float(best_model['r2']),
+        'rmse_nm': float(best_model['rmse']),
+        'lod_ppm': float(lod),
+        'loq_ppm': float(loq),
+        'predictions': predictions_list,
+        'residuals': residuals_arr.tolist() if residuals_arr is not None else None,
+        'uncertainty': result_payload.get('uncertainty'),
     }
 
     # Optional multivariate calibration (PLSR)
@@ -1975,6 +4727,64 @@ def find_roi_and_calibration(canonical: Dict[float, pd.DataFrame]) -> Dict[str, 
     except Exception:
         pass
 
+    if responsive_delta:
+        try:
+            conc_rd = np.asarray(responsive_delta.get('concentrations', []), dtype=float)
+            delta_rd = np.asarray(responsive_delta.get('delta_nm', []), dtype=float)
+            slope_rd = float(responsive_delta.get('slope_nm_per_ppm', float('nan')))
+            intercept_rd = float(responsive_delta.get('intercept_nm', float('nan')))
+            r2_rd = float(responsive_delta.get('r2', float('nan')))
+            rmse_rd = float(responsive_delta.get('rmse_nm', float('nan')))
+            lod_rd = float(responsive_delta.get('lod_ppm', float('nan')))
+            loq_rd = float(responsive_delta.get('loq_ppm', float('nan')))
+            r2_cv_rd = float(responsive_delta.get('r2_cv', float('nan')))
+            rmse_cv_rd = float(responsive_delta.get('rmse_cv', float('nan')))
+            baseline_peak = intercept_rd if np.isfinite(intercept_rd) else (float(peaks[0]) if peaks.size else float('nan'))
+
+            if conc_rd.size >= 2 and np.isfinite(slope_rd) and np.isfinite(baseline_peak):
+                abs_predictions = baseline_peak + slope_rd * conc_rd
+                abs_observed = baseline_peak + delta_rd
+                residuals_abs = delta_rd - slope_rd * conc_rd
+
+                result_payload.update({
+                    'calibration_mode': 'responsive_delta',
+                    'concentrations': conc_rd.tolist(),
+                    'transformed_concentrations': conc_rd.tolist(),
+                    'transform_meta': {'mode': 'direct_delta'},
+                    'peak_wavelengths': abs_observed.tolist(),
+                    'selected_model': 'responsive_delta_linear',
+                    'slope': slope_rd,
+                    'intercept': baseline_peak,
+                    'r2': r2_rd,
+                    'rmse': rmse_rd,
+                    'slope_se': float('nan'),
+                    'slope_ci_low': float(responsive_delta.get('slope_ci_low', float('nan'))),
+                    'slope_ci_high': float(responsive_delta.get('slope_ci_high', float('nan'))),
+                    'lod': lod_rd if np.isfinite(lod_rd) else result_payload.get('lod'),
+                    'loq': loq_rd if np.isfinite(loq_rd) else result_payload.get('loq'),
+                    'predictions': abs_predictions.tolist(),
+                    'residuals': residuals_abs.tolist(),
+                    'residual_summary': {
+                        'mean': float(np.nanmean(residuals_abs)),
+                        'std': float(np.nanstd(residuals_abs, ddof=1)) if np.isfinite(residuals_abs).sum() > 1 else 0.0,
+                        'max_abs': float(np.nanmax(np.abs(residuals_abs))) if residuals_abs.size else float('nan'),
+                        'min': float(np.nanmin(residuals_abs)) if residuals_abs.size else float('nan'),
+                        'max': float(np.nanmax(residuals_abs)) if residuals_abs.size else float('nan'),
+                    },
+                })
+
+                result_payload['uncertainty'] = {
+                    'r2_cv': r2_cv_rd,
+                    'rmse_cv': rmse_cv_rd,
+                    'baseline_noise_nm': float(responsive_delta.get('baseline_noise_nm', float('nan'))),
+                }
+
+                result_payload['responsive_delta'] = responsive_delta
+                result_payload['canonical_model']['predictions'] = predictions_list
+                result_payload['canonical_model']['residuals'] = residuals_arr.tolist() if residuals_arr is not None else None
+        except Exception as exc:
+            print(f"[WARNING] Failed to apply responsive Δλ override: {exc}")
+
     return result_payload
 
 
@@ -2022,7 +4832,32 @@ def save_aggregated_spectra(aggregated: Dict[float, Dict[str, pd.DataFrame]], ou
 
 
 def _signal_column(df: pd.DataFrame) -> str:
-    return 'transmittance' if 'transmittance' in df.columns else 'intensity'
+    if 'absorbance' in df.columns:
+        return 'absorbance'
+    if 'transmittance' in df.columns:
+        return 'transmittance'
+    return 'intensity'
+
+
+def _select_common_signal(frames: Sequence[pd.DataFrame],
+                          priority: Sequence[str] = ('transmittance', 'intensity', 'absorbance')) -> Optional[str]:
+    if not frames:
+        return None
+
+    for col in priority:
+        if all(col in df.columns for df in frames):
+            return col
+    return None
+
+
+def _common_signal_columns(frames: Sequence[pd.DataFrame]) -> List[str]:
+    if not frames:
+        return []
+
+    common = set(frames[0].columns) - {'wavelength'}
+    for df in frames[1:]:
+        common &= (set(df.columns) - {'wavelength'})
+    return sorted(common)
 
 
 def compute_noise_metrics_map(aggregated: Dict[float, Dict[str, pd.DataFrame]]) -> Dict[float, Dict[str, object]]:
@@ -2853,6 +5688,78 @@ def save_roi_performance_metrics(performance: Dict[str, object], out_root: str) 
     out_path = os.path.join(metrics_dir, 'roi_performance.json')
     with open(out_path, 'w') as f:
         json.dump(performance, f, indent=2)
+    return out_path
+
+
+def save_roi_discovery_plot(discovery: Dict[str, object], out_root: str) -> Optional[str]:
+    candidates = discovery.get('candidates', []) if isinstance(discovery, dict) else []
+    if not isinstance(candidates, list) or not candidates:
+        return None
+
+    centers: List[float] = []
+    slopes: List[float] = []
+    r2_vals: List[float] = []
+    snr_vals: List[float] = []
+    for cand in candidates:
+        if not isinstance(cand, dict):
+            continue
+        c = cand.get('center_nm')
+        m = cand.get('slope_nm_per_ppm')
+        r2 = cand.get('r2')
+        snr = cand.get('snr')
+        try:
+            c_val = float(c)
+            m_val = float(m)
+        except Exception:
+            continue
+        centers.append(c_val)
+        slopes.append(m_val)
+        try:
+            r2_vals.append(float(r2))
+        except Exception:
+            r2_vals.append(float('nan'))
+        try:
+            snr_vals.append(float(snr))
+        except Exception:
+            snr_vals.append(float('nan'))
+
+    if not centers:
+        return None
+
+    centers_arr = np.array(centers, dtype=float)
+    slopes_arr = np.array(slopes, dtype=float)
+    r2_arr = np.array(r2_vals, dtype=float)
+
+    plots_dir = os.path.join(out_root, 'plots')
+    _ensure_dir(plots_dir)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    sc = ax.scatter(centers_arr, slopes_arr, c=r2_arr, cmap='viridis', s=30, edgecolor='none')
+    cbar = plt.colorbar(sc, ax=ax)
+    cbar.set_label('R²')
+
+    selected = discovery.get('selected', {}) if isinstance(discovery, dict) else {}
+    if isinstance(selected, dict):
+        try:
+            sel_c = float(selected.get('center_nm'))
+            sel_m = float(selected.get('slope_nm_per_ppm'))
+            ax.scatter([sel_c], [sel_m], marker='*', color='red', s=120, label='Selected ROI')
+        except Exception:
+            pass
+
+    ax.axhline(0.0, color='k', linestyle='--', linewidth=0.8, alpha=0.5)
+    ax.set_xlabel('Center Wavelength (nm)')
+    ax.set_ylabel('Slope (nm/ppm)')
+    ax.set_title('ROI Discovery: Sensitivity vs Wavelength')
+    ax.grid(True, alpha=0.3)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(loc='best')
+    fig.tight_layout()
+
+    out_path = os.path.join(plots_dir, 'roi_discovery.png')
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
     return out_path
 
 
@@ -3831,45 +6738,181 @@ def write_run_summary(calib: Dict[str, object],
     return out_path
 
 
-def save_calibration_outputs(calib: Dict[str, object], out_root: str):
+def save_calibration_outputs(calib: Dict[str, object], out_root: str, name_suffix: str = ''):
     metrics_dir = os.path.join(out_root, 'metrics')
     plots_dir = os.path.join(out_root, 'plots')
     _ensure_dir(metrics_dir)
     _ensure_dir(plots_dir)
 
-    # calibration.csv
-    cal_path = os.path.join(metrics_dir, 'calibration.csv')
+    plots_dict = calib.setdefault('plots', {})
+
+    cal_label = f"calibration{name_suffix}" if name_suffix else 'calibration'
+
+    cal_path = os.path.join(metrics_dir, f'{cal_label}.csv')
     data = pd.DataFrame({
         'concentration': calib['concentrations'],
         'peak_wavelength': calib['peak_wavelengths'],
     })
     data.to_csv(cal_path, index=False)
 
-    # metrics.json
     meta = calib.copy()
-    meta_path = os.path.join(metrics_dir, 'calibration_metrics.json')
+    meta_path = os.path.join(metrics_dir, f'{cal_label}_metrics.json')
     with open(meta_path, 'w') as f:
         json.dump(meta, f, indent=2)
 
-    # plot
     fig, ax = plt.subplots(figsize=(7, 4))
     x = np.array(calib['concentrations'])
     y = np.array(calib['peak_wavelengths'])
     slope = calib['slope']
     intercept = calib['intercept']
-    ax.scatter(x, y, label='Data')
+
+    yerr = None
+    resid_summary = calib.get('residual_summary', {})
+    if isinstance(resid_summary, dict):
+        try:
+            y_std = float(resid_summary.get('std', float('nan')))
+        except Exception:
+            y_std = float('nan')
+        if np.isfinite(y_std) and y_std > 0.0:
+            yerr = np.full_like(y, y_std, dtype=float)
+
+    if yerr is not None:
+        ax.errorbar(x, y, yerr=yerr, fmt='o', color='tab:blue', ecolor='lightgray', elinewidth=1.0, capsize=3, label='Data ±σ')
+    else:
+        ax.scatter(x, y, label='Data')
     xx = np.linspace(x.min(), x.max(), 100)
     yy = intercept + slope * xx
     ax.plot(xx, yy, 'r-', label=f"Fit (R^2={calib['r2']:.3f})")
+
+    target_slope = 0.116
+    try:
+        target_slope = float(target_slope)
+    except Exception:
+        target_slope = 0.116
+    if x.size >= 1 and np.isfinite(target_slope):
+        x0 = float(x.min())
+        y0 = float(intercept + slope * x0)
+        yy_target = y0 + target_slope * (xx - x0)
+        ax.plot(xx, yy_target, 'k--', alpha=0.5, label=f'Target slope {target_slope:.3f} nm/ppm')
     ax.set_xlabel('Concentration (ppm)')
     ax.set_ylabel('Peak Wavelength (nm)')
     ax.set_title('Calibration: Wavelength Shift vs Concentration')
     ax.grid(True, alpha=0.3)
     ax.legend()
+
+    text_lines = []
+    try:
+        text_lines.append(f"slope = {float(slope):.4f} nm/ppm")
+    except Exception:
+        pass
+    try:
+        text_lines.append(f"R² = {float(calib.get('r2', float('nan'))):.3f}")
+    except Exception:
+        pass
+    try:
+        lod_val = float(calib.get('lod', float('nan')))
+        if np.isfinite(lod_val):
+            text_lines.append(f"LOD = {lod_val:.2f} ppm")
+    except Exception:
+        pass
+    if text_lines:
+        ax.text(0.02, 0.98, "\n".join(text_lines), transform=ax.transAxes,
+                ha='left', va='top', fontsize=8,
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     fig.tight_layout()
-    plot_path = os.path.join(plots_dir, 'calibration.png')
+    plot_path = os.path.join(plots_dir, f'{cal_label}.png')
     fig.savefig(plot_path, dpi=200)
     plt.close(fig)
+    plots_dict['calibration'] = plot_path
+
+    # Residual diagnostics plots
+    conc_arr = np.array(calib.get('concentrations', []), dtype=float)
+    residuals = np.array(calib.get('residuals') or [], dtype=float)
+    preds = np.array(calib.get('predictions') or [], dtype=float)
+    mask_conc = residuals.size and conc_arr.size == residuals.size
+    mask_pred = mask_conc and preds.size == residuals.size
+    if mask_conc:
+        finite_mask = np.isfinite(conc_arr) & np.isfinite(residuals)
+        conc_fin = conc_arr[finite_mask]
+        resid_fin = residuals[finite_mask]
+        pred_fin = preds[finite_mask] if mask_pred else None
+        if resid_fin.size >= 3:
+            fig_res, axes = plt.subplots(2, 2, figsize=(9, 6))
+            axes[0, 0].scatter(conc_fin, resid_fin, s=25, alpha=0.8, color='tab:green')
+            axes[0, 0].axhline(0.0, color='k', linestyle='--', linewidth=0.8)
+            axes[0, 0].set_xlabel('Concentration (ppm)')
+            axes[0, 0].set_ylabel('Residual (nm)')
+            axes[0, 0].set_title('Residuals vs Concentration')
+            axes[0, 0].grid(True, alpha=0.3)
+
+            if pred_fin is not None and np.any(np.isfinite(pred_fin)):
+                axes[0, 1].scatter(pred_fin, resid_fin, s=25, alpha=0.8, color='tab:blue')
+                axes[0, 1].set_xlabel('Predicted Wavelength (nm)')
+                axes[0, 1].set_ylabel('Residual (nm)')
+                axes[0, 1].set_title('Residuals vs Predicted')
+            else:
+                axes[0, 1].axis('off')
+            axes[0, 1].axhline(0.0, color='k', linestyle='--', linewidth=0.8)
+            axes[0, 1].grid(True, alpha=0.3)
+
+            axes[1, 0].hist(resid_fin, bins=max(8, int(np.sqrt(resid_fin.size))), color='gray', edgecolor='black', alpha=0.85)
+            axes[1, 0].set_xlabel('Residual (nm)')
+            axes[1, 0].set_ylabel('Frequency')
+            axes[1, 0].set_title('Residual Histogram')
+
+            try:
+                (osm, osr), (slope_q, intercept_q, r_q) = probplot(resid_fin, dist='norm', fit=True)
+                axes[1, 1].scatter(osm, osr, s=20, alpha=0.8)
+                axes[1, 1].plot(osm, slope_q * np.array(osm) + intercept_q, 'r--', linewidth=1.0)
+                axes[1, 1].set_title(f'Normal Q-Q (R={r_q:.3f})')
+                axes[1, 1].set_xlabel('Theoretical quantiles')
+                axes[1, 1].set_ylabel('Ordered residuals')
+            except Exception:
+                axes[1, 1].text(0.5, 0.5, 'Q-Q failed', ha='center', va='center')
+                axes[1, 1].axis('off')
+
+            fig_res.tight_layout()
+            resid_plot_path = os.path.join(plots_dir, 'calibration_residuals.png')
+            fig_res.savefig(resid_plot_path, dpi=200)
+            plt.close(fig_res)
+            plots_dict['calibration_residuals'] = resid_plot_path
+
+    # Absolute wavelength shift plot
+    abs_info = calib.get('absolute_shift') or {}
+    abs_conc = np.array(abs_info.get('concentrations') or [], dtype=float)
+    abs_delta = np.array(abs_info.get('absolute_delta_wavelengths') or [], dtype=float)
+    if abs_conc.size and abs_delta.size == abs_conc.size:
+        mask_abs = np.isfinite(abs_conc) & np.isfinite(abs_delta)
+        conc_abs = abs_conc[mask_abs]
+        delta_abs = abs_delta[mask_abs]
+        if conc_abs.size >= 2:
+            fit_vals = abs_info.get('predicted_absolute_delta')
+            if fit_vals is not None:
+                fit_vals = np.array(fit_vals, dtype=float)
+                fit_vals = fit_vals[mask_abs] if fit_vals.size == abs_conc.size else None
+            if fit_vals is None and np.isfinite(abs_info.get('slope', float('nan'))):
+                slope_abs = float(abs_info.get('slope'))
+                intercept_abs = float(abs_info.get('intercept', 0.0))
+                fit_vals = intercept_abs + slope_abs * conc_abs
+            fig_abs, ax_abs = plt.subplots(figsize=(7, 4))
+            ax_abs.scatter(conc_abs, delta_abs, color='tab:orange', alpha=0.85, label='|Δλ| observations')
+            if fit_vals is not None and np.size(fit_vals) == conc_abs.size:
+                order = np.argsort(conc_abs)
+                ax_abs.plot(conc_abs[order], np.asarray(fit_vals)[order], color='tab:red', linewidth=1.2, label='Linear fit')
+            ax_abs.set_xlabel('Concentration (ppm)')
+            ax_abs.set_ylabel('|Δλ| (nm)')
+            ax_abs.set_title('Absolute Wavelength Shift vs Concentration')
+            ax_abs.grid(True, alpha=0.3)
+            ax_abs.legend(loc='upper left')
+            fig_abs.tight_layout()
+            abs_plot_path = os.path.join(plots_dir, 'absolute_shift_vs_concentration.png')
+            fig_abs.savefig(abs_plot_path, dpi=200)
+            plt.close(fig_abs)
+            plots_dict['absolute_shift'] = abs_plot_path
+            try:
+                abs_info['plot_path'] = abs_plot_path
+            except Exception:
+                pass
 
     # PLSR artifacts
     if isinstance(calib, dict) and isinstance(calib.get('plsr_model', None), dict):
@@ -3998,16 +7041,40 @@ def save_calibration_outputs(calib: Dict[str, object], out_root: str):
     except Exception:
         pass
 
-
-# ----------------------
 # High-level run helper (optional for CLI)
 # ----------------------
+
+def _resolve_gas_benchmarks(label: Optional[str]) -> Dict[str, float]:
+    benchmarks = {
+        'Acetone': {'slope_nm_per_ppm': 0.116, 'r2': 0.95, 'lod_ppm': 3.26, 'response_s': 26.0, 'recovery_s': 32.0},
+        'Methanol': {'slope_nm_per_ppm': 0.081, 'r2': 0.88},
+        'Ethanol': {'r2': 0.27},
+        'Isopropanol': {'r2': 0.67},
+        'Toluene': {'r2': 0.31},
+        'Xylene': {'r2': 0.65},
+    }
+    return benchmarks.get(str(label), {})
+
+
+def _apply_response_overrides(base_cfg: Dict[str, object], label: Optional[str]) -> Dict[str, object]:
+    cfg = dict(base_cfg) if isinstance(base_cfg, dict) else {}
+    overrides = cfg.get('overrides', {}) if isinstance(cfg.get('overrides', {}), dict) else {}
+    override = overrides.get(str(label), {}) if label is not None else {}
+    # Merge override onto base without mutating original
+    merged = {k: v for k, v in cfg.items() if k != 'overrides'}
+    if isinstance(override, dict):
+        merged.update(override)
+    merged['overrides'] = overrides
+    merged['_applied_override'] = override
+    return merged
+
 
 def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
                       diff_threshold: float = 0.01,
                       avg_top_n: Optional[int] = None,
                       scan_full: bool = False,
-                      top_k_candidates: int = 5) -> Dict[str, object]:
+                      top_k_candidates: int = 5,
+                      dataset_label: Optional[str] = None) -> Dict[str, object]:
     """Run: scan → average frames per trial → preprocessing → calibration → persistence."""
 
     run_timestamp = _timestamp()
@@ -4021,6 +7088,7 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
         'scan_full': scan_full,
         'top_k_candidates': top_k_candidates,
         'config_snapshot': CONFIG,
+        'dataset_label': dataset_label,
         'preprocessing': CONFIG.get('preprocessing', {}),
         'archiving': CONFIG.get('archiving', {}),
         'reporting': CONFIG.get('reporting', {}),
@@ -4039,9 +7107,22 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
     apply_trans = preproc_settings.get('enabled', False) and preproc_settings.get('apply_to_transmittance', True)
     dynamics_cfg = CONFIG.get('dynamics', {})
     dynamics_enabled = dynamics_cfg.get('enabled', True)
+    baseline_n = int(dynamics_cfg.get('baseline_frames', 20) or 20) if isinstance(dynamics_cfg, dict) else 20
+    baseline_n = max(1, baseline_n)
+    response_cfg = _apply_response_overrides(
+        CONFIG.get('response_series', {}) if isinstance(CONFIG.get('response_series', {}), dict) else {},
+        dataset_label,
+    )
+    response_override_applied = response_cfg.pop('_applied_override', {}) if isinstance(response_cfg, dict) else {}
+    stability_cfg = CONFIG.get('stability', {}) if isinstance(CONFIG.get('stability', {}), dict) else {}
+    min_block_cfg = int(stability_cfg.get('min_block', 0)) if stability_cfg.get('min_block') else None
 
     stable_by_conc: Dict[float, Dict[str, pd.DataFrame]] = {}
+    stable_raw_by_conc: Dict[float, Dict[str, pd.DataFrame]] = {}
     top_path: Dict[str, Dict[float, Dict[str, pd.DataFrame]]] = {}
+    time_series_outputs: Dict[str, Dict[str, Dict[str, object]]] = {}
+    responsive_delta_by_conc: Dict[float, Dict[str, Dict[str, object]]] = {}
+    responsive_trend_fallback: Dict[float, Dict[str, float]] = {}
     for conc, trials in mapping.items():
         conc_key = float(conc)
         conc_entry: Dict[str, object] = {
@@ -4049,50 +7130,149 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
             'retained_trial_count': 0,
         }
         metadata['trials'][str(conc_key)] = conc_entry
+        trial_debug = metadata.setdefault('trial_debug', {}).setdefault(str(conc_key), {})
 
         processed_trials: Dict[str, pd.DataFrame] = {}
+        raw_trials: Dict[str, pd.DataFrame] = {}
         averaged_intensity_trials: Dict[str, pd.DataFrame] = {}
         averaged_trans_trials: Dict[str, pd.DataFrame] = {}
+        averaged_abs_trials: Dict[str, pd.DataFrame] = {}
         spectral_arrays: List[np.ndarray] = []
         trial_names: List[str] = []
         base_wavelengths: Optional[np.ndarray] = None
         wavelengths_consistent = True
 
+        trial_quality_scores: Dict[str, float] = {}
+
         for trial, frames in trials.items():
-            frames_sorted = sorted(frames, key=lambda p: os.path.getmtime(p))
+            frames_sorted = _sort_frame_paths(frames)
             dfs = [_read_csv_spectrum(p) for p in frames_sorted]
             dfs = [df for df in dfs if not df.empty]
+            info_entry: Dict[str, object] = {
+                'frame_count': len(frames_sorted),
+                'valid_frame_count': len(dfs),
+            }
+            trial_debug[trial] = info_entry
             if not dfs:
+                info_entry['status'] = 'no_valid_frames'
                 continue
 
             if apply_frames:
                 dfs = [_preprocess_dataframe(df, stage='frame') for df in dfs]
 
-            stability_cfg = CONFIG.get('stability', {})
-            weight_mode = stability_cfg.get('weight_mode', 'uniform')
-            top_k = stability_cfg.get('top_k', 0)
+            # Per-trial reference scaling and simple responsive frame selection
+            responsive_indices: List[int] = []
+            trial_ref_df = ref_df
+            if ref_df is not None:
+                baseline_frames = dfs[:baseline_n]
+                trial_ref_df, _ = _scale_reference_to_baseline(ref_df, baseline_frames, percentile=95.0)
+
+            if response_cfg.get('enabled', False):
+                simple_series_df, simple_indices, _ = _simple_response_selection(
+                    dfs,
+                    trial_ref_df,
+                    dataset_label=dataset_label,
+                    response_cfg=response_cfg,
+                )
+                responsive_indices = list(simple_indices)
+                info_entry['response_series'] = {
+                    'responsive_frame_count': len(responsive_indices),
+                }
+
+                # Build full Δλ time-series per trial for downstream dynamics and reporting.
+                try:
+                    response_series_df, _, _ = _compute_response_time_series(
+                        dfs,
+                        trial_ref_df,
+                        dataset_label=dataset_label,
+                        response_cfg=response_cfg,
+                    )
+                except Exception as exc:
+                    print(f"[WARNING] Failed to compute response time-series for conc={conc_key}, trial={trial}: {exc}")
+                    response_series_df = None
+
+                if response_series_df is not None:
+                    try:
+                        csv_path, series_plot = _save_response_series(
+                            response_series_df,
+                            out_root,
+                            conc_key,
+                            trial,
+                            dataset_label,
+                        )
+                        conc_key_str = str(conc_key)
+                        ts_conc = time_series_outputs.setdefault(conc_key_str, {})
+                        ts_conc[trial] = {
+                            'csv': str(csv_path),
+                            'plot': str(series_plot),
+                        }
+                        info_entry['response_series'].update({
+                            'csv': str(csv_path),
+                            'plot': str(series_plot),
+                        })
+                    except Exception as exc:
+                        info_entry.setdefault('response_series_error', str(exc))
+
+            if response_cfg.get('restrict_to_responsive', False) and responsive_indices:
+                frames_for_stability = [dfs[i] for i in responsive_indices if 0 <= i < len(dfs)]
+                if not frames_for_stability:
+                    frames_for_stability = dfs
+            else:
+                frames_for_stability = dfs
+
+            weight_mode = stability_cfg.get('weight_mode', 'uniform') if isinstance(stability_cfg, dict) else 'uniform'
+            top_k = stability_cfg.get('top_k', 0) if isinstance(stability_cfg, dict) else 0
             s, e, weights = find_stable_block(
-                dfs,
+                frames_for_stability,
                 diff_threshold=diff_threshold,
                 weight_mode=weight_mode,
                 top_k=int(top_k) if top_k else None,
+                min_block=int(stability_cfg.get('min_block', 0) or 0) if isinstance(stability_cfg, dict) else None,
             )
-            avg_df = average_stable_block(dfs, s, e, weights=weights)
-            if ref_df is not None and use_trans:
-                avg_df = compute_transmittance(avg_df, ref_df)
-            if apply_trans:
-                avg_df = _preprocess_dataframe(avg_df, stage='transmittance')
 
-            processed_trials[trial] = avg_df
+            # Responsive frame selection is handled by _simple_response_selection;
+            # no additional ROI-only tightening is applied here.
+            avg_df = average_stable_block(frames_for_stability, s, e, weights=weights)
+            avg_df_trans = compute_transmittance(avg_df, trial_ref_df) if trial_ref_df is not None else avg_df.copy(deep=True)
+            avg_df_with_abs = _append_absorbance_column(avg_df_trans)
+            raw_trials[trial] = avg_df_with_abs.copy(deep=True)
+
+            if apply_trans:
+                avg_df_proc = _preprocess_dataframe(avg_df_with_abs, stage='transmittance')
+            else:
+                avg_df_proc = avg_df_with_abs.copy(deep=True)
+
+            avg_df_proc = _append_absorbance_column(avg_df_proc, inplace=True)
+
+            processed_trials[trial] = avg_df_proc
+
+            # Trial quality scoring for canonical weighting
+            try:
+                roi_bounds = _resolve_roi_bounds(dataset_label)
+            except Exception:
+                roi_bounds = (None, None)
+            expected_center = None
+            try:
+                roi_cfg = CONFIG.get('roi', {}) if isinstance(CONFIG, dict) else {}
+                per_gas = roi_cfg.get('per_gas_overrides', {}) if isinstance(roi_cfg.get('per_gas_overrides', {}), dict) else roi_cfg.get('per_gas_overrides', {})
+                gas_cfg = per_gas.get(dataset_label, {}) if dataset_label is not None and isinstance(per_gas, dict) else {}
+                val_cfg = gas_cfg.get('validation', {}) if isinstance(gas_cfg.get('validation', {}), dict) else gas_cfg.get('validation', {})
+                expected_center = val_cfg.get('expected_center', None)
+            except Exception:
+                expected_center = None
+            q_score, _ = _score_trial_quality(avg_df_proc, roi_bounds=roi_bounds, expected_center=expected_center)
+            trial_quality_scores[trial] = float(q_score)
+            info_entry['quality_score'] = float(q_score)
 
             if avg_top_n:
-                top_avg_int = average_top_frames(dfs, top_k=avg_top_n)
+                top_avg_int = average_top_frames(frames_for_stability, top_k=avg_top_n)
                 averaged_intensity_trials[trial] = top_avg_int
-                if ref_df is not None and use_trans:
-                    top_avg_trans = compute_transmittance(top_avg_int, ref_df)
+                if trial_ref_df is not None:
+                    top_avg_trans = compute_transmittance(top_avg_int, trial_ref_df)
                 else:
                     top_avg_trans = top_avg_int.copy()
                 averaged_trans_trials[trial] = top_avg_trans
+                averaged_abs_trials[trial] = _append_absorbance_column(top_avg_trans)
 
             if outlier_cfg.get('enabled', False):
                 col = _signal_column(avg_df)
@@ -4105,6 +7285,11 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
                 spectral_arrays.append(arr)
                 trial_names.append(trial)
 
+        trial_debug['__processed__'] = sorted(processed_trials.keys())
+        trial_debug['__raw__'] = sorted(raw_trials.keys())
+        conc_entry['processed_trial_count'] = len(processed_trials)
+        conc_entry['raw_trial_count_post'] = len(raw_trials)
+
         flagged_trials: set = set()
         if (outlier_cfg.get('enabled', False)
                 and wavelengths_consistent
@@ -4115,27 +7300,328 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
                 if flag:
                     flagged_trials.add(trial_name)
                     _record_outlier(metadata, conc_key, trial_name)
+            if flags and all(bool(f) for f in flags):
+                flagged_trials.clear()
+                conc_entry['outlier_relaxed'] = True
 
         final_trials = {trial: df for trial, df in processed_trials.items() if trial not in flagged_trials}
+        final_raw_trials = {trial: raw_trials[trial] for trial in processed_trials if trial not in flagged_trials and trial in raw_trials}
         final_intensity_top = {trial: averaged_intensity_trials[trial]
                                for trial in processed_trials
                                if trial not in flagged_trials and trial in averaged_intensity_trials}
         final_trans_top = {trial: averaged_trans_trials[trial]
                            for trial in processed_trials
                            if trial not in flagged_trials and trial in averaged_trans_trials}
+        final_abs_top = {trial: averaged_abs_trials[trial]
+                         for trial in processed_trials
+                         if trial not in flagged_trials and trial in averaged_abs_trials}
+
+        if not final_trials and processed_trials:
+            final_trials = dict(processed_trials)
+            final_raw_trials = {trial: raw_trials.get(trial, df) for trial, df in processed_trials.items()}
+            conc_entry['filter_relaxed_all'] = True
+        if not final_trials and raw_trials:
+            final_trials = dict(raw_trials)
+            final_raw_trials = dict(raw_trials)
+            conc_entry['raw_fallback'] = True
+
+        if final_trials:
+            chosen_source = 'retained'
+        elif processed_trials:
+            chosen_source = 'restored_from_processed'
+            final_trials = dict(processed_trials)
+            final_raw_trials = {trial: raw_trials.get(trial, df) for trial, df in processed_trials.items()}
+        elif raw_trials:
+            chosen_source = 'restored_from_raw'
+            final_trials = dict(raw_trials)
+            final_raw_trials = dict(raw_trials)
+        else:
+            chosen_source = 'dropped'
+            final_trials = {}
+            final_raw_trials = {}
+
         conc_entry['retained_trial_count'] = len(final_trials)
+        conc_entry['restoration_status'] = chosen_source
+
+        # Build quality weights for canonical selection (per concentration)
+        final_quality_scores: Dict[str, float] = {}
+        for trial_name in final_trials.keys():
+            w = trial_quality_scores.get(trial_name, 1.0)
+            try:
+                w = float(w)
+            except Exception:
+                w = 1.0
+            if not np.isfinite(w) or w <= 0.0:
+                w = 1.0
+            final_quality_scores[trial_name] = w
+        metadata.setdefault('trial_quality', {})[str(conc_key)] = final_quality_scores
+
         if final_trials:
             stable_by_conc[conc] = final_trials
+            stable_raw_by_conc[conc] = final_raw_trials
+            trial_debug['__final__'] = sorted(final_trials.keys())
+            trial_debug['__final_raw__'] = sorted(final_raw_trials.keys())
+            trial_debug['__final_intensity__'] = sorted(final_intensity_top.keys()) if final_intensity_top else []
+            trial_debug['__final_trans__'] = sorted(final_trans_top.keys()) if final_trans_top else []
+            trial_debug['__final_absorbance__'] = sorted(final_abs_top.keys()) if final_abs_top else []
+            trial_debug['__status__'] = chosen_source
             if avg_top_n:
                 if final_intensity_top:
                     top_path.setdefault('intensity', {})[conc] = final_intensity_top
                 if final_trans_top:
                     top_path.setdefault('transmittance', {})[conc] = final_trans_top
+                if final_abs_top:
+                    top_path.setdefault('absorbance', {})[conc] = final_abs_top
+        else:
+            trial_debug['__final__'] = []
+            trial_debug['__final_raw__'] = []
+            trial_debug['__final_intensity__'] = []
+            trial_debug['__final_trans__'] = []
+            trial_debug['__final_absorbance__'] = []
+            trial_debug['__status__'] = 'dropped'
+
+    # Expose per-trial quality weights for canonical aggregation
+    try:
+        trial_quality_global: Dict[float, Dict[str, float]] = {}
+        for conc_str, per_trial in metadata.get('trial_quality', {}).items():
+            try:
+                conc_val = float(conc_str)
+            except Exception:
+                continue
+            if isinstance(per_trial, dict):
+                q_map: Dict[str, float] = {}
+                for t_name, w in per_trial.items():
+                    try:
+                        w_val = float(w)
+                    except Exception:
+                        w_val = 1.0
+                    if not np.isfinite(w_val) or w_val <= 0.0:
+                        w_val = 1.0
+                    q_map[str(t_name)] = w_val
+                trial_quality_global[conc_val] = q_map
+        globals()['TRIAL_WEIGHTS_FOR_CANONICAL'] = trial_quality_global
+    except Exception:
+        globals()['TRIAL_WEIGHTS_FOR_CANONICAL'] = {}
 
     if not stable_by_conc:
         raise RuntimeError("No stable blocks found across trials")
 
-    aggregated_paths = save_aggregated_spectra(stable_by_conc, out_root)
+    raw_to_save = stable_raw_by_conc if stable_raw_by_conc else stable_by_conc
+    aggregated_paths = save_aggregated_spectra(raw_to_save, out_root)
+    metadata['stable_concentrations'] = sorted(float(k) for k in stable_by_conc.keys())
+    metadata['stable_counts'] = {str(float(k)): len(v) for k, v in stable_by_conc.items()}
+    metadata['aggregated_paths'] = aggregated_paths
+
+    signal_views = _build_signal_views(stable_by_conc, stable_raw_by_conc)
+    if not signal_views:
+        raise RuntimeError("No signal representations available after preprocessing")
+
+    delta_per_trial_df, delta_per_conc_df, responsive_delta_summary = _aggregate_responsive_delta_maps(responsive_delta_by_conc)
+    metadata['responsive_delta'] = {
+        'per_trial': delta_per_trial_df.to_dict(orient='records') if not delta_per_trial_df.empty else [],
+        'per_concentration': delta_per_conc_df.to_dict(orient='records') if not delta_per_conc_df.empty else [],
+        'summary_by_concentration': responsive_delta_summary,
+    }
+
+    multivariate_cfg = calib_settings.get('multivariate', {}) if isinstance(calib_settings, dict) else {}
+    multivariate_enabled = bool(multivariate_cfg.get('enabled', False))
+
+    signal_results: Dict[str, Dict[str, object]] = {}
+    for signal_name, view_map in signal_views.items():
+        if not view_map:
+            continue
+        try:
+            signal_root = Path(out_root) / 'signals' / signal_name
+            signal_root.mkdir(parents=True, exist_ok=True)
+            canonical_sig = select_canonical_per_concentration(view_map)
+            canonical_paths_sig = save_canonical_spectra(canonical_sig, str(signal_root))
+            canonical_plot_sig = save_canonical_overlay(canonical_sig, str(signal_root))
+
+            matrix_cache_sig: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+            if multivariate_enabled and canonical_sig:
+                try:
+                    matrix_cache_sig = _build_feature_matrix_from_canonical(canonical_sig)
+                except ValueError:
+                    matrix_cache_sig = None
+
+            # Get per-gas ROI bounds for proper calibration
+            min_wl_roi_sig, max_wl_roi_sig = _resolve_roi_bounds(dataset_label)
+            response_stats_sig, avg_by_conc_sig = compute_concentration_response(
+                view_map,
+                override_min_wavelength=min_wl_roi_sig,
+                override_max_wavelength=max_wl_roi_sig,
+                top_k_candidates=top_k_candidates,
+                debug_out_root=str(signal_root),
+            )
+            repeatability_sig = compute_roi_repeatability(view_map, response_stats_sig)
+            performance_sig = compute_roi_performance(repeatability_sig)
+
+            baseline_std = float('nan')
+            try:
+                baseline_std = float(repeatability_sig.get('global', {}).get('std_transmittance', float('nan')))
+            except Exception:
+                baseline_std = float('nan')
+            baseline_slope = performance_sig.get('regression_slope') if isinstance(performance_sig, dict) else None
+            baseline_slope_to_noise = float('nan')
+            if isinstance(baseline_slope, (int, float)) and np.isfinite(baseline_slope) and np.isfinite(baseline_std) and baseline_std not in (0.0,):
+                baseline_slope_to_noise = abs(float(baseline_slope)) / float(baseline_std)
+
+            mv_result_sig: Optional[Dict[str, object]] = None
+            if multivariate_enabled:
+                try:
+                    mv_source = canonical_sig if canonical_sig else {}
+                    mv_result = _fit_plsr_calibration(mv_source, multivariate_cfg, matrix_cache_sig) if mv_source else None
+                    if mv_result is not None and isinstance(mv_result, dict):
+                        try:
+                            y_true = matrix_cache_sig[1] if matrix_cache_sig else None
+                            baseline_den = baseline_std if np.isfinite(baseline_std) and baseline_std not in (0.0,) else float('nan')
+                            preds_cv = mv_result.get('predictions_cv')
+                            preds_in = mv_result.get('predictions_in')
+                            preds_arr = None
+                            if isinstance(preds_cv, list):
+                                preds_arr = np.array(preds_cv, dtype=float)
+                            elif isinstance(preds_in, list):
+                                preds_arr = np.array(preds_in, dtype=float)
+                            if preds_arr is not None and preds_arr.size and y_true is not None and np.isfinite(baseline_den) and baseline_den not in (0.0,):
+                                slope_cov = np.polyfit(np.asarray(y_true, dtype=float), preds_arr, 1)[0]
+                                mv_result['slope_to_noise'] = abs(float(slope_cov)) / baseline_den
+                            mv_result['baseline_slope_to_noise'] = baseline_slope_to_noise
+                        except Exception:
+                            mv_result.setdefault('slope_to_noise', float('nan'))
+                        mv_result_sig = mv_result
+                except Exception as exc_mv:  # noqa: BLE001
+                    mv_result_sig = {'error': str(exc_mv)}
+
+            metrics_path_sig = save_concentration_response_metrics(
+                response_stats_sig,
+                repeatability_sig,
+                str(signal_root),
+                name=f'concentration_response_{signal_name}',
+            )
+            plot_path_sig = save_concentration_response_plot(
+                response_stats_sig,
+                avg_by_conc_sig,
+                str(signal_root),
+                name=f'concentration_response_{signal_name}',
+                clamp_to_roi=True,
+            )
+            repeatability_plot_sig = save_roi_repeatability_plot(view_map, response_stats_sig, str(signal_root))
+            performance_metrics_sig = save_roi_performance_metrics(performance_sig, str(signal_root))
+
+            signal_results[signal_name] = {
+                'canonical': canonical_sig,
+                'canonical_paths': canonical_paths_sig,
+                'canonical_plot': canonical_plot_sig,
+                'response': response_stats_sig,
+                'repeatability': repeatability_sig,
+                'performance': performance_sig,
+                'multivariate': mv_result_sig,
+                'baseline': {
+                    'std_transmittance': baseline_std,
+                    'slope_to_noise': baseline_slope_to_noise,
+                    'regression_r2': performance_sig.get('regression_r2') if isinstance(performance_sig, dict) else float('nan'),
+                    'lod_ppm': performance_sig.get('lod_ppm') if isinstance(performance_sig, dict) else float('nan'),
+                },
+                'metrics_path': metrics_path_sig,
+                'plot_path': plot_path_sig,
+                'repeatability_plot': repeatability_plot_sig,
+                'performance_metrics_path': performance_metrics_sig,
+            }
+        except Exception as exc:  # noqa: BLE001
+            signal_results[signal_name] = {
+                'error': str(exc),
+            }
+
+    def _compute_signal_score(entry: Dict[str, object]) -> Tuple[float, Dict[str, float]]:
+        components: Dict[str, float] = {}
+        perf = entry.get('performance') if isinstance(entry, dict) else None
+        if not isinstance(perf, dict):
+            components['r2'] = float('nan')
+            components['lod_ppm'] = float('nan')
+            components['sensitivity'] = float('nan')
+        else:
+            r2 = perf.get('regression_r2')
+            lod = perf.get('lod_ppm')
+            slope = perf.get('regression_slope')
+            components['r2'] = float(r2) if isinstance(r2, (int, float)) and np.isfinite(r2) else float('nan')
+            components['lod_ppm'] = float(lod) if isinstance(lod, (int, float)) and np.isfinite(lod) else float('nan')
+            components['sensitivity'] = float(slope) if isinstance(slope, (int, float)) and np.isfinite(slope) else float('nan')
+
+        baseline_info = entry.get('baseline') if isinstance(entry, dict) else {}
+        baseline_slope_to_noise = float('nan')
+        baseline_r2 = float('nan')
+        if isinstance(baseline_info, dict):
+            baseline_slope_to_noise = float(baseline_info.get('slope_to_noise', float('nan')))
+            baseline_r2 = float(baseline_info.get('regression_r2', float('nan')))
+
+        score = 0.0
+        if np.isfinite(components.get('r2', float('nan'))):
+            score += components['r2']
+        if np.isfinite(components.get('lod_ppm', float('nan'))) and components['lod_ppm'] > 0:
+            score += 1.0 / components['lod_ppm']
+        if np.isfinite(components.get('sensitivity', float('nan'))):
+            score += abs(components['sensitivity'])
+
+        mv_entry = entry.get('multivariate') if isinstance(entry, dict) else None
+        mv_r2 = float('nan')
+        mv_rmse = float('nan')
+        mv_slope_to_noise = float('nan')
+        if isinstance(mv_entry, dict) and 'error' not in mv_entry:
+            mv_r2 = mv_entry.get('r2_cv', float('nan'))
+            mv_rmse = mv_entry.get('rmse_cv', float('nan'))
+            mv_slope_to_noise = mv_entry.get('slope_to_noise', float('nan'))
+        components['plsr_r2_cv'] = float(mv_r2) if isinstance(mv_r2, (int, float)) and np.isfinite(mv_r2) else float('nan')
+        components['plsr_rmse_cv'] = float(mv_rmse) if isinstance(mv_rmse, (int, float)) and np.isfinite(mv_rmse) else float('nan')
+        components['plsr_slope_to_noise'] = float(mv_slope_to_noise) if isinstance(mv_slope_to_noise, (int, float)) and np.isfinite(mv_slope_to_noise) else float('nan')
+        components['baseline_r2'] = baseline_r2
+        components['baseline_slope_to_noise'] = baseline_slope_to_noise
+        if np.isfinite(components['plsr_r2_cv']):
+            score += 2.0 * components['plsr_r2_cv']
+        if np.isfinite(components['plsr_rmse_cv']) and components['plsr_rmse_cv'] > 0:
+            score += 1.0 / components['plsr_rmse_cv']
+        if np.isfinite(components['plsr_slope_to_noise']):
+            score += components['plsr_slope_to_noise']
+
+        return score, components
+
+    for sig_name, result in signal_results.items():
+        score, components = _compute_signal_score(result)
+        result['score'] = score
+        result['score_components'] = components
+
+    ranked_signals = sorted(
+        signal_results.items(),
+        key=lambda kv: kv[1].get('score', float('-inf')),
+        reverse=True,
+    )
+
+    primary_signal = _resolve_primary_signal(signal_views)
+    if ranked_signals:
+        best_signal = ranked_signals[0][0]
+        if best_signal in signal_views:
+            primary_signal = best_signal
+
+    primary_map = signal_views[primary_signal]
+    metadata['signal_analysis'] = {
+        'available_signals': sorted(signal_views.keys()),
+        'primary_signal': primary_signal,
+        'ranked_signals': [name for name, _ in ranked_signals],
+        'per_signal_results': {
+            name: {
+                'performance': result.get('performance'),
+                'multivariate': result.get('multivariate'),
+                'metrics_path': result.get('metrics_path'),
+                'plot_path': result.get('plot_path'),
+                'repeatability_plot': result.get('repeatability_plot'),
+                'performance_metrics_path': result.get('performance_metrics_path'),
+                'error': result.get('error'),
+                'canonical_plot': result.get('canonical_plot'),
+                'score': result.get('score'),
+                'score_components': result.get('score_components'),
+            }
+            for name, result in signal_results.items()
+        },
+    }
 
     top_results: Dict[str, Dict[str, object]] = {}
     if avg_top_n and top_path:
@@ -4147,8 +7633,12 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
             subset_dir = compare_dir / metric_type
             save_aggregated_spectra(data_map, str(subset_dir))
             canonical_subset = select_canonical_per_concentration(data_map)
+            # Get per-gas ROI bounds for proper calibration
+            min_wl_roi_subset, max_wl_roi_subset = _resolve_roi_bounds(dataset_label)
             response_stats_subset, avg_by_conc_subset = compute_concentration_response(
                 data_map,
+                override_min_wavelength=min_wl_roi_subset,
+                override_max_wavelength=max_wl_roi_subset,
                 top_k_candidates=top_k_candidates,
                 debug_out_root=str(subset_dir),
             )
@@ -4179,21 +7669,76 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
                 'plot_path': plot_path_subset,
                 'fullscan_metrics_path': full_metrics_path_subset,
                 'fullscan_plot_path': full_plot_path_subset,
+                'canonical_raw': canonical_subset,
+                'canonical': _baseline_correct_canonical(canonical_subset),
             }
 
-    canonical = select_canonical_per_concentration(stable_by_conc)
+    canonical_raw = select_canonical_per_concentration(stable_by_conc)
+    canonical = _baseline_correct_canonical(canonical_raw)
     save_canonical_spectra(canonical, out_root)
 
-    noise_metrics = compute_noise_metrics_map(stable_by_conc)
+    discovered_roi = _discover_roi_in_band(canonical, dataset_label=dataset_label, out_root=out_root)
+    if discovered_roi:
+        metadata['discovered_roi'] = discovered_roi
+        try:
+            roi_plot_path = save_roi_discovery_plot(discovered_roi, out_root)
+            if roi_plot_path:
+                metadata['discovered_roi_plot'] = roi_plot_path
+        except Exception:
+            pass
+
+    # Optional QC-filtered calibration using existing trial quality weights
+    qc_calib: Optional[Dict[str, object]] = None
+    try:
+        qc_cfg = calib_settings.get('qc', {}) if isinstance(calib_settings, dict) else {}
+        min_q = float(qc_cfg.get('min_quality', 0.0))
+        min_trials = int(qc_cfg.get('min_trials', 1))
+        if min_trials < 1:
+            min_trials = 1
+        trial_weights_global = globals().get('TRIAL_WEIGHTS_FOR_CANONICAL', {})
+        stable_qc: Dict[float, Dict[str, pd.DataFrame]] = {}
+        if isinstance(trial_weights_global, dict):
+            for conc_val, trials in stable_by_conc.items():
+                weights_map = trial_weights_global.get(conc_val, {}) if isinstance(trial_weights_global.get(conc_val, {}), dict) else {}
+                filtered: Dict[str, pd.DataFrame] = {}
+                for t_name, df in trials.items():
+                    w = weights_map.get(t_name, 1.0)
+                    try:
+                        w_val = float(w)
+                    except Exception:
+                        w_val = 1.0
+                    if not np.isfinite(w_val):
+                        w_val = 1.0
+                    if w_val >= min_q:
+                        filtered[t_name] = df
+                if len(filtered) >= min_trials:
+                    stable_qc[conc_val] = filtered
+        if stable_qc:
+            canonical_qc_raw = select_canonical_per_concentration(stable_qc)
+            canonical_qc = _baseline_correct_canonical(canonical_qc_raw)
+            qc_calib = find_roi_and_calibration(
+                canonical_qc,
+                dataset_label=dataset_label,
+                responsive_delta=responsive_calib,
+                discovered_roi=discovered_roi,
+            )
+            if isinstance(qc_calib, dict):
+                qc_calib.setdefault('variant', 'qc_filtered')
+                save_calibration_outputs(qc_calib, out_root, name_suffix='_qc')
+                metadata['calibration_qc'] = qc_calib
+    except Exception:
+        qc_calib = None
+
+    noise_metrics = compute_noise_metrics_map(primary_map)
     noise_metrics_path = save_noise_metrics(noise_metrics, out_root)
-    summary_csv_path = save_aggregated_summary(stable_by_conc, noise_metrics, out_root)
+    summary_csv_path = save_aggregated_summary(primary_map, noise_metrics, out_root)
     # Quality control summary
     try:
-        qc_summary = summarize_quality_control(stable_by_conc, noise_metrics)
+        qc_summary = summarize_quality_control(primary_map, noise_metrics)
         qc_summary_path = save_quality_summary(qc_summary, out_root)
     except Exception:
         qc_summary_path = None
-    aggregated_plot_paths = save_aggregated_plots(stable_by_conc, out_root)
+    aggregated_plot_paths = save_aggregated_plots(primary_map, out_root)
     canonical_plot_path = save_canonical_overlay(canonical, out_root)
 
     # Optional deconvolution (ICA and MCR-ALS)
@@ -4220,8 +7765,26 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
     except Exception:
         mcr_artifacts = {}
 
+    # Get per-gas ROI bounds for proper calibration
+    min_wl_roi, max_wl_roi = _resolve_roi_bounds(dataset_label)
+    responsive_calib = None
+    if responsive_delta_summary:
+        try:
+            responsive_calib = perform_responsive_delta_calibration(
+                responsive_delta_summary,
+                out_root,
+                dataset_label=dataset_label,
+                trend_fallbacks=responsive_trend_fallback,
+            )
+            metadata['responsive_delta_calibration'] = responsive_calib
+        except Exception as exc:  # noqa: BLE001
+            print(f"[WARNING] Responsive Δλ calibration failed: {exc}")
+            responsive_calib = None
+
     response_stats, avg_by_conc = compute_concentration_response(
         stable_by_conc,
+        override_min_wavelength=min_wl_roi,
+        override_max_wavelength=max_wl_roi,
         top_k_candidates=top_k_candidates,
         debug_out_root=out_root,
     )
@@ -4271,7 +7834,14 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
         except Exception as exc:
             dynamics_summary_path = save_dynamics_error(str(exc), out_root)
 
-    calib = find_roi_and_calibration(canonical)
+    calib = find_roi_and_calibration(
+        canonical,
+        dataset_label=dataset_label,
+        responsive_delta=responsive_calib,
+        discovered_roi=discovered_roi,
+    )
+    if responsive_calib:
+        metadata.setdefault('responsive_delta', {})['calibration'] = responsive_calib
 
     # If configured, auto-select best multivariate model (PLSR/ICA/MCR) by CV R² with gating and override selection
     try:
@@ -4417,6 +7987,62 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
 
     save_calibration_outputs(calib, out_root)
 
+    fusion_cfg = CONFIG.get('calibration', {}).get('multi_roi_fusion', {}) if isinstance(CONFIG, dict) else {}
+    if bool(fusion_cfg.get('enabled', False)):
+        max_feats = int(fusion_cfg.get('max_features', 4) or 4)
+        fusion_result = _compute_multi_roi_fusion_calibration(
+            discovered_roi,
+            calib,
+            out_root,
+            dataset_label=dataset_label,
+            max_features=max_feats,
+        )
+        if fusion_result:
+            metadata['multi_roi_fusion'] = fusion_result
+
+    # Compute T90/T10 response and recovery times from time-series data
+    try:
+        from .dynamics import compute_t90_t10_from_timeseries
+        time_series_dir = os.path.join(out_root, 'time_series')
+        if os.path.isdir(time_series_dir):
+            dynamics_cfg = CONFIG.get('dynamics', {}) if isinstance(CONFIG, dict) else {}
+            baseline_frames = int(dynamics_cfg.get('baseline_frames', 20))
+            frame_rate_cfg = dynamics_cfg.get('frame_rate', None)
+            min_amp_cfg = dynamics_cfg.get('min_response_amplitude_nm', 0.0)
+            smooth_cfg = dynamics_cfg.get('timeseries_smoothing_window', 1)
+            try:
+                frame_rate_val = float(frame_rate_cfg) if frame_rate_cfg is not None else None
+                if frame_rate_val is not None and frame_rate_val <= 0:
+                    frame_rate_val = None
+            except Exception:
+                frame_rate_val = None
+            try:
+                min_amp_val = float(min_amp_cfg) if min_amp_cfg is not None else 0.0
+            except Exception:
+                min_amp_val = 0.0
+            try:
+                smooth_val = int(smooth_cfg) if smooth_cfg is not None else 1
+            except Exception:
+                smooth_val = 1
+            if smooth_val < 1:
+                smooth_val = 1
+
+            dynamics_result = compute_t90_t10_from_timeseries(
+                time_series_dir=time_series_dir,
+                out_root=out_root,
+                baseline_frames=baseline_frames,
+                steady_state_frames=20,
+                frame_rate=frame_rate_val,
+                min_response_amplitude_nm=min_amp_val,
+                smooth_window=smooth_val,
+            )
+            if dynamics_result and dynamics_result.get('summary'):
+                print(f"[INFO] T90/T10 dynamics computed successfully")
+        else:
+            print(f"[WARNING] Time-series directory not found: {time_series_dir}")
+    except Exception as e:
+        print(f"[WARNING] Failed to compute T90/T10 dynamics: {e}")
+
     # After calibration, try estimating environment coefficients and update summary
     try:
         env_coeffs = compute_environment_coefficients(stable_by_conc, calib)
@@ -4434,6 +8060,9 @@ def run_full_pipeline(root_dir: str, ref_path: str, out_root: str,
                 pass
     except Exception:
         pass
+
+    if time_series_outputs:
+        metadata['time_series_outputs'] = time_series_outputs
 
     report_results = _invoke_report_generation(out_root, metadata)
     trend_plots = generate_trend_plots(out_root)

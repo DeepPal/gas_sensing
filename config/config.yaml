@@ -1,18 +1,59 @@
 
 # Configuration for the gas analysis project
 
+# Preprocessing settings (applied to ROI spectra before feature extraction)
+preprocessing:
+  enabled: true
+  apply_to_frames: false
+  apply_to_transmittance: false      # preprocessing handled at frame stage for uniformity
+  smoothing:
+    enabled: false    # DISABLED: Over-smoothing destroys peak localization (was causing R²=0.74)
+    window: 5         # Reduced window (was 11, too aggressive)
+    poly_order: 2     # Polynomial order for S-G filter
+  smooth:
+    enabled: true
+    method: savgol
+    window: 11
+    poly_order: 2
+    extra_pass: false
+  baseline:
+    enabled: true                   # removes baseline drift to isolate gas shifts
+    method: als
+    order: 2
+  normalization:
+    enabled: false
+    method: minmax
+  downsample:
+    enabled: false
+    factor: 1
+    target_points: null
+  outlier_rejection:
+    enabled: true
+    threshold: 2.5
+
 # Data loading settings
 data:
   # Path to the root data directory
-  base_dir: "data/JOY_Data"
+  base_dir: "Kevin_Data"
   # Directory template for experiment runs
-  exp_dir_template: "{concentration} EtOH IPA MeOH-{run}"
+  exp_dir_template: "{concentration}"
+  per_gas_templates:
+    Acetone: "{concentration}"
+    Ethanol: "{concentration}"
+    Isopropanol: "{concentration}"
+    Methanol: "{concentration}"
+    Toluene: "{concentration}"
+    Xylene: "{concentration}"
+    MixVOC: "{concentration}"
   # Reference files
   ref_files:
-    IPA: 'ref AuMutiMIP-IPA.csv'
-    MIX: 'ref AuMutiMIP-MIX.csv'
-    MeOH: 'ref AuMutiMIP-MeOH.csv'
-    EtOH: 'ref MutiAuMIP-EtOH.csv'
+    Acetone: 'Acetone/air1.csv'
+    Ethanol: 'Ethanol/air for ethanol ref.csv'
+    Isopropanol: 'Isopropanol/Air_ref for IPA.csv'
+    Methanol: 'Methanol/air ref after purging _N2.csv'
+    Toluene: 'Toluene/toluene_ref air.csv'
+    Xylene: 'Xylene/air ref xylene.csv'
+    MixVOC: 'mix VOC/air.csv'
   # CSV parsing settings
   skiprows: 0
   header: null
@@ -27,13 +68,47 @@ peak_detection:
 # Analysis settings
 analysis:
   calibration_factor: 1.0
+  enable_absorbance: true
+  primary_signal: absorbance
+  signal_strategies:
+    intensity:
+      baseline:
+        enabled: true
+        method: als
+        order: 2
+      normalize:
+        enabled: true
+        method: minmax
+      smooth:
+        enabled: true
+        method: savgol
+        window: 15
+        poly_order: 2
+    transmittance:
+      smooth:
+        enabled: true
+        method: savgol
+        window: 11
+        poly_order: 2
+      center:
+        enabled: true
+        mode: mean
+    absorbance:
+      smooth:
+        enabled: true
+        method: savgol
+        window: 7
+        poly_order: 2
+      center:
+        enabled: true
+        mode: median
 
 # Calibration settings
 calibration:
-  model: linear
+  model: auto  # Auto-select best model (polynomial blocked by CV check, Langmuir enabled)
   polynomial_degree: 2
   x_transform: linear
-  use_transmittance: true
+  use_transmittance: false          # rely on per-signal absorbance views
   auto_select_by: r2_cv
   cv:
     enabled: true
@@ -50,19 +125,19 @@ calibration:
     epsilon: 1.35
     alpha: 0.0001
   bootstrap:
-    enabled: false
+    enabled: true
     iterations: 500
     sample_fraction: 0.8
     min_unique: 2
-    random_seed: null
+    random_seed: 123
   multivariate:
-    enabled: true
-    max_components: 3
+    enabled: false  # Disabled: Linear model (R²=0.985) is sufficient, PLSR adds no value
+    max_components: 6
     scale: true
     select_mode: auto
     # Robust selection gating
-    min_r2_cv: 0.80          # minimum acceptable CV R² to select any multivariate model
-    improve_margin: 0.02     # model must beat PLSR by at least this margin in R² to be selected
+    min_r2_cv: 0.85          # minimum acceptable CV R² to select any multivariate model
+    improve_margin: 0.05     # model must beat baseline by at least this margin in R²
     prefer_plsr_on_tie: true # prefer PLSR if within margin
     wl_min: 500.0
     wl_max: 900.0
@@ -71,7 +146,19 @@ calibration:
       enabled: true
       method: coef_top_fraction
       top_fraction: 0.2
+    cv:
+      k: 5
+      repeats: 10
+      shuffle: true
+      random_state: 42
+      one_se_rule: true
     absorbance: true
+  multi_roi_fusion:
+    enabled: true         # Enable multi-ROI fusion (linear regression across top ROI shifts)
+    max_features: 4       # Maximum number of ROI channels to include in fusion model
+  qc:
+    min_quality: 0.5   # minimum trial quality score (0–1) to include in QC-filtered calibration
+    min_trials: 2      # minimum number of trials per concentration after QC
   auto_band_search:
     enabled: true
     scan_range: [500.0, 900.0]
@@ -79,31 +166,6 @@ calibration:
     stride: 5.0
     prefer: best_plsr_cv
 
-# Preprocessing settings
-preprocessing:
-  enabled: true
-  apply_to_frames: false
-  apply_to_transmittance: true
-  smooth:
-    enabled: true
-    method: savgol
-    window: 21
-    poly_order: 3
-    extra_pass: false
-  baseline:
-    enabled: true
-    method: als
-    order: 2
-  normalization:
-    enabled: false
-    method: minmax
-  downsample:
-    enabled: false
-    factor: 1
-    target_points: null
-  outlier_rejection:
-    enabled: true
-    threshold: 2.5
 
 archiving:
   enabled: false
@@ -113,9 +175,17 @@ reporting:
   export_pdf: true
   nbconvert_executable: "jupyter"
   trend_plots: true
+  slope_to_noise_heatmap: true
 
 dynamics:
   enabled: true
+  signal: absorbance
+  baseline_frames: 20  # Increased from 12 for better noise reduction → lower LOD
+  frame_rate: 1.0      # frames per second for Δλ(t) plots and T90/T10; set null for auto-detect
+  smoothing_window: 5
+  min_response_amplitude_nm: 0.05      # gate for T90/T10; trials with smaller Δλ are excluded from dynamics stats
+  timeseries_smoothing_window: 3       # rolling window (frames) for Δλ(t) in T90/T10 computation
+  noise_sigma_multiplier: 1.5
 
 environment:
   enabled: false
@@ -138,20 +208,20 @@ environment:
 advanced:
   deconvolution:
     ica:
-      enabled: true
+      enabled: false
       n_components: 2
       max_iter: 500
       tol: 1.0e-4
       random_state: 0
     mcr_als:
-      enabled: true
+      enabled: false
       n_components: 2
       max_iter: 200
       tol: 1.0e-5
       random_state: 0
 
 roi:
-  debug_regressions: true
+  debug_regressions: false
   selection_metric: hybrid
   min_r2: 0.3
   r2_weight: 0.55
@@ -170,6 +240,20 @@ roi:
   slope_noise_weight: 0.6
   min_slope_to_noise: 0.9
   min_abs_slope: 0.0005
+  multiple_testing:
+    enabled: true
+    method: bh
+    alpha: 0.05
+    require_significant_for_selection: true
+  permutation_test:
+    enabled: true
+    n_iterations: 200
+    random_state: 123
+    summary_percentiles: [5, 50, 95]
+  bootstrap:
+    enabled: true
+    iterations: 200
+    random_state: 123
   adaptive_thresholds:
     enabled: true
     relaxation_factor: 0.6
@@ -185,12 +269,266 @@ roi:
     slope_fraction: 0.75
     max_half_width: 50
 
+  discovery:
+    enabled: true
+    band: [500.0, 900.0]
+    window_nm: 12.0
+    step_nm: 0.5
+    expected_center: null
+    prior_weight: 0.001
+    best_sensitivity_min_r2: 0.95
+    gates:
+      min_r2: 0.6
+      min_consistency: 0.75
+      min_snr: 2.0
+      min_abs_slope: 0.005
+      min_conc_count: 3
+    weights:
+      r2: 0.8
+      slope: 2.5
+      snr: 0.3
+    retain_top: 10
+
+  per_gas_overrides:
+    Acetone:
+      # Paper benchmark: ZnO-coated NCF sensor shows acetone response at 675-689 nm
+      # Sensitivity: 0.116 nm/ppm, LOD: 3.26 ppm, T90: 26s
+      range:
+        min_wavelength: 550.0
+        max_wavelength: 780.0
+      validation:
+        expected_center: 680.0
+        tolerance: 25.0
+    Ethanol:
+      range:
+        min_wavelength: 664.0
+        max_wavelength: 685.0
+      validation:
+        expected_center: 673.5
+        tolerance: 6.0
+    Isopropanol:
+      range:
+        min_wavelength: 665.0
+        max_wavelength: 677.0
+      validation:
+        expected_center: 671.0
+        tolerance: 5.0
+    Methanol:
+      range:
+        min_wavelength: 646.0
+        max_wavelength: 664.0
+      validation:
+        expected_center: 655.0
+        tolerance: 4.0
+    Toluene:
+      range:
+        min_wavelength: 644.0
+        max_wavelength: 656.0
+      validation:
+        expected_center: 650.0
+        tolerance: 6.0
+    Xylene:
+      range:
+        min_wavelength: 665.0
+        max_wavelength: 675.0
+      validation:
+        expected_center: 670.0
+        tolerance: 5.0
+    MixVOC:
+      range:
+        min_wavelength: 665.0
+        max_wavelength: 690.0
+      validation:
+        expected_center: 675.0
+        tolerance: 10.0
+
+  shift:
+    minimal_outputs: true             # minimal, production outputs only
+    scan_enabled: true
+    global_align: true               # CRITICAL: removes drift to isolate gas response
+    window_nm: [5.0, 8.0, 10.0, 15.0, 20.0]  # scan multiple feature widths
+    step_nm: 0.5
+    upsample: 100
+    use_transmittance: true          # match paper: wavelength shift in transmission spectrum
+    smooth_window: 5                 # light smoothing to preserve shifts
+    smooth_poly: 2
+    derivative_min_span_nm: 6.0      # require ≥6 nm span before applying derivative
+    sigma_clip_z: 3.5                # reject >3.5σ outliers within ROI shift samples
+    fdr_alpha: 0.05
+    min_slope_nm_per_ppm: 0.0002
+    min_r2_w: 0.80
+    min_spearman_r: 0.85             # ensures monotonic gas response
+    min_cv_r2_w: 0.75
+    max_cv: 0.05                      # allow up to 5% CV on wavelength tracks
+    selection_mode: hierarchical     # research-grade selection (LOOCV R² → R² → sd → |slope|)
+    prefer_expected_center: false
+    auto_relax_expected_center: false
+    expected_center: null             # use roi.validation first; null disables hard prior
+    tolerance: null
+    # Absolute y-axis display (Option A)
+    absolute_y_mode: centered
+    absolute_y_fixed_span_nm: 0.40   # slightly wider for visibility
+    absolute_y_secondary: true       # show Δλ secondary axis on mixed plots
+    absolute_y_show_baseline: true   # annotate baseline λ₀
+    alignment_tolerance_nm: 5.0
+    min_window_overlap_fraction: 0.25
+    detection_probability_threshold: 0.15
+    bootstrap:
+      enabled: true
+      iterations: 1000
+      confidence_level: 0.95
+      random_state: 123
+
 stability:
   weight_mode: intensity   # options: uniform, intensity, max
-  top_k: 5                 # try 2–5 to keep the strongest frames
-  diff_threshold: 0.02     # relax if strong changes are still excluded
+  top_k: 4                 # emphasize strongest frames within response band
+  diff_threshold: 0.05     # tighter gate to isolate steady-state response
+  min_block: 12            # require ≥12-frame stable segments before averaging
+  use_raw_intensity: true  # evaluate stability on raw intensity before preprocessing
+  range_floor_fraction: 0.1
+  smooth_window: 5
+
+response_series:
+  enabled: true
+  smooth_window: 5
+  baseline_frames: 12
+  activation_delta: 0.003
+  activation_sigma_multiplier: 1.5
+  min_activation_frames: 6
+  min_activation_fraction: 0.08
+  fallback_window: 4
+  restrict_to_responsive: true
+  slope_sigma_multiplier: 1.25
+  min_response_slope: 0.0
+  noise_floor: 0.0005
+  overrides:
+    Acetone:
+      activation_delta: 0.0003  # Lowered from 0.0008 - more sensitive
+      activation_sigma_multiplier: 0.5  # Lowered from 0.8 - more sensitive
+      min_activation_frames: 6  # Lowered from 8 - less strict
+      min_activation_fraction: 0.03  # Lowered from 0.05 - detect shorter responses
+      fallback_window: 12
+      slope_sigma_multiplier: 0.8  # Lowered from 1.0
+      min_response_slope: 0.0001  # Lowered from 0.0002
+      noise_floor: 0.0001  # Lowered from 0.0002
+      monotonic_tolerance_nm: 0.15  # Increased from 0.08 - allow more variation
+      changepoint:
+        enabled: true
+        method: pelt
+        penalty: 1.5  # Lowered from 3.0 - CRITICAL: detect more breakpoints!
+        min_segment_size: 6  # Lowered from 8
+        signal: abs_delta_lambda
+        smooth_window: 5
+        threshold_scale: 0.8  # Lowered from 1.2 - more sensitive
+        release_multiplier: 0.5
+    Methanol:
+      activation_delta: 0.0035
+      min_activation_frames: 6
+      min_activation_fraction: 0.10
+    Ethanol:
+      activation_delta: 0.0035
+      min_activation_frames: 6
+      min_activation_fraction: 0.10
+    Isopropanol:
+      activation_delta: 0.003
+      min_activation_frames: 6
+      min_activation_fraction: 0.10
+    Toluene:
+      activation_delta: 0.0025
+      min_activation_frames: 5
+      min_activation_fraction: 0.08
+    Xylene:
+      activation_delta: 0.0025
+      min_activation_frames: 5
+      min_activation_fraction: 0.08
+    MixVOC:
+      activation_delta: 0.003
+      min_activation_frames: 6
+      min_activation_fraction: 0.10
 
 # Dataset-level quality control thresholds (used in qc_summary.json)
 quality:
-  min_snr: 10.0
-  max_rsd: 5.0    # percent
+  min_snr: 4.0
+  max_rsd: 7.5    # percent
+  snr_metric: median        # evaluate QC using median SNR unless overridden (options: min, median)
+  snr_signal: absorbance    # preferred signal for SNR calculation; falls back if unavailable
+  snr_region_nm: [520.0, 560.0]   # spectral window capturing EtOH response
+  noise_region_nm: [690.0, 720.0] # window dominated by baseline noise for SNR estimation
+
+# ============================================================================
+# ML-ENHANCED ANALYSIS CONFIGURATION
+# Based on: "1-s2.0-S0925400525000607-main.pdf" spectral feature engineering
+# Target: Tier-1 publication in Sensors & Actuators: B. Chemical
+# ============================================================================
+
+ml_enhancement:
+  enabled: true
+  
+  # Spectral Feature Engineering Settings
+  # First-derivative convolution to enhance weak absorber detection
+  feature_engineering:
+    enabled: true
+    derivative_window: 7          # Savitzky-Golay window for first derivative
+    derivative_polyorder: 2       # Polynomial order for derivative
+    normalization: standard       # 'standard' (z-score) or 'minmax'
+    
+  # 1D-CNN Model Configuration (optional, requires TensorFlow)
+  cnn_model:
+    enabled: false                # Enable CNN-based prediction
+    architecture:
+      filters: [32, 64, 128]      # Conv1D filter sizes
+      kernel_size: 3              # Convolution kernel size
+      dense_units: [256, 128]     # Dense layer sizes
+      dropout_rate: 0.2           # Dropout for regularization
+    training:
+      epochs: 100
+      batch_size: 32
+      learning_rate: 0.001
+      early_stopping_patience: 15
+    data_augmentation:
+      enabled: true
+      n_augmented: 5              # Augmented samples per original
+      noise_level: 0.01           # Gaussian noise level
+      max_shift: 2                # Max wavelength shift (samples)
+      scale_range: [0.9, 1.1]     # Intensity scaling range
+      
+  # Enhanced Detection Limit Calculation
+  detection_limit:
+    method: white_noise           # 'standard', 'white_noise', or 'allan'
+    confidence_level: 0.95
+    bootstrap_iterations: 1000
+    
+  # Statistical Analysis Settings
+  statistics:
+    alpha: 0.05                   # Significance level
+    clinical_threshold: 1.2       # Acetone threshold for diabetes (ppm)
+    bootstrap_samples: 1000
+    loocv_enabled: true           # Leave-One-Out Cross-Validation
+    
+  # Publication Output Settings
+  publication:
+    generate_figures: true
+    figure_dpi: 300
+    figure_format: png            # 'png' or 'pdf'
+    generate_latex_tables: false
+    include_raw_data: false
+
+# Publication benchmarks for comparison
+benchmarks:
+  baseline_znc_ncf:
+    # From "Highly sensitive and real-time detection of acetone" paper
+    sensitivity_nm_per_ppm: 0.116
+    lod_ppm: 3.26
+    r_squared: 0.95
+    t90_seconds: 26
+    t10_seconds: 32
+    roi_nm: [675.0, 689.0]
+    zno_thickness_nm: 85
+    
+  target_ml_enhanced:
+    # Target improvements for Tier-1 publication
+    sensitivity_nm_per_ppm: 0.156   # 35% improvement
+    lod_ppm: 0.76                   # 77% reduction
+    r_squared: 0.98
+    clinical_accuracy: 0.96         # 96% for diabetes screening
+    dynamic_range_reduction: 34     # 34× smaller input range for CNN

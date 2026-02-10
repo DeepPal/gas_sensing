@@ -1,0 +1,10 @@
+Metric,Value
+Sensitivity,0.116 ± 0.008 nm/ppm
+LoD,3.26 ± 0.24 ppm
+R²,0.950 ± 0.015
+T₉₀,26 ± 2 s
+Recovery,32 ± 3 s
+Drift,0.2 ± 0.05% (30 days)
+ROI,675–689 nm
+ZnO Thickness,85 ± 3 nm
+Sample Size (n),24

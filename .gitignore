@@ -6,7 +6,9 @@ __pycache__/
 .Python
 build/
 develop-eggs/
+# Generated distribution bundles (presentation/export artifacts)
 dist/
+dist/presentation_assets/
 downloads/
 eggs/
 .eggs/
@@ -34,17 +36,7 @@ gassensingvenv/
 *.swo
 
 # Project specific
-# Ignore everything under output by default
-output/**
-
-# Include selected artifacts for versioning (ensure Git traverses dirs)
-!output/**/reports/
-!output/**/reports/**
-!output/**/metrics/
-!output/**/metrics/**
-!output/**/plots/
-!output/**/plots/**
-!output/.gitkeep
+# (Outputs kept for analysis; prune or archive explicitly if needed)
 
 # Logs
 *.log

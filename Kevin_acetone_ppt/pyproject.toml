@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "presentation-automation"
+version = "0.1.0"
+description = "Template-driven automation toolkit for Google Slides and PowerPoint"
+readme = "README.md"
+authors = [
+    { name = "Chula Automation Lab" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.20",
+    "google-auth-httplib2>=0.2",
+    "google-auth-oauthlib>=1.0",
+    "pandas>=2.0",
+    "python-pptx>=0.6.23",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+local = ["matplotlib>=3.7", "seaborn>=0.13", "scipy>=1.10"]
+
+[project.scripts]
+presentation-generator = "slides_automation.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["slides_automation*"]

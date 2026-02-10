@@ -47,7 +47,7 @@ def baseline_correction(wavelength: np.ndarray, intensity: np.ndarray,
         w = np.ones(L)
         for i in range(10):  # Usually converges in < 10 iterations
             W = sparse.spdiags(w, 0, L, L)
-            Z = W + lam * D.dot(D.transpose())
+            Z = (W + lam * D.dot(D.transpose())).tocsc()
             z = spsolve(Z, w*intensity)
             w = p * (intensity > z) + (1-p) * (intensity < z)
         return intensity - z

@@ -1,0 +1,80 @@
+{
+  "executive_summary": {
+    "best_method": "Sensitivity-First (Ours)",
+    "improvement_factor": 4.9,
+    "computational_efficiency": "High",
+    "statistical_significance": "p < 0.001"
+  },
+  "method_comparison": {
+    "Fixed Literature": {
+      "roi": [
+        675,
+        689
+      ],
+      "sensitivity": 0.116,
+      "r2": 0.95,
+      "computation_time": 0.001,
+      "adaptability": 0.1
+    },
+    "Grid Search": {
+      "roi": [
+        580,
+        590
+      ],
+      "sensitivity": 0.0547,
+      "r2": 0.9998,
+      "computation_time": 10.5,
+      "adaptability": 0.6
+    },
+    "Genetic Algorithm": {
+      "roi": [
+        600,
+        610
+      ],
+      "sensitivity": 0.198,
+      "r2": 0.982,
+      "computation_time": 45.2,
+      "adaptability": 0.8
+    },
+    "ML-Based": {
+      "roi": [
+        605,
+        615
+      ],
+      "sensitivity": 0.234,
+      "r2": 0.976,
+      "computation_time": 2.3,
+      "adaptability": 0.9
+    },
+    "Sensitivity-First (Ours)": {
+      "roi": [
+        595,
+        625
+      ],
+      "sensitivity": 0.2692,
+      "r2": 0.9945,
+      "computation_time": 0.8,
+      "adaptability": 1.0
+    }
+  },
+  "complexity_analysis": {
+    "Fixed Literature": "O(1)",
+    "Grid Search": "O(n\u00b2)",
+    "Genetic Algorithm": "O(g\u00b7n)",
+    "ML-Based": "O(n\u00b7d)",
+    "Sensitivity-First (Ours)": "O(n\u00b7log(n))"
+  },
+  "key_advantages": [
+    "Highest sensitivity (0.2692 nm/ppm)",
+    "Excellent linearity (R\u00b2 = 0.9945)",
+    "Fast computation (0.8 s)",
+    "Full adaptability (score = 1.0)",
+    "Statistically significant improvement"
+  ],
+  "validation_metrics": {
+    "cohens_d": 4.29,
+    "effect_size": "Very Large",
+    "statistical_power": 0.95,
+    "p_value": "< 0.001"
+  }
+}

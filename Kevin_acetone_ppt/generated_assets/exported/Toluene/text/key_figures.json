@@ -1,0 +1,23 @@
+{
+  "gas": "Toluene",
+  "timestamp": "2026-02-10T16:36:22.525783",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    840.0,
+    860.0
+  ],
+  "sensitivity_nm_per_ppm": -0.16447598533688682,
+  "r_squared": 0.6942017380228335,
+  "spearman_r": -0.39999999999999997,
+  "lod_ppm": 6.659819165888628,
+  "loq_ppm": 22.199397219628764,
+  "noise_std": 0.36512677315833864,
+  "loocv_r2": -1.5246767373761934,
+  "loocv_rmse": 1.0491294105083626,
+  "confidence_interval_nm_per_ppm": [
+    -0.25793337080802803,
+    0.050435840321059994
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 0.4895027806006522
+}

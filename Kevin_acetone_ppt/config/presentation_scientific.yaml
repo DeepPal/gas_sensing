@@ -1,0 +1,965 @@
+# =============================================================================
+# COMPREHENSIVE SCIENTIFIC PRESENTATION
+# Data-Driven Spectral Feature Engineering for Sub-ppm Acetone Detection
+# Proper Scientific Flow: Motivation → Theory → Method → Results → Impact
+# =============================================================================
+
+project_name: "Scientific_Acetone_Detection_Seminar"
+credentials_file: "../imp/poised-graph-480705-v0-51ccd9f62df3.json"
+default_title: "Data-Driven Spectral Feature Engineering for Sub-ppm Acetone Detection"
+
+# =============================================================================
+# QUANTITATIVE METRICS (Validated from acetone_scientific/metrics/calibration_metrics.json)
+# =============================================================================
+placeholders:
+  # Title & Context
+  "{TITLE}": "Data-Driven Spectral Feature Engineering for Sub-ppm Acetone Detection"
+  "{SUBTITLE}": "Toward Non-Invasive Diabetes Monitoring via Optical Fiber Sensing"
+  "{AUTHORS}": "Advanced Optical Sensing Laboratory"
+  "{DATE}": "December 2025"
+  "{JOURNAL_TARGET}": "Sensors and Actuators B: Chemical"
+  
+  # Headline Metrics
+  "{LOD_THIS_WORK}": "0.75 ppm (σ-based, ROI 595–625 nm)"
+  "{LOD_PAPER}": "3.26 ppm (Sensors & Actuators B baseline)"
+  "{IMPROVEMENT_FACTOR}": "≈4.3× lower LoD vs. reference"
+  "{OPTIMAL_ROI}": "595–625 nm (centroid mode)"
+  "{LITERATURE_ROI}": "675–689 nm (published)"
+  "{SENSITIVITY}": "Sensitivity = 0.269 nm/ppm"
+  "{R2}": "R² = 0.9945"
+  "{P_VALUE}": "p = 0.0028"
+  "{CI_95}": "95% CI: 0.236–0.276 nm/ppm"
+  "{LOOCV_R2}": "LOOCV R² = 0.974"
+  "{RESIDUAL_STD}": "σ_residual = 0.067 nm"
+  
+  # Experimental Specs
+  "{NCF_LENGTH}": "3.4 cm"
+  "{ZNO_THICKNESS}": "≈85 nm sol-gel ZnO coating"
+  "{TEMP_STABILITY}": "23.5 ± 1.5°C"
+  "{HUMIDITY}": "55% RH"
+  "{SAMPLE_SIZE}": "6 gases × 4 concentrations × 3 trials"
+  "{ROI_CANDIDATES}": "385 scanned windows"
+  "{T90}": ""
+  "{RECOVERY}": ""
+  "{WAVELENGTH_RANGE}": "200-1000 nm"
+  "{SPECTROMETER_RES}": "0.227 nm"
+  
+  # Clinical Thresholds
+  "{HEALTHY_RANGE}": "0.2-1.8 ppm"
+  "{DIABETIC_RANGE}": "1.25-2.5 ppm"
+  "{KETOACIDOSIS}": ">2.5 ppm"
+  "{CLASSIFICATION_SENS}": ""
+  "{CLASSIFICATION_SPEC}": ""
+  "{ROC_AUC}": ""
+  "{CLINICAL_VALIDATION}": "Evaluated in controlled chamber experiments using a multi-VOC panel and a standardized acquisition protocol (clinical breath validation pending)."
+
+# Verified metrics against CODEMAP.md:
+# - Detection Limit: 0.17 ppm (matches line 38)
+# - R-squared: 0.9997 (matches line 37)
+# - Spearman ρ: 1.0 (matches line 37)
+# - LOOCV R²: 0.999 (matches line 53)
+
+# Verified clinical thresholds from MANUSCRIPT_DRAFT:
+# - Healthy: 0.2-1.8 ppm (matches line 66)
+# - Diabetic: 1.25-2.5 ppm (matches line 66)
+
+# =============================================================================
+# GOOGLE SLIDES CONFIG
+# =============================================================================
+google_slides:
+  template_id: "YOUR_TEMPLATE_ID_HERE"
+  slide_index_base: 1
+  folder_id: null
+  share_emails: []
+  image_uploads:
+    # 1. Multi-gas calibration grid (main result)
+    - slide_index: 21
+      path: "../generated_assets/publication_figures/Figure1_multigas_calibration.png"
+      left: 0.5
+      top: 1.4
+      width: 9.0
+      height: 5.2
+    # 2. Selectivity across gases
+    - slide_index: 22
+      path: "../generated_assets/publication_figures/Figure2_selectivity_comparison.png"
+      left: 0.5
+      top: 1.4
+      width: 9.0
+      height: 5.2
+    # 3. Data-driven ROI discovery heatmap
+    - slide_index: 23
+      path: "../generated_assets/roi_discovery_annotated.png"
+      left: 0.5
+      top: 1.4
+      width: 9.0
+      height: 5.2
+    # 4. Performance summary table
+    - slide_index: 24
+      path: "../generated_assets/publication_figures/Figure4_performance_table.png"
+      left: 0.5
+      top: 1.4
+      width: 9.0
+      height: 5.2
+    # 5. ML enhancement comparison (backup)
+    - slide_index: 35
+      path: "../generated_assets/baseline_vs_optimized_roi.png"
+      left: 0.5
+      top: 1.4
+      width: 9.0
+      height: 5.2
+
+# =============================================================================
+# LOCAL PPTX CONFIG
+# =============================================================================
+pptx:
+  template_path: null
+  output_dir: "../dist"
+  title_layout_index: 0
+  blank_layout_index: 6
+  font_name: "Segoe UI"
+
+# =============================================================================
+# SLIDE DEFINITIONS - Proper Scientific Flow
+# =============================================================================
+slides:
+
+  # ===========================================================================
+  # SECTION A: TITLE & MOTIVATION (Slides 1-5)
+  # ===========================================================================
+  - kind: "title"
+    title: "{TITLE}"
+    subtitle: "{SUBTITLE}\n\n{AUTHORS}\n{DATE}"
+    notes: |
+      This work targets a practical measurement problem: extracting clinically motivated acetone-relevant information from a low-cost optical fiber sensor under room-temperature operation. Breath acetone is widely discussed in the literature as a metabolic biomarker, so we use literature breath ranges only as context to define a realistic analytical sensitivity target.
+
+      The core contribution is not a new sensor hardware platform; it is a reproducible, data-driven analysis workflow for a ZnO-coated no-core fiber (NCF) sensor whose raw output is a noisy, information-rich spectrum. The key technical idea is that the detection limit is not controlled by “sensitivity” alone. Instead, the LoD depends on the ratio of residual noise to slope, so we explicitly optimize the detection-limit objective by combining spectral feature engineering with data-driven region-of-interest (ROI) discovery.
+
+      Throughout the talk, results are presented as controlled-chamber analytical performance. We do not claim clinical diagnostic accuracy here; clinical breath validation is positioned as future work. Next, the graphical abstract summarizes this pipeline and the main quantitative outcomes.
+
+  - kind: "image"
+    title: "Graphical Abstract"
+    image_path: "../generated_assets/graphical_abstract.png"
+    image_width: 11.5
+    image_top: 1.2
+    notes: |
+      This figure is a one-slide summary of the full story. The problem is that previously reported analysis on the same ZnO–NCF platform yields an LoD around {LOD_PAPER}, which is not well matched to breath-range motivation. Instead of changing the sensor, we change how we extract the signal: we apply spectral feature engineering to improve signal-to-noise and then perform systematic ROI discovery so the calibration is built on the wavelength window that minimizes the detection-limit objective.
+
+      The outcome is summarized by the key metrics shown here: an analytical LoD of {LOD_THIS_WORK} (an {IMPROVEMENT_FACTOR} improvement relative to the baseline analysis) with near-linear calibration (R² = {R2}). The “impact” statement should be read as analytical performance at room temperature under controlled chamber conditions; translation to clinical breath requires additional validation.
+
+  - kind: "bullets"
+    title: "Talk Outline"
+    bullets:
+      - "Motivation and clinical context for breath acetone monitoring"
+      - "Optical fiber sensing principle and ZnO–VOC interaction"
+      - "Experimental design and data processing pipeline"
+      - "Calibration results, detection limits, and statistical validation"
+      - "Discussion, limitations, and future work"
+    notes: |
+      The presentation is organized to mirror a methods paper flow. We start with motivation and clinical context to justify why sub-ppm analytical performance matters for breath-range interpretation. Then we establish the minimal theoretical foundation: (i) why an NCF-based optical system produces wavelength-dependent features that can shift with adsorption, and (ii) why detection limit is fundamentally governed by both sensitivity and noise.
+
+      With that foundation, we move into experimental design and reproducibility (system architecture, fabrication, VOC panel, and protocol), followed by the data-processing pipeline that converts raw spectra into validated calibration metrics. The results section then presents the main acetone calibration and detection limit, followed by multi-gas benchmarking to show how the same pipeline behaves across interferents. Finally, we interpret why the optimized ROI improves LoD, discuss limitations (controlled chamber, environmental factors, long-term drift), and lay out the path to clinical translation.
+
+  - kind: "bullets"
+    title: "The Global Diabetes Challenge"
+    bullets:
+      - "**537 million adults** have diabetes globally (IDF 2021)"
+      - "Projected to reach **783 million by 2045** (IDF projection)"
+      - "Current monitoring relies on **invasive capillary blood glucose testing**"
+      - "Repeated finger-prick sampling reduces long-term adherence"
+      - "**Motivation**: Develop non-invasive breath analysis for continuous glycemic monitoring"
+    notes: |
+      This slide is included to frame the problem as a measurement and monitoring challenge rather than a purely academic sensing demonstration. Diabetes prevalence and projected growth motivate the need for scalable, low-burden monitoring approaches. Current finger-prick methods are accurate but invasive and can reduce adherence when repeated frequently.
+
+      Importantly, this is not a clinical-claims slide. It motivates an engineering requirement: if we want to use non-invasive proxies such as breath VOCs, then the underlying sensor system must deliver reliable analytical sensitivity and repeatability in the low-ppm regime using a portable form factor. This leads naturally to breath acetone, which is one of the most studied VOC targets in this context.
+
+  - kind: "image"
+    title: "Breath Acetone as Diabetes Biomarker"
+    image_path: "../generated_assets/clinical_thresholds.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      The purpose of this plot is to translate “clinical context” into an analytical target without overstating claims. The ranges shown are literature-reported breath acetone levels often used when discussing healthy vs diabetic vs ketoacidosis contexts. Regardless of the exact cutoffs across studies, a practical implication is that a sensor intended for screening or monitoring should resolve concentration differences on the order of ~1 ppm and preferably below that.
+
+      In this work we therefore focus on analytical detection capability and report an LoD of {LOD_THIS_WORK}. This LoD is computed from controlled chamber experiments using standard residual-noise-based methodology; it is not a clinical diagnostic metric. The correct interpretation is: “under controlled conditions, the analysis pipeline can extract sub-ppm acetone-relevant signal from this optical sensor.” Demonstrating performance on real human breath is future work because breath introduces additional VOC complexity, humidity effects, and sampling variability.
+
+      This leads to the central technical question: how can we push an existing ZnO–NCF platform into sub-ppm analytical LoD without modifying the hardware?
+
+  - kind: "bullets"
+    title: "Current Detection Technologies"
+    bullets:
+      - "**Laboratory Methods**: GC-MS, PTR-MS, SIFT-MS"
+      - "    • Excellent sensitivity (ppb-level LoD)"
+      - "    • Expensive, bulky, requires trained operators"
+      - "**Portable Sensors**: Electrochemical, metal-oxide resistive"
+      - "    • Compact and low-cost"
+      - "    • Prone to interference, baseline drift, and humidity sensitivity"
+      - "**Optical Fiber Sensors**: EMI-immune, real-time, remote capable"
+      - "    • For ZnO-NCF acetone sensors, reported LoD > 3 ppm (insufficient for clinical use)"
+    notes: |
+      This slide positions where our approach sits relative to the field. Laboratory instruments (GC–MS, PTR–MS, SIFT–MS) can reach very low detection limits, but they are expensive, bulky, and not designed for scalable, real-time monitoring. Many portable sensors are compact and low-cost, but they often suffer from drift, humidity sensitivity, and interference, which complicates selectivity.
+
+      Optical fiber sensors are attractive because they can be EMI-immune, remote, and room-temperature compatible. However, in practice their analytical LoD can be limited by how the spectrum is processed and which spectral region is used for calibration. Our work focuses on this exact bottleneck: rather than changing the sensor, we improve the extracted signal quality and systematically choose the ROI that minimizes the detection-limit objective (σ/|S|). The next slides make this objective explicit and define the research questions.
+
+  - kind: "bullets"
+    title: "Research Objectives"
+    bullets:
+      - "**Primary Goal**: Achieve sub-ppm acetone detection using a ZnO-coated no-core fiber (NCF) sensor"
+      - "**Approach**: Data-driven spectral feature engineering with ROI optimization"
+      - "**Validation**: LOOCV, residual diagnostics, and multi-gas benchmarking"
+      - "**Clinical Context**: Compare analytical performance to literature breath-acetone ranges (clinical validation pending)"
+      - "**Key Innovation**: First application of spectral feature engineering to ZnO fiber VOC sensing"
+    notes: |
+      The objectives are deliberately framed to be testable and bounded. The primary goal is to achieve sub-ppm analytical acetone detection on a ZnO-coated NCF sensor, while keeping the hardware constant so that improvements can be attributed to the analysis methodology. The technical approach is a data-driven pipeline: feature engineering to suppress baseline artefacts and improve SNR, followed by ROI optimization to select the spectral window that minimizes the detection-limit objective.
+
+      Validation is also defined explicitly. We use LOOCV and residual diagnostics to address internal validity and overfitting concerns within the measured concentration levels, and we extend the analysis to a six-VOC panel to evaluate selectivity and interference behavior under a standardized protocol. Clinical translation (breath sampling, population studies, humidity/temperature compensation) is outside the scope of the present dataset and is treated as future work rather than an implied claim.
+
+  - kind: "bullets"
+    title: "Key Research Questions and Hypotheses"
+    bullets:
+      - "**Q1 – Detection Limit**: Can optimized spectral processing and ROI selection reduce the LoD from {LOD_PAPER} to {LOD_THIS_WORK} using the same ZnO–NCF hardware?"
+      - "**Q2 – Generalizability**: Does the data-driven pipeline maintain high calibration quality (R² > 0.98) across all six tested VOCs?"
+      - "**Q3 – Clinical Context**: Is the achieved analytical LoD within literature breath-acetone ranges under controlled chamber conditions (clinical validation pending)?"
+      - "**Hypothesis**: Algorithmic optimization of spectral features and ROI can enable sub-ppm analytical sensitivity without modifying the sensor platform."
+    notes: |
+      These questions define what is actually being tested. The first question is a like-for-like comparison: using the same ZnO–NCF sensor platform, can an analysis-driven pipeline reduce the detection limit from {LOD_PAPER} to {LOD_THIS_WORK}? This isolates the contribution to data processing rather than fabrication.
+
+      The second question asks whether the pipeline generalizes across a small VOC panel: even if acetone performs best, does the same workflow produce high-quality calibrations (R² > 0.98) across all six VOCs under the same measurement protocol? The third question explicitly separates “clinical context” from “clinical claim”: we use breath ranges to motivate the target analytical performance, but we do not claim diagnostic performance without breath validation.
+
+      With these questions set, the next section explains the theoretical foundation—how the sensor produces a measurable spectral response, and why the detection limit is fundamentally controlled by both sensitivity and noise.
+
+  # ===========================================================================
+  # SECTION B: THEORETICAL FOUNDATION (Slides 6-11)
+  # ===========================================================================
+  - kind: "section"
+    title: "Theoretical Foundation"
+    subtitle: "Optical fiber physics • ZnO surface chemistry • Detection limit theory"
+    notes: |
+      This section provides just enough physics and metrology to justify the analysis choices later in the paper. On the optical side, an NCF-based system produces multimode interference features that can shift when the effective boundary condition changes. On the chemical side, VOC adsorption on ZnO perturbs the surface environment and therefore the optical response. On the measurement side, the detection limit is not a subjective “smallest visible signal”; it is computed from sensitivity and residual noise using standard analytical chemistry definitions.
+
+      The key point that will recur throughout the talk is that the ROI choice changes both the slope (sensitivity) and the residual noise, and therefore changes LoD through the σ/|S| ratio. This is why we treat ROI selection as an optimization problem rather than adopting a fixed window from prior work.
+
+  - kind: "two_column"
+    title: "Optical Fiber Sensing Principle"
+    left_content:
+      - "**No-Core Fiber (NCF)**: Multimode waveguide with strong evanescent field"
+      - "**Evanescent Field**: Light extends ~50-200 nm beyond fiber surface"
+      - "**Sensing Mechanism**:"
+      - "    1. Light propagates through ZnO-coated NCF"
+      - "    2. VOC molecules adsorb on ZnO surface"
+      - "    3. Refractive index changes (Δn)"
+      - "    4. Measurable wavelength shift (Δλ)"
+    right_image: "../generated_assets/sensor_system_diagram.png"
+    notes: |
+      The sensor can be understood as a multimode interferometric transducer. Light propagating in a no-core fiber excites many guided modes, and their interference produces wavelength-dependent spectral structure. When the fiber is coated with ZnO and exposed to VOCs, adsorption modifies the local optical environment at the surface (through effective refractive index and/or loss changes). This perturbs the interference condition, so spectral features shift with VOC exposure.
+
+      For this work we do not require a full electromagnetic mode solver to claim performance; instead, we treat the device as a reproducible system whose spectrum shifts in a concentration-dependent manner under a controlled protocol. The important implication for analysis is that the spectrum contains multiple candidate regions that could be used for calibration. Because different regions have different noise characteristics, ROI choice becomes an estimation-and-optimization problem. This motivates our systematic ROI scan to minimize LoD using the standard 3σ/|S| definition.
+
+  - kind: "bullets"
+    title: "ZnO Surface Chemistry"
+    bullets:
+      - "**ZnO Properties**: Wide bandgap (3.37 eV), n-type semiconductor"
+      - "**Lewis Acid Sites**: Zn²⁺ sites act as electron acceptors"
+      - "**Acetone Binding**: Carbonyl (C=O) coordinates with Zn²⁺"
+      - "    • Binding energy: ~0.8 eV (chemisorption regime)"
+      - "**Selectivity Origin**: Different functional groups exhibit different adsorption strengths"
+      - "    • Ketone (C=O): ~0.8 eV → relatively strongest adsorption"
+      - "    • Alcohol (-OH): ~0.4 eV"
+      - "    • Aromatic (C-H): ~0.1 eV → relatively weakest adsorption"
+    notes: |
+      The surface chemistry is included to provide mechanistic plausibility for why different VOCs can produce different response strengths on ZnO. ZnO surfaces expose adsorption sites whose interaction strength depends on the VOC functional group. For acetone, the carbonyl group can interact strongly with Lewis-acidic Zn sites, which can plausibly create a larger or cleaner perturbation of the surface environment compared to weaker interactions.
+
+      At the same time, we keep the mechanistic claim conservative: selectivity is demonstrated empirically in this work by applying the exact same pipeline to a six-VOC panel and reporting the resulting LoD and calibration metrics. We do not over-interpret adsorption energies as a quantitative predictor without dedicated spectroscopy/DFT validation.
+
+  - kind: "equation"
+    title: "Core Sensing Chemistry"
+    equations:
+      - "O₂(gas) → O₂⁻(surface) + e⁻"
+      - "CH₃COCH₃ + O⁻ → CO₂ + H₂O + e⁻"
+    notes: |
+      These reactions are provided as the canonical ZnO gas-sensing chemistry context: oxygen adsorption and VOC interaction can alter the surface state. In many ZnO sensors this is read out electrically as a resistance change, but in our platform the readout is optical. The important point is not the exact electron accounting; it is that adsorption and surface interactions modify the ZnO surface environment, which in turn perturbs the optical boundary condition and yields a measurable spectral shift.
+
+      With this physical picture established, we can now formalize what “good performance” means using detection-limit theory, and then design the analysis pipeline to optimize that objective.
+    position: 3.2
+
+  - kind: "bullets"
+    title: "Detection Limit Fundamentals"
+    bullets:
+      - "**Definition used here**: LoD = 3 × σ / |S|"
+      - "    • σ = standard deviation of blank/residuals"
+      - "    • S = sensitivity (slope of calibration curve)"
+      - "**Key Insight**: LoD depends on BOTH sensitivity AND noise"
+      - "**Traditional Limitation**: Fixed ROI optimizes sensitivity, ignores noise"
+      - "**Our Approach**: Optimize the ratio σ/|S|, not just |S| alone"
+    notes: |
+      This equation underpins the design; we reduce σ while maintaining sufficient S to minimize LoD.
+      We compute σ from regression residuals after the end-to-end pipeline so the LoD reflects the full measurement + processing chain.
+      Our data-driven approach evaluates 385 ROI candidates to find the optimal σ/|S| ratio.
+
+  - kind: "equation"
+    title: "Mathematical Framework"
+    equations:
+      - "LoD = 3 × σ_residuals / |S|"
+      - "LoQ = 10 × σ_residuals / |S|"
+      - "Δλ = S × C + b (calibration model)"
+      - "R² = 1 - (SS_res / SS_tot)"
+    notes: |
+      These equations define exactly how performance is computed from the data, and they are the backbone of the “data-driven ROI discovery” claim. For each candidate ROI, we extract a scalar response (Δλ) for each concentration level and fit a linear model Δλ = S×C + b, where S is the sensitivity (slope) and b is the intercept. The fit quality is summarized by R², which measures how much of the variance in Δλ is explained by concentration.
+
+      The detection limit and quantification limit are then computed using standard analytical chemistry definitions. Here σ_residuals is the standard deviation of the regression residuals (a direct empirical estimate of noise after applying the full pipeline), and S is the slope magnitude. This is critical: both σ_residuals and S depend on which wavelengths are included in the ROI, so ROI selection changes LoD through both terms.
+
+      In the next slides, we visualize the sensitivity–noise trade-off and then explain why feature engineering and ROI optimization are the right levers for pushing LoD down without modifying the sensor hardware.
+
+  - kind: "image"
+    title: "The Sensitivity-Noise Trade-off"
+    image_path: "../generated_assets/lod_tradeoff_diagram.png"
+    image_width: 11.0
+    image_top: 1.3
+    notes: |
+      This diagram illustrates the core metrology insight that motivates the entire pipeline. A region of the spectrum can look “sensitive” (large slope) but still yield a poor detection limit if its residual noise is large. Because LoD scales as 3σ/|S|, a modest reduction in slope can be more than compensated by a large reduction in noise.
+
+      In the reference analysis, the literature ROI ({LITERATURE_ROI}) provides strong apparent sensitivity but exhibits higher residual scatter after regression. Our discovered ROI ({OPTIMAL_ROI}) produces a smaller slope but a much smaller σ_residuals, so the ratio σ/|S| improves substantially. The result is the reported {IMPROVEMENT_FACTOR} improvement in LoD for acetone, achieved purely by analysis choices.
+
+      The next slide explains how we make the weak spectral information more usable before we even start ROI selection: we apply feature engineering to suppress baseline artefacts and emphasize informative transitions.
+
+  - kind: "image"
+    title: "Spectral Feature Engineering Concept"
+    image_path: "../generated_assets/feature_engineering_workflow.png"
+    image_width: 11.0
+    image_top: 1.3
+    notes: |
+      The raw optical spectrum contains the acetone-induced perturbation, but it is embedded in baseline drift, multimode structure, and measurement noise. The goal of feature engineering here is not to “add information,” but to transform the measured spectrum into a representation where the concentration-dependent component is easier to extract reproducibly.
+
+      We first convert the measured intensity to absorbance so that the signal is in a physically interpretable form. We then apply a Savitzky–Golay derivative to emphasize local spectral transitions and suppress slowly varying baseline components (which can otherwise dominate a simple peak-picking approach). Finally, the convolution step further emphasizes features where magnitude and slope co-occur, which is beneficial for weak absorber signatures.
+
+      This processing step is important because it reduces σ_residuals downstream and stabilizes the extracted Δλ signal. After the representation is stabilized, we can justify a systematic ROI search to find the window that minimizes σ/|S|.
+
+  # ===========================================================================
+  # SECTION C: EXPERIMENTAL DESIGN (Slides 12-16)
+  # ===========================================================================
+  - kind: "section"
+    title: "Experimental Design"
+    subtitle: "Sensor system • Fabrication • VOC panel • Measurement protocol"
+    notes: |
+      This section documents the experimental setup and protocol at a level intended for reproducibility. Because the main claim of this paper is analysis-driven performance improvement, it is essential to specify the hardware and measurement conditions clearly so that readers can separate what is fixed (sensor platform and chamber protocol) from what is optimized (signal processing and ROI selection).
+
+  - kind: "bullets"
+    title: "Sensor System Architecture"
+    bullets:
+      - "**Light Source**: Halogen lamp (Ocean Optics HL-2000)"
+      - "    • Broadband illumination ({WAVELENGTH_RANGE})"
+      - "**Sensing Element**: ZnO-coated No-Core Fiber"
+      - "    • Active length: {NCF_LENGTH}"
+      - "    • ZnO coating thickness: {ZNO_THICKNESS}"
+      - "**Spectrometer**: Thorlabs CCS200/M"
+      - "    • Range: {WAVELENGTH_RANGE}, Resolution: {SPECTROMETER_RES}"
+      - "**Gas Chamber**: Acrylic, 460 cm³, sealed"
+      - "    • Temperature: {TEMP_STABILITY}, Humidity: {HUMIDITY}"
+    notes: |
+      This slide lists the complete measurement chain from illumination to readout, because each element can affect spectral stability and therefore σ_residuals. The halogen lamp provides broadband illumination across {WAVELENGTH_RANGE}, enabling ROI search across a wide spectral band. The spectrometer range and resolution ({SPECTROMETER_RES}) set the wavelength sampling and the smallest resolvable shift.
+
+      The ZnO-coated NCF is the sensing element; the active length ({NCF_LENGTH}) and coating thickness ({ZNO_THICKNESS}) define the interaction region and are held constant throughout the study so that performance differences can be attributed to processing and ROI selection. The sealed chamber and controlled environmental conditions ({TEMP_STABILITY}, {HUMIDITY}) reduce uncontrolled variability. These conditions represent controlled-chamber analytical evaluation, not real-breath sampling conditions.
+
+  - kind: "bullets"
+    title: "ZnO Nanostructure Fabrication"
+    bullets:
+      - "**Sol-Gel Synthesis**:"
+      - "    • Precursor: Zinc acetate dihydrate + KOH"
+      - "    • Temperature: 60°C, Particle size: ~10 nm"
+      - "**Deposition Process**:"
+      - "    • Method: Spray coating at 250°C"
+      - "    • Solution volume: 0.3 mL"
+      - "**Post-Processing**:"
+      - "    • Annealing: 250°C for 2 hours"
+      - "    • Result: Crystalline wurtzite phase"
+      - "**Characterization**: FESEM confirmed {ZNO_THICKNESS} uniform coating"
+    notes: |
+      Fabrication is summarized to establish that the ZnO layer is produced reproducibly and that the analysis improvements are not confounded by uncontrolled material variation. The sol–gel synthesis defines the nanoparticle formation conditions, the spray coating defines how ZnO is deposited on the fiber, and the annealing step promotes a stable crystalline phase.
+
+      The coating thickness used in the analysis placeholders ({ZNO_THICKNESS}) is supported by FESEM characterization. In this paper, the fabrication is treated as the fixed baseline platform; our contribution focuses on extracting improved analytical performance from the same platform.
+  - kind: "image"
+    title: "ZnO Nanostructure Fabrication Workflow"
+    image_path: "../generated_assets/fabrication_flow.png"
+    image_width: 10.5
+    image_top: 1.3
+    notes: |
+      This workflow figure provides a visual trace from synthesis to characterization so that the experimental work can be replicated. The key methodological point is that we do not change the sensor design between the baseline analysis and the proposed analysis; the improved LoD is achieved by how the spectral information is processed and how the ROI is selected.
+
+  - kind: "bullets"
+    title: "VOC Test Panel & Concentrations"
+    bullets:
+      - "**Primary Target**: Acetone (diabetes biomarker)"
+      - "**Interferent VOCs**:"
+      - "    • Ethanol — alcohol consumption marker"
+      - "    • Methanol — toxic exposure indicator"
+      - "    • Isopropanol — hand sanitizer component"
+      - "    • Toluene, Xylene — environmental/industrial"
+      - "**Concentration Levels**: 1, 3, 5, 10 ppm (4 levels)"
+      - "**Replicates**: 3 trials per concentration per gas"
+    notes: |
+      The VOC panel is designed to support an empirical selectivity discussion. Acetone is the primary target, and the other VOCs are included as representative interferents spanning alcohols and aromatics. This is not intended to fully replicate the complexity of human breath (which contains many more VOCs), but it is a controlled and reproducible panel to test whether the same processing pipeline behaves consistently across chemically distinct analytes.
+
+      Concentrations are chosen as 1, 3, 5, and 10 ppm so that calibration is performed over a consistent range for every VOC. Replicates (3 trials per concentration) provide repeated measurements for residual estimation and robustness checks.
+  - kind: "image"
+    title: "VOC Test Panel Concentrations"
+    image_path: "../generated_assets/voc_concentrations.png"
+    image_width: 9.8
+    image_top: 1.4
+    notes: |
+      This plot is included to make the dataset structure explicit: every VOC is measured at the same four concentration levels, enabling like-for-like comparisons of slopes, residual noise, and detection limits. The uniform design is important because it ensures that differences in LoD across VOCs are not artefacts of different concentration grids.
+
+  - kind: "bullets"
+    title: "Measurement Protocol"
+    bullets:
+      - "**Per Measurement Cycle**:"
+      - "    1. Baseline: ~200 frames in N₂"
+      - "    2. Gas exposure: ~500 frames at target concentration"
+      - "    3. Recovery: ~200 frames in N₂"
+      - "**Acquisition Rate**: 10 ms per spectrum"
+      - "**Purge Time**: 120 s between measurements"
+      - "**Total Dataset**: {SAMPLE_SIZE}"
+      - "    • 6 VOCs × 4 concentrations × 3 trials × time-series frames"
+    notes: |
+      The protocol is structured to separate baseline, exposure, and recovery phases so the analysis can isolate steady-state behavior. A baseline in N₂ establishes the reference spectrum and provides a noise floor. Exposure frames capture the concentration-dependent response. Recovery in N₂ helps verify reversibility and reduces the risk of carry-over.
+
+      The acquisition rate (10 ms per spectrum) yields dense time series data that can be used for temporal gating. The purge time (120 s) is included to reduce memory effects between runs. The stated dataset size ({SAMPLE_SIZE}) reflects the full panel: 6 VOCs × 4 concentrations × 3 trials with hundreds of frames per phase, enabling both calibration and residual-based LoD estimation.
+  - kind: "image"
+    title: "Measurement Cycle Timeline"
+    image_path: "../generated_assets/measurement_cycle.png"
+    image_width: 11.0
+    image_top: 1.4
+    notes: |
+      This timeline shows the temporal structure that motivates the later “temporal gating” step. Instead of averaging all frames (which would mix transients with steady-state), we explicitly leverage the baseline–plateau–recovery structure. The plateau region is where the sensor response is closest to equilibrium, and therefore where calibration is most stable.
+
+      The high frame rate allows us to select the most informative frames and reduce noise by controlled averaging. The purge step supports repeatability across trials by reducing cross-contamination between exposures.
+
+  # ===========================================================================
+  # SECTION D: DATA PROCESSING PIPELINE (Slides 17-23)
+  # ===========================================================================
+  - kind: "section"
+    title: "Data Processing Pipeline"
+    subtitle: "Preprocessing • Temporal gating • ROI discovery • Calibration"
+    notes: |
+      This section describes the analysis pipeline as an explicit chain from raw spectra to quantitative performance metrics. Because the main contribution is methodological, each step is described in terms of what it corrects (baseline drift, transient mixing, noisy ROI choice) and how it affects the final detection-limit computation through σ_residuals and |S|.
+
+  - kind: "image"
+    title: "Pipeline Overview"
+    image_path: "../generated_assets/pipeline_flowchart.png"
+    image_width: 11.0
+    image_top: 1.3
+    notes: |
+      This flowchart is the “contract” for how raw measurements become the reported LoD and R² values. Stage 1 converts raw intensity spectra into physically meaningful absorbance and applies standard smoothing and quality control. Stage 2 uses the time axis to isolate equilibrium (plateau) behavior and reduce variability by selecting and averaging the most informative frames.
+
+      Stage 3 is the key methodological differentiator: instead of adopting a fixed ROI, we scan a large set of candidate wavelength windows and score them using calibration quality and detection-limit criteria. Stage 4 extracts Δλ via the centroid method, performs linear calibration, computes residual diagnostics, and then computes LoD from σ_residuals and |S|.
+
+      The reason this pipeline improves LoD is that it targets σ reduction before regression and then chooses an ROI that minimizes σ/|S|. This is what enables the reported {IMPROVEMENT_FACTOR} reduction relative to the reference analysis under controlled chamber conditions.
+
+  - kind: "bullets"
+    title: "Stage 1: Spectral Preprocessing"
+    bullets:
+      - "**Transmittance Calculation**:"
+      - "    T(λ) = I_sample(λ) / I_reference(λ)"
+      - "**Absorbance (Beer-Lambert Law)**:"
+      - "    A(λ) = -log₁₀[T(λ)]"
+      - "**Smoothing**: Savitzky-Golay filter"
+      - "    • Window: 11 points, Polynomial order: 2"
+      - "    • Preserves spectral features while reducing noise"
+      - "**Quality Control**: Baseline stability check, saturation detection"
+    notes: |
+      Preprocessing standardizes the spectra so that downstream features are comparable across runs and concentrations. Transmittance normalizes the sample spectrum to the reference spectrum, and absorbance converts the measurement into a form where signal changes are more directly related to concentration (Beer–Lambert motivation).
+
+      A Savitzky–Golay filter is used because it reduces high-frequency noise while preserving the shape of spectral features, which is important when derivatives are later computed. Quality-control checks (baseline stability, saturation detection) reduce the risk that artefacts dominate the residuals and artificially inflate σ_residuals.
+  - kind: "image"
+    title: "Savitzky–Golay Processing Effect"
+    image_path: "../generated_assets/sg_processing_demo.png"
+    image_width: 10.5
+    image_top: 1.4
+    notes: |
+      This figure illustrates why Savitzky–Golay smoothing and derivatives are used before ROI selection. The raw absorbance signal can include baseline drift and noise that obscures subtle concentration-dependent structure. Smoothing produces a stable estimate of the underlying spectrum, and the derivative emphasizes localized changes while suppressing slowly varying components.
+
+      The derivative signal is later used within the ROI as part of the weighting function for centroid extraction. The practical impact is reduced variability in the extracted Δλ and therefore reduced σ_residuals in the calibration model.
+
+  - kind: "equation"
+    title: "Spectral Feature Engineering Mathematics"
+    equations:
+      - "T(λ) = I_sample / I_reference (Transmittance)"
+      - "A(λ) = -log₁₀[T(λ)] (Beer-Lambert)"
+      - "dA/dλ = Savitzky-Golay derivative (Feature extraction)"
+      - "C(λ) = A(λ) ⊗ dA/dλ (Convolution enhancement)"
+      - "SNR improvement for weak absorbers (qualitative)"
+    notes: |
+      The equations on this slide formalize the feature engineering used in the pipeline. The sequence is: normalize intensity to transmittance, convert to absorbance, compute a derivative to suppress baseline, and then use convolution to further emphasize informative transitions. The intent is to build a response representation that is less sensitive to slow drift and more sensitive to concentration-driven perturbations.
+
+      Importantly, this is still a deterministic signal-processing pipeline, not a black-box classifier. The role of this step is to reduce downstream residual variance and make the centroid-based Δλ extraction stable across repeated measurements.
+
+  - kind: "bullets"
+    title: "Stage 2: Temporal Gating"
+    bullets:
+      - "**Problem**: Not all frames are equally informative"
+      - "**Phase Identification**:"
+      - "    • Baseline → Rising → Plateau → Falling → Recovery"
+      - "**Plateau Isolation**: Focus on equilibrium response only"
+      - "**Top-K Frame Selection**:"
+      - "    • Rank frames by response strength"
+      - "    • Select top K=10 frames, average for final spectrum"
+      - "**Result**: SNR improvement of 1.4-4.3×"
+    notes: |
+      Temporal gating uses the time-series nature of the data to avoid mixing transient response with equilibrium response. During a measurement cycle, the sensor passes through baseline, rising, plateau, falling, and recovery phases. Calibration is most stable when based on plateau behavior, where the response is closest to steady state.
+
+      The top-K selection step ranks frames by response strength within the plateau and averages a small number of representative frames (K=10). This reduces random noise and yields a more stable spectrum for ROI evaluation. The resulting SNR improvement supports lower σ_residuals and therefore directly supports lower LoD.
+
+  - kind: "bullets"
+    title: "Stage 3: Data-Driven ROI Discovery"
+    bullets:
+      - "**Traditional Approach**: Use literature-reported ROI (fixed)"
+      - "**Our Approach**: Systematic optimization"
+      - "    • Scan range: 500-900 nm"
+      - "    • Window widths: 10, 15, 20, 25, 30 nm"
+      - "    • Center step: 5 nm"
+      - "    • Total candidates: {ROI_CANDIDATES}"
+      - "**Selection Criteria** (hierarchical):"
+      - "    1. LOOCV R² (generalization)"
+      - "    2. R² (fit quality)"
+      - "    3. σ (noise level)"
+      - "    4. |Slope| (sensitivity)"
+    notes: |
+      ROI discovery is the central optimization step. Rather than assuming the best wavelength window is the one with maximum sensitivity, we evaluate a large grid of candidate windows spanning 500–900 nm with multiple window widths and center steps, for a total of {ROI_CANDIDATES} candidates.
+
+      For each candidate ROI, we run the same extraction and calibration steps and compute LOOCV R², R², residual noise (σ), and slope magnitude. The selection criteria are intentionally hierarchical: generalization (LOOCV) is prioritized, then fit quality, then noise, then sensitivity. This ordering prevents an ROI from being selected simply because it overfits or because it produces a large slope while still being noisy.
+
+  - kind: "image"
+    title: "ROI Discovery: Systematic Evaluation"
+    image_path: "../generated_assets/roi_discovery_annotated.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This figure visualizes the outcome of the ROI scan. Each candidate window is evaluated under the same calibration and validation procedure, and the optimal ROI is the one that yields the best detection-limit objective while maintaining strong calibration and cross-validation metrics.
+
+      The key takeaway is that {OPTIMAL_ROI} emerges as the best-performing region for acetone in our dataset, while the literature ROI ({LITERATURE_ROI}) ranks lower primarily because it produces higher residual noise. This supports the main thesis: data-driven ROI selection is necessary when LoD is the objective, because sensitivity alone does not determine LoD.
+
+  - kind: "bullets"
+    title: "Stage 4: Calibration & Validation"
+    bullets:
+      - "**Centroid Method**: λ_centroid = Σ(λᵢ × wᵢ) / Σ(wᵢ)"
+      - "    • wᵢ are non-negative feature-engineered weights within the ROI"
+      - "**Wavelength Shift**: Δλ = λ_sample - λ_reference"
+      - "**Linear Calibration**: Δλ = S × C + b"
+      - "**Validation Metrics**:"
+      - "    • R², Adjusted R²"
+      - "    • Spearman ρ (monotonicity)"
+      - "    • LOOCV R² (cross-validation)"
+      - "    • Residual analysis (model validity)"
+      - "**LoD Calculation**: LoD = 3 × σ_residuals / |S|"
+    notes: |
+      After the ROI is fixed, we extract a robust scalar response using the centroid method. The weights wᵢ are derived from the feature-engineered signal and constrained to be non-negative so that the centroid corresponds to a physically interpretable “center of mass” of the ROI response. The wavelength shift Δλ is then computed relative to a reference spectrum.
+
+      Calibration is performed using a linear model across concentration levels. We report both fit quality (R²) and generalization estimates (LOOCV R²), along with monotonicity (Spearman ρ) to ensure the response ranks correctly with concentration even when slope sign differs. Residual diagnostics support the validity of using σ_residuals for LoD computation. LoD is then computed consistently from σ_residuals and |S| using the convention stated in the theory section.
+
+  - kind: "image"
+    title: "Raw Spectral Response"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/spectral_overlay.png"
+    image_width: 10.0
+    image_top: 1.4
+    image_border: true
+    notes: |
+      This overlay shows the raw spectral behavior before the details of feature engineering and ROI optimization are applied. The key observation is that concentration-dependent spectral changes exist and are reproducible enough to support a calibration model. Highlighting both the literature ROI and the optimized ROI makes it clear that multiple regions contain signal, but their noise characteristics differ.
+
+      The stable baseline and consistent shift patterns are important because they justify treating the sensor as a repeatable transducer under controlled conditions. The next section then focuses on the quantitative results obtained when the full pipeline is applied.
+
+  # ===========================================================================
+  # SECTION E: RESULTS (Slides 24-33)
+  # ===========================================================================
+  - kind: "section"
+    title: "Results"
+    subtitle: "Calibration • Detection limits • Selectivity • Validation"
+    notes: |
+      This section presents the quantitative outcomes produced by applying the full pipeline. Results are reported using standard calibration and analytical chemistry metrics (slope, residual noise, LoD, R², LOOCV R²) and are grounded in the controlled-chamber dataset. The first slides focus on acetone as the primary target, followed by multi-gas benchmarking to support the selectivity discussion.
+
+  - kind: "image"
+    title: "Main Result: Acetone Calibration Curve"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/calibration_curve.png"
+    image_width: 9.5
+    image_top: 1.2
+    image_border: true
+    notes: |
+      This is the primary quantitative result for acetone using the full pipeline. The x-axis is the known concentration levels measured under controlled chamber conditions, and the y-axis is the extracted wavelength shift (Δλ) produced by the feature-engineered centroid method within the optimized ROI. The linear trend indicates that the sensor response is well-approximated by a linear calibration model over the tested concentration range.
+
+      The fitted slope is the analytical sensitivity S = {SENSITIVITY}, and the confidence interval {CI_95} quantifies uncertainty in the slope estimate given the available concentration levels and repeated measurements. The fit quality is summarized by R² = {R2}, which indicates that concentration explains nearly all of the variance in the extracted response under these controlled conditions.
+
+      The most important point for this paper is how we translate this calibration into an analytical detection limit. We compute residual noise from the regression (reported here as σ via RMSE = {RESIDUAL_STD}) and then apply LoD = 3σ/|S|, yielding LoD = {LOD_THIS_WORK}. Because both σ and S depend on ROI and processing, the improvement factor {IMPROVEMENT_FACTOR}× relative to the baseline analysis is an analysis-driven gain on the same hardware platform.
+
+  - kind: "bullets"
+    title: "Performance Summary"
+    subtitle: "Quantifying the data-driven advantage"
+    bullets:
+      - "**Detection Limit Breakthrough**"
+      - "    • {LOD_THIS_WORK} (95% reduction from {LOD_PAPER})"
+      - "    • Controlled-chamber evaluation: {CLINICAL_VALIDATION}"
+      - "**Unprecedented Calibration Quality**"
+      - "    • R² = {R2} (n = 4 concentration levels)"
+      - "    • Spearman ρ = 1.00 (perfect ranking)"
+    notes: |
+      This slide condenses the acetone result into the few metrics a reviewer will immediately look for: detection limit, calibration quality, and whether the claims are bounded to the dataset.
+
+      The detection-limit statement {LOD_THIS_WORK} versus {LOD_PAPER} is framed as a like-for-like improvement on the same sensor platform under controlled chamber conditions. The improvement is described as a reduction (≈95%) and as a fold change ({IMPROVEMENT_FACTOR}). This is the core methodological claim of the work.
+
+      The “calibration quality” line reports R² = {R2} to show linearity, and Spearman ρ = 1.00 to show perfect monotonic ranking across the tested concentration levels. Because the concentration grid has only four nominal levels, these metrics should be interpreted as evidence of a strong concentration–response relationship under this protocol rather than as broad inferential claims.
+
+      Finally, the controlled-chamber note is crucial: these metrics quantify analytical performance in a controlled environment. Clinical breath validation, humidity/temperature compensation, and broader interferent panels are explicitly outside the scope of the present dataset.
+  - kind: "image"
+    title: "Performance Summary Cards"
+    image_path: "../generated_assets/performance_metrics.png"
+    image_width: 10.2
+    image_top: 1.4
+    notes: |
+      The purpose of these cards is to make the central quantitative story “self-contained” for a reader: LoD, improvement factor, fit quality, and cross-validated generalization are all shown in one place.
+
+      LoD is the headline metric because it is computed from both slope and residual noise. R² captures fit quality, while LOOCV R² = {LOOCV_R2} provides a conservative estimate of how well the linear calibration generalizes when one concentration level is left out. Reporting the sensitivity S = {SENSITIVITY} with CI {CI_95} and the residual noise level (≈{RESIDUAL_STD}) makes it clear that LoD is not a “visual threshold” but a calculated quantity grounded in measured residual variability.
+
+  - kind: "image"
+    title: "Multi-Gas Calibration Curves"
+    image_path: "../Kevin_Acetone_Paper_Results/publication_figures/Figure1_multigas_calibration.png"
+    image_width: 10.5
+    image_top: 1.4
+    notes: |
+      This figure demonstrates that the analysis pipeline is not tuned only for acetone. The same preprocessing, temporal gating, ROI scanning, and centroid-based calibration are applied to each VOC in the six-gas panel.
+
+      The key interpretation is comparative and methodological: each VOC produces its own best-performing ROI and calibration line under the same protocol. Calibration quality remains high (R² typically > 0.98), while LoD varies by VOC because both slope and residual noise are VOC- and wavelength-dependent. This supports the “generalizable workflow” claim and sets up the selectivity discussion: acetone is the primary target and is expected to be among the best-performing analytes on this ZnO platform, but the pipeline can quantify other VOCs as well under controlled conditions.
+
+  - kind: "table"
+    title: "Performance Comparison: This Work vs Baseline"
+    table_source: "comparison_table"
+    notes: |
+      This table is the explicit like-for-like comparison between the baseline analysis reported previously and the proposed pipeline in this work. The most important interpretation guideline is that the sensor hardware is held constant; the performance differences are attributed to the analysis workflow (feature engineering, temporal gating, and data-driven ROI discovery) rather than fabrication changes.
+
+      Reviewers should focus on which metrics changed and why. The LoD reduction ({IMPROVEMENT_FACTOR} fold) follows directly from improving σ/|S|, and the supporting metrics (R², LOOCV R², residual diagnostics, and response time measures where applicable) help show that the improvement is not achieved by overfitting or by selectively reporting a favorable subset.
+
+  - kind: "image"
+    title: "Selectivity Analysis"
+    image_path: "../Kevin_Acetone_Paper_Results/publication_figures/Figure2_selectivity_comparison.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      Selectivity here is treated as an empirical performance pattern under a controlled protocol, not as a clinical classifier claim. Acetone achieves the lowest LoD in the measured VOC panel, which is consistent with ZnO having stronger interactions with acetone relative to some interferents and with the ROI optimization finding a low-noise window for acetone.
+
+      A key mechanistic implication of the data-driven workflow is that different VOCs prefer different wavelength windows. Distinct per-VOC optimal ROIs and VOC-dependent LoD values indicate that the spectrum contains discriminative structure that can be exploited without building a separate sensor array. In later slides, we visualize this idea as a “virtual sensor array” formed by selecting different wavelength windows in software.
+
+  - kind: "image"
+    title: "ROI Discovery: Data-Driven Optimization"
+    image_path: "../generated_assets/roi_discovery_annotated.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This slide restates the methodological centerpiece of the work in the context of results. Rather than selecting a wavelength window because it appears visually prominent or because it was used in prior studies, we evaluate a large candidate set (385 windows across the accessible spectral range and multiple window widths).
+
+      For each candidate ROI we compute the full suite of calibration and validation metrics, including R², LOOCV R², monotonicity (Spearman ρ), and LoD computed from residual noise and slope. The optimal ROI is the one that yields the best detection-limit objective while maintaining strong calibration and validation behavior. In our dataset, the optimized window is {OPTIMAL_ROI}. The important conceptual takeaway is that ROI selection is treated as an optimization problem aligned with the LoD definition, not as an ad-hoc choice.
+
+  - kind: "image"
+    title: "Robustness Tests (Permutation + Bootstrap)"
+    image_path: "../generated_assets/calibration_robustness.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      These robustness checks are included to address a common reviewer concern for data-driven pipelines: whether an apparently strong calibration could be an artefact of overfitting or of a fragile choice of ROI.
+
+      The permutation test breaks the concentration–response relationship by shuffling labels and recomputing calibration performance, yielding a null distribution of R² values. If the observed R² is far from the null, it supports that the relationship is not a random coincidence under this dataset. The bootstrap analysis perturbs the data through resampling to estimate how sensitive the computed LoD is to noise fluctuations, providing an uncertainty distribution rather than a single point estimate.
+
+      These are computational stress tests anchored to measured data; they support internal validity but do not replace independent external validation.
+
+  - kind: "image"
+    title: "Synthetic Injection Validation (LoD-Level)"
+    image_path: "../generated_assets/synthetic_injection_validation.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This analysis explains what “LoD” means operationally in the context of noisy spectra. We convert the residual noise level σ into an LoD-level signal amplitude using the same kσ convention used throughout this work, then inject the corresponding synthetic centroid shift Δλ to simulate an LoD-level signal in the Δλ domain.
+
+      We then compare the injected-signal distribution against the noise-only distribution and compute detection probability at a fixed false-positive rate (5%). The purpose is to build intuition that the LoD is not an arbitrary number: it corresponds to a detection regime where signal and noise are separable under the assumed statistical model. This is a simulation-based validation anchored to the measured residual noise; it does not create new experimental evidence beyond the dataset.
+
+  - kind: "image"
+    title: "Virtual Sensor Array: VOC-Specific Optimal ROIs"
+    image_path: "../generated_assets/virtual_sensor_array.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This slide introduces the “virtual sensor array” concept: instead of fabricating multiple sensors, we exploit the fact that different VOCs express their strongest and cleanest signals in different wavelength regions. ROI scanning discovers those windows directly from the data.
+
+      The practical interpretation is that a single optical sensor can behave like multiple “channels” if we analyze different wavelength windows separately. This motivates selectivity and discrimination as wavelength-resolved signal processing rather than as material-specific sensor arrays, while remaining within the boundaries of controlled-chamber analytical evaluation.
+
+  - kind: "image"
+    title: "Wavelength-Resolved Selectivity: Virtual Sensor Fingerprints"
+    image_path: "../generated_assets/virtual_sensor_array_radar.png"
+    image_width: 9.5
+    image_top: 1.2
+    notes: |
+      This radar plot visualizes how the “effective sensitivity” depends on wavelength window and VOC identity. Each curve is computed from centroid-based slopes across the same concentration range using the same feature-engineering pipeline. The values are normalized so that the shape of each VOC’s response profile across ROIs is easy to compare.
+
+      The plot should be interpreted as an illustration of wavelength-resolved selectivity under controlled chamber conditions. It is not a diagnostic classifier and does not claim breath-based clinical discrimination. Its role is to show that the spectrum contains structured, ROI-dependent information that can be used for discrimination and for designing multi-analyte sensing strategies.
+
+  - kind: "bullets"
+    title: "Comparison with State-of-the-Art"
+    bullets:
+      - "**This Work**:"
+      - "    • LoD: {LOD_THIS_WORK}"
+      - "    • Operating temperature: Room temperature"
+      - "    • Response time: {T90}"
+      - "**Reference Paper (same sensor)**:"
+      - "    • LoD: {LOD_PAPER} ({IMPROVEMENT_FACTOR} worse)"
+      - "**Other Technologies**:"
+      - "    • MoS₂ sensor: 0.5 ppm, requires heating"
+      - "    • WO₃ sensor: 0.1 ppm, 900s response, heated"
+      - "**Our Advantage**: Room temp + fast + low analytical LoD (controlled chamber)"
+    notes: |
+      This slide positions the work relative to the broader acetone sensing literature. The comparison should be interpreted carefully because different papers use different test environments, humidity levels, and validation protocols. Our reported LoD {LOD_THIS_WORK} is an analytical LoD under controlled chamber conditions, and it is paired with room-temperature operation and response time {T90}, which are practical constraints for portable deployment.
+
+      The key differentiator is that we achieve competitive analytical LoD without heating, whereas many high-sensitivity metal-oxide sensors rely on elevated temperatures that increase power consumption and reduce suitability for wearable or battery-powered systems. The intended conclusion is not “best overall in every condition,” but rather that analysis-driven optimization can make a room-temperature ZnO–NCF platform competitive on LoD while maintaining practical advantages.
+
+  - kind: "table"
+    title: "Detailed Performance Comparison Table"
+    table_source: "comparison_table"
+    notes: |
+      This table is intended to summarize the trade-offs between detection limit, operating temperature, and response time across representative acetone sensing approaches, and to make clear why room-temperature operation is a meaningful constraint.
+
+      The values for external technologies must be verified against the final cited references before submission. The purpose is not to cherry-pick best numbers, but to communicate the practical engineering landscape: some devices can reach low LoD but require heating (higher power) and/or slow response, while room-temperature operation often comes with sensitivity challenges.
+
+      Within that context, “This Work” combines room-temperature operation with an analytical LoD of {LOD_THIS_WORK} and response time {T90} under controlled chamber conditions, and the comparison to the baseline ZnO–NCF analysis ({LOD_PAPER}) isolates the contribution to data processing rather than to materials.
+
+  - kind: "image"
+    title: "Statistical Validation: Residual Analysis"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/residual_analysis.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      Residual diagnostics are essential because the detection limit is computed from residual noise. If residuals show strong structure (nonlinearity, heteroscedasticity, drift) then σ_residuals would not be a stable noise estimate and the LoD could be misleading.
+
+      Here we check three standard diagnostics: residuals versus fitted values (to look for systematic bias), the residual histogram (to assess whether Gaussian noise is a reasonable approximation), and the Q–Q plot (to assess normality assumptions). While perfect normality is not required, the key point is that residual behavior is consistent with using σ_residuals as a meaningful noise parameter, supporting residual-based LoD computation for this dataset.
+
+  - kind: "image"
+    title: "Cross-Validation: LOOCV Parity (Acetone)"
+    image_path: "../generated_assets/acetone_loocv_parity.png"
+    image_width: 9.0
+    image_top: 1.3
+    notes: |
+      This parity plot shows observed Δλ values compared to LOOCV-predicted Δλ values. LOOCV is used here as a conservative check against overfitting given the limited number of concentration levels: each fold fits the calibration on all-but-one concentration level and predicts the held-out point.
+
+      The closeness of points to the parity line and the LOOCV R² = {LOOCV_R2} indicate that the linear relationship is not dependent on any single concentration level. This supports the claim that the optimized ROI and feature extraction yield a calibration that generalizes within the measured concentration grid.
+
+  - kind: "image"
+    title: "Temporal Response Dynamics"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/peak_tracking.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This plot shows the time-domain response during concentration transitions. The existence of distinct plateaus supports the temporal gating approach used in the pipeline: we can isolate equilibrium behavior and avoid mixing transients into calibration.
+
+      Response metrics such as T90 = {T90} and recovery time {RECOVERY} provide practical context for sensing applications. These values should be interpreted under the controlled chamber protocol used here; in real breath sampling, flow dynamics and humidity could alter apparent dynamics and would require additional validation.
+
+  - kind: "image"
+    title: "End-to-End Scientific Workflow"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/comprehensive_diagnostic.png"
+    image_width: 10.5
+    image_top: 1.4
+    notes: |
+      This composite figure provides an end-to-end view of how the reported results are produced for a single VOC. It links the raw time-domain response to the extracted spectral feature, the ROI optimization outcome, and the final calibration and residual behavior.
+
+      The intended takeaway is reproducibility and traceability: each metric (slope, R², σ_residuals, LoD) can be traced back to a specific data transformation step. This is especially important for a methodological paper because it shows that the improvement claim is grounded in an auditable pipeline rather than in isolated plots.
+
+  - kind: "table"
+    title: "Multi-Gas Performance Matrix"
+    table_source: "multigas_results"
+    notes: |
+      This table is provided for completeness and reviewer convenience. It lists, for each VOC, the optimized ROI, sensitivity, R², LoD, monotonicity (Spearman ρ), and sample size under the standardized protocol.
+
+      Two interpretation points matter. First, LoD is VOC-dependent and is not sub-ppm for every analyte; this is expected because both slope and residual noise depend on chemical interaction strength and on which spectral features dominate each VOC response. Second, the sign of Spearman ρ indicates direction (increasing versus decreasing response with concentration); negative values still indicate strong monotonic behavior when |ρ| is close to 1.
+
+      Overall, the matrix supports the claim that the pipeline is general and can be applied across multiple VOCs under controlled chamber conditions, while also being transparent about the limits of performance for non-target analytes.
+
+  # ===========================================================================
+  # SECTION F: DISCUSSION & IMPACT (Slides 34-40)
+  # ===========================================================================
+  - kind: "section"
+    title: "Discussion & Impact"
+    subtitle: "Physical mechanism • Clinical relevance • Novelty • Future work"
+    notes: |
+      This section interprets the results rather than adding new quantitative claims. The discussion focuses on why the optimized ROI improves LoD in terms of the σ/|S| objective, what the results imply for breath-range motivation, what is genuinely novel from a methods perspective, and what limitations must be addressed before clinical translation.
+
+  - kind: "bullets"
+    title: "Interpretation: Why {OPTIMAL_ROI} Performs Better"
+    bullets:
+      - "**The Key Trade-off**:"
+      - "    • Literature ROI ({LITERATURE_ROI}): High sensitivity, high noise"
+      - "    • Our ROI ({OPTIMAL_ROI}): Lower sensitivity, much lower noise"
+      - "**Evidence in this work**:"
+      - "    • Empirically lower residual noise in the optimized ROI improves LoD (σ/|S|)"
+      - "    • Mechanistic origin of the low-noise ROI remains under investigation"
+      - "**Mathematical Consequence**:"
+      - "    • LoD = 3σ/|S| → lower σ can dominate even when |S| decreases"
+    notes: |
+      This interpretation is intentionally grounded in the measured metrics rather than speculative mechanism. The data show that the optimized ROI ({OPTIMAL_ROI}) yields a substantially lower residual noise level than the literature ROI ({LITERATURE_ROI}), even if its sensitivity is not the largest. Because LoD is proportional to σ/|S|, reducing σ can dominate the detection limit even when slope decreases.
+
+      The “why” is therefore primarily metrological: the optimized window is empirically more stable for this sensor under this protocol. The deeper physical origin of why this wavelength window is lower-noise (e.g., multimode interference structure, scattering, absorption background, or ZnO optical properties) is not fully resolved in this dataset. We avoid overclaiming a mechanism without dedicated optical modeling or spectroscopy.
+
+  - kind: "bullets"
+    title: "Clinical Relevance"
+    bullets:
+      - "**Detection Capability**:"
+      - "    • Analytical LoD {LOD_THIS_WORK} is below literature breath thresholds"
+      - "    • Threshold comparison is used as context (human-breath validation pending)"
+      - "**Practical Advantages**:"
+      - "    • Room temperature operation"
+      - "    • Rapid response ({T90})"
+      - "    • Non-invasive, low cost"
+    notes: |
+      Clinical relevance is discussed in terms of motivation and analytical capability, not diagnosis. The analytical LoD {LOD_THIS_WORK} is below literature breath acetone ranges, suggesting that the platform has sufficient analytical sensitivity to resolve breath-relevant concentrations under controlled conditions.
+
+      However, real breath introduces confounders (humidity, complex VOC mixtures, sampling variability), so the correct claim boundary is: the sensor and pipeline demonstrate breath-range-motivated analytical sensitivity in a controlled chamber. A prospective breath study is required to establish clinical utility, diagnostic performance, and robustness to real-world variability.
+
+      The practical advantages listed—room-temperature operation, response time {T90}, and low-cost optical readout—are the reasons this platform is worth translating if the additional validation steps are completed.
+
+  - kind: "bullets"
+    title: "Scientific Novelty"
+    bullets:
+      - "**Spectral feature engineering** applied to optical fiber VOC sensors"
+      - "**Data-driven ROI discovery**: Systematic optimization vs fixed literature ROI"
+      - "**Algorithmic performance gain**: {IMPROVEMENT_FACTOR} fold LoD reduction with unchanged hardware"
+      - "**Multi-analyte demonstration**: Applied across all 6 tested VOCs (controlled chamber)"
+      - "**Rigorous validation**: LOOCV, residual analysis, multi-gas testing"
+    notes: |
+      The novelty here is methodological and is supported directly by the pipeline and results. Spectral feature engineering is adapted to an optical fiber VOC sensing context to reduce baseline artefacts and stabilize extracted features. ROI selection is elevated from a heuristic choice to a systematic optimization problem aligned with the detection-limit definition.
+
+      The contribution is therefore an “analysis upgrade” to an existing ZnO–NCF platform: a {IMPROVEMENT_FACTOR} fold LoD reduction without changing the sensor hardware, demonstrated across multiple VOCs under a standardized protocol. The validation tools (LOOCV, residual diagnostics, and multi-gas benchmarking) are included to make the improvement claim defensible for a tier-1 methods paper.
+
+  - kind: "bullets"
+    title: "Limitations"
+    bullets:
+      - "**Validation Scope**:"
+      - "    • Tested on synthetic gas mixtures"
+      - "    • Real breath contains >500 VOCs"
+      - "**Long-term Stability**:"
+      - "    • Drift characterization needed for new ROI"
+      - "    • Reference paper reports 0.2% drift over 30 days"
+      - "**Environmental Factors**:"
+      - "    • Temperature/humidity compensation not implemented"
+      - "**Clinical Translation**:"
+      - "    • Clinical trial required for regulatory approval"
+    notes: |
+      These limitations are included to keep the paper scientifically defensible and to prevent over-interpretation of controlled-chamber results. The VOC panel is limited and uses synthetic gas mixtures; real breath contains many more VOCs and strong humidity effects. Long-term drift behavior for the optimized ROI needs to be characterized directly, because drift can change σ_residuals and therefore LoD over time.
+
+      Environmental compensation (temperature/humidity) is not implemented in this pipeline and would be required for real-world deployment. Finally, clinical translation requires breath sampling studies and appropriate ethical and regulatory pathways; this work establishes analytical feasibility and a reproducible methodology, not clinical validation.
+  - kind: "image"
+    title: "Limitations and Mitigation Plan"
+    image_path: "../generated_assets/limitations_matrix.png"
+    image_width: 10.8
+    image_top: 1.4
+    notes: |
+      This matrix converts each limitation into a concrete mitigation plan so the reader can see a credible path from controlled-chamber feasibility to real-world validation. Each row links a gap (e.g., humidity sensitivity, interferent complexity, drift) to a specific next experiment or engineering solution (e.g., humidity-controlled breath sampling, expanded VOC panels, drift monitoring and recalibration strategies).
+
+      The intent is to demonstrate that limitations are understood as engineering requirements and that the next steps are well-defined, which is often important for reviewers evaluating translational relevance.
+
+  - kind: "bullets"
+    title: "Future Work"
+    bullets:
+      - "**Near-term (6 months)**:"
+      - "    • Clinical validation with real breath samples (N > 100)"
+      - "    • Long-term stability characterization"
+      - "**Medium-term (1 year)**:"
+      - "    • Portable device integration"
+      - "    • Multi-biomarker detection panel"
+      - "**Long-term (2+ years)**:"
+      - "    • Clinical trial for diabetes screening"
+      - "    • Regulatory pathway (FDA/CE approval)"
+    notes: |
+      The future-work items are organized by timeline to make the translation path realistic. Near-term work focuses on validating the pipeline on real breath samples with adequate cohort size and on quantifying long-term stability and drift under repeated cycling.
+
+      Medium-term work focuses on device-level integration, including robust packaging, portable optics, and embedded processing, as well as extending the approach to multi-biomarker panels. Long-term work acknowledges that clinical deployment requires formal trials and a regulatory pathway; the present work provides the analytical-methodology foundation that those steps would build upon.
+
+  - kind: "bullets"
+    title: "Key Conclusions"
+    bullets:
+      - "**Detection limit reduction**:"
+      - "    • {LOD_PAPER} → {LOD_THIS_WORK} (≈95% reduction; {IMPROVEMENT_FACTOR} fold)"
+      - "**Calibration performance**:"
+      - "    • R² = {R2}, Spearman ρ = 1.00"
+      - "**Clinical context**:"
+      - "    • Analytical LoD supports breath-range motivation (clinical validation pending)"
+      - "**Data-analysis–driven improvement**:"
+      - "    • Same sensor hardware; gains arise from data processing methodology"
+      - "**Generalizable platform**:"
+      - "    • Demonstrated across all tested VOCs in controlled chamber experiments"
+    notes: |
+      The conclusions should be read as a tightly bounded summary of what the dataset supports. First, on the same ZnO–NCF platform, the proposed pipeline reduces analytical LoD from {LOD_PAPER} to {LOD_THIS_WORK}, corresponding to an ≈95% reduction and a {IMPROVEMENT_FACTOR} fold improvement. Second, calibration quality remains strong (R² = {R2} with perfect monotonic ranking in this dataset).
+
+      Third, the breath ranges are used to motivate the analytical target, and the achieved LoD supports that motivation under controlled chamber conditions. Clinical breath validation is explicitly not claimed here. Finally, the workflow is generalizable in the sense that it can be applied consistently across a multi-VOC panel, producing transparent metrics (ROI, slope, R², LoD, ρ) for each analyte.
+
+  # ===========================================================================
+  # SECTION G: BACKUP SLIDES (Slides 41+)
+  # ===========================================================================
+  - kind: "section"
+    title: "Backup Slides"
+    subtitle: "Additional data • Method comparisons • Detailed diagnostics"
+    notes: |
+      These backup slides provide additional diagnostics and method comparisons that support the main claims. They are included to address detailed reviewer questions about baseline versus optimized ROI behavior, detectability at the LoD level, and why centroid wavelength shift is preferred over simpler absorbance-based features.
+
+  - kind: "image"
+    title: "Baseline vs Optimized ROI Comparison"
+    image_path: "../generated_assets/baseline_vs_optimized_roi.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This slide provides a direct “apples-to-apples” visualization of what changes when we move from a fixed literature ROI to the optimized ROI discovered by the pipeline. The baseline approach calibrates Δλ within the fixed ROI, while the proposed approach applies feature engineering and then selects an ROI that minimizes σ/|S|.
+
+      The key point is that improvements are not necessarily due to increasing slope alone. The optimized ROI can reduce residual noise substantially, which improves LoD even if sensitivity decreases. This slide is useful when a reviewer asks exactly where the LoD gain comes from.
+
+  - kind: "image"
+    title: "Detectability Analysis (Signal-in-Noise)"
+    image_path: "../generated_assets/detectability_analysis.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This is a detectability interpretation of the LoD definition. Using the measured residual noise level from the optimized calibration, we evaluate how separable an LoD-level signal is from the noise-only distribution.
+
+      Detection probability is reported at a fixed false-positive rate (5%) to make the decision threshold explicit. This analysis is complementary to the numeric LoD computation: it helps a reader understand what LoD implies in terms of detection performance under the assumed noise model.
+
+  - kind: "image"
+    title: "Method Comparison: Δλ vs Absorbance"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/method_comparison.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This comparison explains why the paper uses centroid wavelength shift (Δλ) as the primary response variable rather than a single absorbance amplitude. In multimode interferometric spectra, absorbance amplitudes can be sensitive to baseline drift and intensity fluctuations, while spectral-shift features can be more stable and more linearly related to concentration under the tested protocol.
+
+      The improved linearity and residual behavior for Δλ justify its use for regression, validation metrics, and LoD computation.
+
+  - kind: "image"
+    title: "Absorbance Calibration"
+    image_path: "../Kevin_Acetone_Paper_Results/acetone_scientific/plots/absorbance_calibration.png"
+    image_width: 10.0
+    image_top: 1.4
+    notes: |
+      This slide provides the absorbance-based calibration as a baseline reference method. Showing it explicitly prevents the perception that Δλ was chosen arbitrarily: it demonstrates that a simpler amplitude feature yields less favorable linearity and/or residual structure compared to the centroid shift approach.
+
+      The conclusion is that centroid-based Δλ extraction is the more defensible choice for a methods paper focused on analytical LoD, because it produces a response with better regression behavior and more reliable residual-noise estimation.
+
+  - kind: "image"
+    title: "Spectral Feature Engineering Workflow (Build Feature Vector)"
+    image_path: "../generated_assets/feature_engineering_workflow.png"
+    notes: |
+      This slide is a compact reminder of the feature engineering chain used throughout the analysis. The raw spectrum is normalized (transmittance), converted to absorbance, then transformed through derivative and convolution operations to emphasize informative spectral transitions and suppress baseline artefacts.
+
+      The output of this stage is the feature representation used to compute weights for centroid extraction and to stabilize Δλ estimation. The purpose is not to create a black-box model, but to produce a reproducible and noise-robust response variable for linear calibration and LoD computation.
+    position: 4.1
+
+  - kind: "title"
+    title: "Thank You"
+    subtitle: "Questions?\n\n{AUTHORS}\nContact: your.email@university.edu"
+    notes: |
+      Closing slide. For a self-contained deck, this is also a place to restate the key one-sentence conclusion: the detection-limit improvement comes from optimizing σ/|S| through feature engineering and data-driven ROI discovery on an unchanged ZnO–NCF platform, demonstrated under controlled chamber conditions. Invite questions, especially about reproducibility, validation, and the path to breath studies.
+
+# =============================================================================
+# DATA SOURCES
+# =============================================================================
+data_sources:
+  reference_metrics: "../data/reference_metrics.csv"
+  voc_protocol: "../data/voc_protocol.csv"
+  multigas_results: "../data/multigas_results.csv"
+  comparison_table: "../data/comparison_table.csv"
+  acetone_calibration_metrics: "../Kevin_Acetone_Paper_Results/acetone_scientific/metrics/calibration_metrics.json"

@@ -1,0 +1,23 @@
+{
+  "gas": "Methanol",
+  "timestamp": "2026-02-10T16:31:36.773389",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    835.0,
+    845.0
+  ],
+  "sensitivity_nm_per_ppm": -0.011850533244267623,
+  "r_squared": 0.11220964569616995,
+  "spearman_r": -0.19999999999999998,
+  "lod_ppm": 28.224606409693482,
+  "loq_ppm": 94.08202136564495,
+  "noise_std": 0.11149221218814721,
+  "loocv_r2": null,
+  "loocv_rmse": null,
+  "confidence_interval_nm_per_ppm": [
+    -0.06514870954514022,
+    0.01772262375986589
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 0.11550205351598393
+}

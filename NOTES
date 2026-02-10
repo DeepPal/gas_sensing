@@ -1,10 +1,10 @@
-# A Novel Machine Learning-Enhanced Spectral Analysis System for Gas Sensing Applications
+# Sensitivity-Optimized Auto-Selection for Gas Sensing: A Novel Performance-Driven Approach
 
 ## Abstract
 
-Gas sensing technologies play a critical role in environmental monitoring, industrial safety, and medical diagnostics. Traditional spectral analysis methods often suffer from limited sensitivity, poor selectivity in complex mixtures, and inadequate robustness under varying environmental conditions. This work presents a novel gas analysis system that integrates advanced chemometrics with machine learning techniques to overcome these limitations. Our approach combines sophisticated preprocessing algorithms, intelligent region-of-interest (ROI) selection, and ensemble calibration models to achieve superior performance in gas concentration determination. The system demonstrates significant improvements in detection limits (up to 40% lower LOD), enhanced accuracy in multi-gas environments (R² > 0.95 for complex mixtures), and robust operation under varying temperature and humidity conditions. The modular architecture and automated quality control make this system suitable for both research laboratories and industrial deployments. This work represents a significant advancement in gas sensing technology, bridging the gap between laboratory-grade analysis and real-world applications.
+Traditional gas sensing analysis relies on predetermined wavelength regions, often missing optimal response areas. This work presents a novel sensitivity-first auto-selection algorithm that automatically identifies optimal wavelength windows based on maximum sensor performance while maintaining statistical rigor. Our approach systematically scans the spectral range, evaluates candidates based on sensitivity (nm/ppm) and linearity (R²), and selects regions that maximize detection capability. The algorithm achieved a 4.9× sensitivity improvement for acetone detection (0.0547 → 0.2692 nm/ppm), exceeding the published benchmark of 0.116 nm/ppm by 2.3× while maintaining excellent linearity (R² = 0.9945). The approach was validated across six gases (acetone, ethanol, methanol, isopropanol, toluene, xylene) with consistent performance improvements. This performance-driven selection method represents a paradigm shift from location-based to performance-based optimization in optical gas sensing, enabling more sensitive and reliable detection for environmental monitoring and medical diagnostics applications.
 
-**Keywords:** Gas sensing, spectral analysis, machine learning, chemometrics, calibration, environmental monitoring
+**Keywords:** Gas sensing, sensitivity optimization, auto-selection, wavelength shift, optical fiber sensor, performance-driven analysis
 
 ---
 

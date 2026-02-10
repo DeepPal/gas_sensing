@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "poised-graph-480705-v0",
+  "private_key_id": "51ccd9f62df3f5f9560378835eba59733b21eab7",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCoXfLwpsfC3NHJ\n3hJlkfUDpk2Q/8v7dJAcKYNEeWhxzMHXnteNdBrnZl4Ixcgp3M7cTYTeDxrw73IC\nWpkWEfDyn0pa1+leWz64Oywrbp8J50JG0MO0IDJ1Y8ZzPYC7OwplQFv/yI5aInug\nhpGnJWhMCwX6mg4ePtapMuzvdemW18ZmgjQnila1qYcr7M8bXYTi/dHrOAJm7x0Q\nfdWgAOE9ILl+yP3wmMPTZmNE5mKk+FqsQ1MAnPgYisnyz0oKJ8cseJu2Q+//3g/I\nIGcP/miUEG7v4K4EfBwU4CSXBAj4rqo+WiyaE7o3gqWTHQ2e1q9kND9jLL3FfK0l\n/qFDTrBBAgMBAAECggEAAt0kPH0twS4F4H/nQrSGnSMHRzveoZ6UM/Jt0eyZvvPL\naUpBot2SdpSqbU5F7xZbK2qjI67Ql8AO6aTWXUZ9WXclqeFpzgnRyYryH6QATwgQ\nu8khxw7UJOSHU978MVMaBGphljp4V2amQS8Ay73KZh664Y4cxt1tQ9ACsTkJeeAX\nGfuI5YgttXrgwLogd8k+GWarFe16njbkCJ78ot5HEY0Bsf6BO6hFGhYQOZQJiIPV\nOfhSoj8/hsp40OddoNSx6oa9SeP1oTPN9AfGVL2dRmWaDVW8FBmNUU2ZelgdRaaN\nTsMauatBCi7UNb98sRcoMHYiLgWffg9f9tJe17lzZQKBgQDqFWE9L+e3MZEXbB6i\nqeNRXDUg0Ov76ceRN+4RHyGMuLo0A8dR/0CL5XAzNBwRgcsFJT2QQYof0Qhz9UWa\nZM3jMjSnkbAK6mrAxc0uye+9MYsKX83t5nDFEJnsxRNqG5xvGPSdvoqFjsw/TPC+\nZeMXHmBIyQ1V4ACyGEAS/Lso9QKBgQC4IXIO5I6lVeqRe74NsMEho22yZrKNejl1\nkUBOyOME3me6W1OakS3J9hOC4OfqeQnpshH3NHNoB6rYHU1lbKsvxJtgkHSLFQGY\n4PlJfmQYSvP64cMVIAYTtKm0tDybeQrkUw82nChrKE/i5dkTcFTYB7+4yoJEFjM7\n8QTZARkKnQKBgQCmy3kwSjRH+s+x6t6hdYB+dr98lKGyLNCBD2NZW99iEDbN3Wtn\naAQsKt6Z/aWKa/unvPNzGOA874ugZMKl0vJJ03pldJAGFybeGZOspUNogibay41G\n2Q69vKiRZ5P/5ZDAMP4McLrvk+LBsCdS4/K+hGyDMI+KA0U7ob/2R5NtCQKBgQCr\n4vTxuCT9bP3jP8vERfuUplaSEtKdxbp76NNKeLeMZP4Z9oVOJjbDcQb3x3JX7RP2\n57djuL//HiE7S+djRhVsKzIM6+0PpNVv3Jx6IhXYo6eszTHqt5FUtfMycIqfbFhh\nmrP5+76zgddJbd2+Cr/5RwqPu+PtIXhEfZNT7HVu9QKBgQDKEOAimsiC7eW5XvQO\nIihon5bBLxrkr706WsLa65go/sZb7uYM7EDSC7JEq+Lx02WEQYtag2OTATmel037\nVvLY4QqQG6mhB7ufXxUTvdSFfSIteEWtF3vRcxkHMeQN0kRdcqMTqTLiMD1Uj6Y8\ncVZrWSlpEHEGOZbs0LNznuTKcw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "slides-api-service-account@poised-graph-480705-v0.iam.gserviceaccount.com",
+  "client_id": "115943924583408237802",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/slides-api-service-account%40poised-graph-480705-v0.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

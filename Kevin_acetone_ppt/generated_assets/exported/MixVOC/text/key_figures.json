@@ -1,0 +1,23 @@
+{
+  "gas": "MixVOC",
+  "timestamp": "2026-02-10T16:40:59.577322",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    705.0,
+    725.0
+  ],
+  "sensitivity_nm_per_ppm": -0.04335874432070712,
+  "r_squared": 0.3914933619128727,
+  "spearman_r": -0.7999999999999999,
+  "lod_ppm": 12.510026730886732,
+  "loq_ppm": 41.70008910295577,
+  "noise_std": 0.18080635015657645,
+  "loocv_r2": null,
+  "loocv_rmse": null,
+  "confidence_interval_nm_per_ppm": [
+    -0.08937729550830366,
+    0.01194519249588149
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 0.2605909699578176
+}

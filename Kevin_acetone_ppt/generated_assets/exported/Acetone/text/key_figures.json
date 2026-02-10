@@ -1,0 +1,23 @@
+{
+  "gas": "Acetone",
+  "timestamp": "2026-02-10T16:25:19.196693",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    595.0,
+    625.0
+  ],
+  "sensitivity_nm_per_ppm": 0.2692369482162307,
+  "r_squared": 0.9944792461322035,
+  "spearman_r": 1.0,
+  "lod_ppm": 0.7476341135886859,
+  "loq_ppm": 2.492113711962286,
+  "noise_std": 0.06709690904165484,
+  "loocv_r2": 0.9735069303894721,
+  "loocv_rmse": 0.14698379677513887,
+  "confidence_interval_nm_per_ppm": [
+    0.23620494359306576,
+    0.275715532586085
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 4.360421683210543
+}

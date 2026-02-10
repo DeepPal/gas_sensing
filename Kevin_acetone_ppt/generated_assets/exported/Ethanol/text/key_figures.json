@@ -1,0 +1,23 @@
+{
+  "gas": "Ethanol",
+  "timestamp": "2026-02-10T16:28:42.442577",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    645.0,
+    670.0
+  ],
+  "sensitivity_nm_per_ppm": -0.3084499702231439,
+  "r_squared": 0.5661382837679148,
+  "spearman_r": -0.7999999999999999,
+  "lod_ppm": 8.784199322483106,
+  "loq_ppm": 29.280664408277023,
+  "noise_std": 0.9031620064846917,
+  "loocv_r2": null,
+  "loocv_rmse": null,
+  "confidence_interval_nm_per_ppm": [
+    -0.7174830720034193,
+    -0.06863214748142224
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 0.3711209047426837
+}

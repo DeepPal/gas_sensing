@@ -1,0 +1,150 @@
+{
+  "gas": "MixVOC",
+  "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC",
+  "assets": [
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\absorbance_calibration.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\absorbance_calibration.png",
+      "sha256": "00947c75f7e17ef7dcdcd5c5396a95df0405ad097efe538cba34942f2e06630c",
+      "size_bytes": 166872
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\calibration_curve.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\calibration_curve.png",
+      "sha256": "996029299e1b647fb6e64df7c11680568d415b56f77741c7e34b4fbeb8c71351",
+      "size_bytes": 218784
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\comprehensive_diagnostic.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\comprehensive_diagnostic.png",
+      "sha256": "b931f80fe237370ade34788433fdda028a826b925f2362fde35ee4b9f2bc0ca8",
+      "size_bytes": 900820
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\method_comparison.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\method_comparison.png",
+      "sha256": "abd52f1dbb0d40bd7f13d97ac14670833891721a070dd3289e7195f1e8e32321",
+      "size_bytes": 106598
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\peak_tracking.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\peak_tracking.png",
+      "sha256": "92c7b42bf0a737eb72efa6b4ba2ae9828683214a9fad34169d07859051b9e6cb",
+      "size_bytes": 239039
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\residual_analysis.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\residual_analysis.png",
+      "sha256": "8dd530f9e4c24f80b982bda2adc8df321e29021d951d7cd28dbd629c21f71f99",
+      "size_bytes": 261443
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\roi_scan_results.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\roi_scan_results.png",
+      "sha256": "ba4c2e7e6255dbb99d0f4761cfa423a92cd1c393f6af09d4b12d912615f33db7",
+      "size_bytes": 214072
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\plots\\spectral_overlay.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\plots\\spectral_overlay.png",
+      "sha256": "54830920f10920eece22f960a94e3cdc83410ba34a21e19098dbded13bd620b2",
+      "size_bytes": 564293
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\metrics\\absorbance_amplitude_calibration.json",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\metrics\\absorbance_amplitude_calibration.json",
+      "sha256": "30710ce66f6ea25e32787b31011d6cb54fe7412b15db175190baa695da5434e3",
+      "size_bytes": 2718
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\metrics\\calibration_metrics.json",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\metrics\\calibration_metrics.json",
+      "sha256": "96549701be7a833c67088de74157f941085f19953def07c715d66bbcf43acfdc",
+      "size_bytes": 16982
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure1_multigas_calibration.pdf",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure1_multigas_calibration.pdf",
+      "sha256": "608235ddf1f338668c2d93b8fe8d04717eee7fbcdc90f14c2edce741a2580bc4",
+      "size_bytes": 40844
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure1_multigas_calibration.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure1_multigas_calibration.png",
+      "sha256": "2f0fd166ffa96820d5dec2e31d6ac29865c7353f58e1eeaed7dc0380d3ab8e26",
+      "size_bytes": 418112
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure2_selectivity_comparison.pdf",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure2_selectivity_comparison.pdf",
+      "sha256": "ebbabb9db62e5214d5a3374ec59d4a0b9c944cf0fe2d042d38269ff55fd51a65",
+      "size_bytes": 31027
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure2_selectivity_comparison.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure2_selectivity_comparison.png",
+      "sha256": "a6dfa1489df55ecf5ba6164c662b2aba1f6e5c97e1760946d2423d382b968e93",
+      "size_bytes": 214435
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure3_roi_discovery.pdf",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure3_roi_discovery.pdf",
+      "sha256": "4626cdf6faa935dace84ab043ce5eb678814230d2693e2dcedf407e2960ae5b6",
+      "size_bytes": 28172
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure3_roi_discovery.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure3_roi_discovery.png",
+      "sha256": "dadb3cd3ce7880c2899c12be7e06a01b664f672f22e4de86adf4daa6ed125235",
+      "size_bytes": 131183
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure4_performance_table.pdf",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure4_performance_table.pdf",
+      "sha256": "1c7858d268a4ecb8957cb7e9c65cec2a034497830345520e982e56c00dd1abcb",
+      "size_bytes": 30787
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure4_performance_table.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure4_performance_table.png",
+      "sha256": "ab627c672b671fb432686d73ddda522c601f805d17598eadcaef74112443a00d",
+      "size_bytes": 174483
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure5_ml_comparison.pdf",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure5_ml_comparison.pdf",
+      "sha256": "0badfec93786bd7601cd0a109ce1bccd3b9ad83709f2dfb42e93f1096ac34163",
+      "size_bytes": 31652
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure5_ml_comparison.png",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\Figure5_ml_comparison.png",
+      "sha256": "71c3aa739f449267a09b462bb11aad4dbb6337337ade62ac1de68fc645360ec2",
+      "size_bytes": 201736
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\figures_summary.md",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\publication_figures\\figures_summary.md",
+      "sha256": "ea2fe108094f59bdbd90ce200c84a2939cd5c7cff8c493b13b7693842f201d81",
+      "size_bytes": 1772
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\reports\\summary.md",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\reports\\summary.md",
+      "sha256": "054c8fcc6b006f384f981e5106459e8037ccd8e489eeef8490e5087f383c0680",
+      "size_bytes": 1942
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\UNIFIED_RESULTS.md",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\text\\unified_results.md",
+      "sha256": "de6649770cab35fcb57e832d0aacd459ae5205236bf4ead53d986abd15890484",
+      "size_bytes": 3763
+    },
+    {
+      "source": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\MixVOC\\metrics\\calibration_metrics.json",
+      "destination": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\dist\\presentation_assets\\MixVOC\\text\\key_figures.json",
+      "sha256": "a012e1bdd3ab6781bda6b0663747019cb36678b84ea4c45da7e369286f41970b",
+      "size_bytes": 604
+    }
+  ]
+}

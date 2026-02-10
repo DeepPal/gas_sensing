@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-01-13T16:00:00",
+  "files_validated": {
+    "config/config.yaml": {
+      "description": "Configuration file",
+      "hash": "092de2405d5d2f15da8090c164b694f7a894717ddd037754775a6976905d5c2d",
+      "size": 16084,
+      "exists": true
+    },
+    "run_scientific_pipeline.py": {
+      "description": "Main pipeline",
+      "hash": "e45cccff4524ebdaca33c5f7beb139fda7538d73cd117dcb84f48ce560acd71a",
+      "size": 82612,
+      "exists": true
+    },
+    "gas_analysis/core/pipeline.py": {
+      "description": "Core analysis",
+      "hash": "327d954d0037990141e27f4978788ec693547072ecac228edaf367a517c44d2e",
+      "size": 370958,
+      "exists": true
+    },
+    "Kevin_Data/Acetone": {
+      "description": "Acetone data directory",
+      "type": "directory",
+      "num_files": 7666,
+      "exists": true
+    }
+  },
+  "validation_passed": true
+}

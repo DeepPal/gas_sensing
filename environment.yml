@@ -1,0 +1,26 @@
+name: gas-sensing-optimized
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy>=1.21.0,<3.0.0
+  - pandas>=1.3.0,<3.0.0
+  - matplotlib>=3.4.2,<4.0.0
+  - scipy>=1.7.0,<2.0.0
+  - scikit-learn>=1.0.2,<2.0.0
+  - pyyaml>=5.4.1
+  - seaborn>=0.11.2
+  - jupyter>=1.0.0
+  - pip
+  - pip:
+    - -e .
+
+# Environment created for ML-enhanced gas sensing pipeline
+# Updated: 2026-02-10 - Compatible version ranges for better reproducibility
+# Python 3.10 required for compatibility with scientific computing stack
+
+# Usage:
+# conda env create -f environment.yml
+# conda activate gas-sensing-optimized
+# python run_scientific_pipeline.py --gas Acetone

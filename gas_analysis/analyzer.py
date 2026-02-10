@@ -127,9 +127,19 @@ class GasAnalyzer:
         else:
             raise TypeError("Unsupported data format for analyze().")
 
-        pre_cfg = self.config.get('preprocessing', {})
-        baseline_correction = bool(pre_cfg.get('baseline_correction', True))
-        normalize = bool(pre_cfg.get('normalize', True))
+        pre_cfg = self.config.get('preprocessing', {}) if isinstance(self.config, dict) else {}
+        baseline_cfg = pre_cfg.get('baseline', {}) if isinstance(pre_cfg, dict) else {}
+        normalization_cfg = pre_cfg.get('normalization', {}) if isinstance(pre_cfg, dict) else {}
+
+        if isinstance(baseline_cfg, dict) and 'enabled' in baseline_cfg:
+            baseline_correction = bool(baseline_cfg.get('enabled', True))
+        else:
+            baseline_correction = bool(pre_cfg.get('baseline_correction', True))
+
+        if isinstance(normalization_cfg, dict) and 'enabled' in normalization_cfg:
+            normalize = bool(normalization_cfg.get('enabled', True))
+        else:
+            normalize = bool(pre_cfg.get('normalize', True))
 
         processed = preprocess_spectra(
             raw,

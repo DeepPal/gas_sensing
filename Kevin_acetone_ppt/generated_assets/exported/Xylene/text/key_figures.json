@@ -1,0 +1,23 @@
+{
+  "gas": "Xylene",
+  "timestamp": "2026-02-10T16:39:09.677391",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_nm": [
+    710.0,
+    735.0
+  ],
+  "sensitivity_nm_per_ppm": 0.1561701397256558,
+  "r_squared": 0.9958089541171572,
+  "spearman_r": 1.0,
+  "lod_ppm": 0.6509699978144461,
+  "loq_ppm": 2.16989999271482,
+  "noise_std": 0.033887358505297296,
+  "loocv_r2": 0.9755890416664272,
+  "loocv_rmse": 0.08178410855010686,
+  "confidence_interval_nm_per_ppm": [
+    0.13761465254605748,
+    0.15921525816511467
+  ],
+  "reference_lod_ppm": 3.26,
+  "lod_improvement_x": 5.00791128768616
+}

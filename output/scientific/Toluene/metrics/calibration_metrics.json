@@ -1,0 +1,605 @@
+{
+  "gas": "Toluene",
+  "timestamp": "2026-02-10T16:36:22.525783",
+  "pipeline_version": "CODEMAP_aligned_v1.0",
+  "roi_range": [
+    840.0,
+    860.0
+  ],
+  "expected_center": 650.0,
+  "n_concentrations": 4,
+  "concentrations": [
+    1.0,
+    3.0,
+    5.0,
+    10.0
+  ],
+  "calibration_wavelength_shift": {
+    "centroid": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        851.1825658387902,
+        851.7502112835801,
+        851.2909544472449,
+        849.9646576544936
+      ],
+      "delta_lambda": [
+        0.0,
+        0.5676454447899459,
+        0.1083886084546748,
+        -1.2179081842965616
+      ],
+      "reference_wavelength": 851.1825658387902,
+      "slope": -0.16447598533688682,
+      "slope_unit": "nm/ppm",
+      "intercept": 0.6457923975872272,
+      "r2": 0.6942017380228335,
+      "r_value": -0.8331876967543589,
+      "p_value": 0.16681230324564106,
+      "std_err": 0.07719019837537654,
+      "rmse": 0.36512677315833864,
+      "spearman_r": -0.39999999999999997,
+      "spearman_p": 0.6,
+      "noise_std": 0.36512677315833864,
+      "lod_ppm": 6.659819165888628,
+      "loq_ppm": 22.199397219628764,
+      "slope_ci_95": [
+        -0.25793337080802803,
+        0.050435840321059994
+      ],
+      "n_points": 4,
+      "method": "centroid",
+      "roi_range": [
+        840.0,
+        860.0
+      ],
+      "r2_cv": -1.5246767373761934,
+      "rmse_cv": 1.0491294105083626
+    },
+    "minimum": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        854.84624905,
+        857.5026103,
+        857.01955151,
+        854.84624905
+      ],
+      "delta_lambda": [
+        0.0,
+        2.6563612500000318,
+        2.173302460000059,
+        0.0
+      ],
+      "reference_wavelength": 854.84624905,
+      "slope": -0.09173869435754281,
+      "slope_unit": "nm/ppm",
+      "intercept": 1.643174725698351,
+      "r2": 0.0633170869583541,
+      "r_value": -0.25162886749805574,
+      "p_value": 0.7483711325019442,
+      "std_err": 0.24950163332438555,
+      "rmse": 1.1801981105223909,
+      "spearman_r": -0.10540925533894598,
+      "spearman_p": 0.894590744661054,
+      "noise_std": 1.1801981105223909,
+      "lod_ppm": 38.59433967708374,
+      "loq_ppm": 128.64779892361247,
+      "slope_ci_95": [
+        -0.39495129448598787,
+        0.6146760704545603
+      ],
+      "n_points": 4,
+      "method": "minimum",
+      "roi_range": [
+        840.0,
+        860.0
+      ]
+    }
+  },
+  "calibration_absorbance": {
+    "raw": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.02778044886243708,
+        0.07065625064393401,
+        0.09837372664963379,
+        0.0448580434716514
+      ],
+      "delta_A": [
+        0.0,
+        0.04287580178149693,
+        0.0705932777871967,
+        0.01707759460921432
+      ],
+      "reference_absorbance": 0.02778044886243708,
+      "slope": 0.0007211852073196587,
+      "slope_unit": "AU/ppm",
+      "intercept": 0.029211038809708607,
+      "r2": 0.00815864871093193,
+      "spearman_r": 0.39999999999999997,
+      "rmse": 0.026596551056641955,
+      "lod_ppm": 110.63684107785622,
+      "loq_ppm": 368.7894702595207,
+      "method": "raw",
+      "roi_range": [
+        840.0,
+        860.0
+      ],
+      "r2_cv": -8.943766117636162,
+      "rmse_cv": 0.08421310253190217
+    },
+    "window_avg": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.014424101037155844,
+        0.04393041195135507,
+        0.061070742068599033,
+        0.02490328824135335
+      ],
+      "delta_A": [
+        0.0,
+        0.029506310914199224,
+        0.04664664103144319,
+        0.010479187204197505
+      ],
+      "reference_absorbance": 0.014424101037155844,
+      "slope": 0.0003361195302804258,
+      "slope_unit": "AU/ppm",
+      "intercept": 0.02006146701862796,
+      "r2": 0.00394956436978124,
+      "spearman_r": 0.39999999999999997,
+      "rmse": 0.017853622133681052,
+      "lod_ppm": 159.35065230026092,
+      "loq_ppm": 531.1688410008697,
+      "method": "window_avg",
+      "roi_range": [
+        840.0,
+        860.0
+      ]
+    },
+    "differential": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "absorbance_values": [
+        0.05243903738140402,
+        0.0917452375612455,
+        0.1315842849718771,
+        0.061193765776380915
+      ],
+      "delta_A": [
+        0.0,
+        0.03930620017984148,
+        0.07914524759047309,
+        0.008754728394976895
+      ],
+      "reference_absorbance": 0.05243903738140402,
+      "slope": -6.787071158604736e-05,
+      "slope_unit": "AU/ppm",
+      "intercept": 0.0321239299213566,
+      "r2": 5.367838894185704e-05,
+      "spearman_r": 0.39999999999999997,
+      "rmse": 0.030984003560133047,
+      "lod_ppm": 1369.5452502004991,
+      "loq_ppm": 4565.1508340016635,
+      "method": "differential",
+      "roi_range": [
+        840.0,
+        860.0
+      ]
+    }
+  },
+  "best_method_wavelength_shift": "centroid",
+  "best_method_absorbance": "raw",
+  "loocv_validation": {
+    "wavelength_shift": {
+      "r2_cv": -1.5246767373761934,
+      "rmse_cv": 1.0491294105083626,
+      "predictions": [
+        1.1045594588821916,
+        -0.041660289432962905,
+        -0.27228847081239094,
+        0.41502474921055443
+      ],
+      "residuals": [
+        -1.1045594588821916,
+        0.6093057342229089,
+        0.38067707926706573,
+        -1.6329329335071159
+      ],
+      "n_folds": 4
+    },
+    "absorbance": {
+      "r2_cv": -8.943766117636162,
+      "rmse_cv": 0.08421310253190217,
+      "predictions": [
+        0.0686906166544623,
+        0.026001079522321092,
+        0.020130889604963308,
+        0.1613612626504921
+      ],
+      "residuals": [
+        -0.0686906166544623,
+        0.016874722259175835,
+        0.0504623881822334,
+        -0.1442836680412778
+      ],
+      "n_folds": 4
+    }
+  },
+  "roi_scan": {
+    "best_roi": [
+      840.0,
+      860.0
+    ],
+    "best_center": 850.0,
+    "best_width": 20,
+    "best_method": "derivative",
+    "best_r2": 0.9710940647776172,
+    "best_spearman": 1.0,
+    "best_slope": 0.19134114078213052,
+    "best_lod": 1.7312135457580202,
+    "best_score": 1.0768752518220939,
+    "calibration": {
+      "concentrations": [
+        1.0,
+        3.0,
+        5.0,
+        10.0
+      ],
+      "peak_wavelengths": [
+        847.84854959,
+        848.08971788,
+        848.33089561,
+        849.5369256
+      ],
+      "delta_lambda": [
+        0.0,
+        0.24116829000001871,
+        0.4823460200000227,
+        1.68837601000007
+      ],
+      "reference_wavelength": 847.84854959,
+      "slope": 0.19134114078213052,
+      "slope_unit": "nm/ppm",
+      "intercept": -0.30589783871509213,
+      "r2": 0.9710940647776172,
+      "r_value": 0.9854410508892032,
+      "p_value": 0.01455894911079681,
+      "std_err": 0.02334297601225382,
+      "rmse": 0.11041745826093889,
+      "spearman_r": 1.0,
+      "spearman_p": 0.0,
+      "noise_std": 0.1104174582609389,
+      "lod_ppm": 1.7312135457580202,
+      "loq_ppm": 5.7707118191934015,
+      "slope_ci_95": [
+        0.12058629045455146,
+        0.21640621364486773
+      ],
+      "n_points": 4,
+      "method": "derivative",
+      "roi_range": [
+        840.0,
+        860.0
+      ]
+    },
+    "n_candidates": 143,
+    "top_10_candidates": [
+      {
+        "roi_center": 795.0,
+        "roi_width": 10,
+        "roi_range": [
+          790.0,
+          800.0
+        ],
+        "method": "derivative",
+        "r2": 0.9961722162021186,
+        "spearman_r": 1.0,
+        "slope": 0.10551233765362941,
+        "lod_ppm": 0.6220055594033886,
+        "score": 1.096937772961695
+      },
+      {
+        "roi_center": 840.0,
+        "roi_width": 20,
+        "roi_range": [
+          830.0,
+          850.0
+        ],
+        "method": "centroid",
+        "r2": 0.988592217898135,
+        "spearman_r": -1.0,
+        "slope": -0.11070617413070474,
+        "lod_ppm": 1.0779032807807323,
+        "score": 1.090873774318508
+      },
+      {
+        "roi_center": 850.0,
+        "roi_width": 20,
+        "roi_range": [
+          840.0,
+          860.0
+        ],
+        "method": "derivative",
+        "r2": 0.9710940647776172,
+        "spearman_r": 1.0,
+        "slope": 0.19134114078213052,
+        "lod_ppm": 1.7312135457580202,
+        "score": 1.0768752518220939
+      },
+      {
+        "roi_center": 680.0,
+        "roi_width": 20,
+        "roi_range": [
+          670.0,
+          690.0
+        ],
+        "method": "derivative",
+        "r2": 0.9582140345842383,
+        "spearman_r": -1.0,
+        "slope": -0.5356032359776501,
+        "lod_ppm": 2.095423139052672,
+        "score": 1.0665712276673907
+      },
+      {
+        "roi_center": 517.5,
+        "roi_width": 15,
+        "roi_range": [
+          510.0,
+          525.0
+        ],
+        "method": "derivative",
+        "r2": 0.9546345066496605,
+        "spearman_r": -0.9486832980505139,
+        "slope": -0.4035984630167519,
+        "lod_ppm": 2.1874192701129314,
+        "score": 1.0483125947348826
+      },
+      {
+        "roi_center": 635.0,
+        "roi_width": 30,
+        "roi_range": [
+          620.0,
+          650.0
+        ],
+        "method": "derivative",
+        "r2": 0.954328258620162,
+        "spearman_r": 0.9486832980505139,
+        "slope": 0.341741153463689,
+        "lod_ppm": 2.1951422681651875,
+        "score": 1.0480675963112838
+      },
+      {
+        "roi_center": 842.5,
+        "roi_width": 25,
+        "roi_range": [
+          830.0,
+          855.0
+        ],
+        "method": "centroid",
+        "r2": 0.9340845946509929,
+        "spearman_r": -1.0,
+        "slope": -0.1534905088912578,
+        "lod_ppm": 2.665558005348972,
+        "score": 1.0472676757207944
+      },
+      {
+        "roi_center": 815.0,
+        "roi_width": 20,
+        "roi_range": [
+          805.0,
+          825.0
+        ],
+        "method": "derivative",
+        "r2": 0.9504433508860892,
+        "spearman_r": 0.9486832980505139,
+        "slope": 0.37117870027933153,
+        "lod_ppm": 2.291266613319258,
+        "score": 1.0449596701240256
+      },
+      {
+        "roi_center": 535.0,
+        "roi_width": 10,
+        "roi_range": [
+          530.0,
+          540.0
+        ],
+        "method": "derivative",
+        "r2": 0.9492910638376203,
+        "spearman_r": -0.9486832980505139,
+        "slope": -0.26893547949720664,
+        "lod_ppm": 2.3191579729982554,
+        "score": 1.0440378404852504
+      },
+      {
+        "roi_center": 535.0,
+        "roi_width": 20,
+        "roi_range": [
+          525.0,
+          545.0
+        ],
+        "method": "derivative",
+        "r2": 0.9492910638376203,
+        "spearman_r": -0.9486832980505139,
+        "slope": -0.26893547949720664,
+        "lod_ppm": 2.3191579729982554,
+        "score": 1.0440378404852504
+      }
+    ]
+  },
+  "processing": {
+    "1.0": {
+      "n_trials": 3,
+      "trials": {
+        "T1": {
+          "n_total_frames": 176,
+          "n_selected": 10,
+          "baseline_response": 0.008980237318110085,
+          "max_response": 0.022915231327926167,
+          "selected_mean_response": 0.021936087332553346,
+          "response_enhancement": 2.4427068362709115
+        },
+        "T2": {
+          "n_total_frames": 237,
+          "n_selected": 10,
+          "baseline_response": 0.004906832258522531,
+          "max_response": 0.07034086329687572,
+          "selected_mean_response": 0.0686499117651089,
+          "response_enhancement": 13.990678048308073
+        },
+        "T3": {
+          "n_total_frames": 238,
+          "n_selected": 10,
+          "baseline_response": 0.017288351665489966,
+          "max_response": 0.02238816793888443,
+          "selected_mean_response": 0.021463114239463833,
+          "response_enhancement": 1.2414783393236648
+        }
+      }
+    },
+    "3.0": {
+      "n_trials": 3,
+      "trials": {
+        "T1": {
+          "n_total_frames": 238,
+          "n_selected": 10,
+          "baseline_response": 0.026239454017032603,
+          "max_response": 0.027625671319155387,
+          "selected_mean_response": 0.026965614415348105,
+          "response_enhancement": 1.0276743675793214
+        },
+        "T2": {
+          "n_total_frames": 240,
+          "n_selected": 10,
+          "baseline_response": 0.0214252536530929,
+          "max_response": 0.07410539472138111,
+          "selected_mean_response": 0.07270985876900378,
+          "response_enhancement": 3.393652164260017
+        },
+        "T3": {
+          "n_total_frames": 189,
+          "n_selected": 10,
+          "baseline_response": 0.10372320976679701,
+          "max_response": 0.11078125147025697,
+          "selected_mean_response": 0.10894549251935118,
+          "response_enhancement": 1.0503482553158614
+        }
+      }
+    },
+    "5.0": {
+      "n_trials": 2,
+      "trials": {
+        "T2": {
+          "n_total_frames": 189,
+          "n_selected": 10,
+          "baseline_response": 0.033261971950044836,
+          "max_response": 0.057066632406418294,
+          "selected_mean_response": 0.05529850968934645,
+          "response_enhancement": 1.6625144656530342
+        },
+        "T3": {
+          "n_total_frames": 195,
+          "n_selected": 10,
+          "baseline_response": 0.030005210879590127,
+          "max_response": 0.0636820946797434,
+          "selected_mean_response": 0.06131652462017101,
+          "response_enhancement": 2.0435291943749094
+        }
+      }
+    },
+    "10.0": {
+      "n_trials": 3,
+      "trials": {
+        "T1": {
+          "n_total_frames": 184,
+          "n_selected": 10,
+          "baseline_response": 0.13246945138064542,
+          "max_response": 0.1361076491245583,
+          "selected_mean_response": 0.13375126094934184,
+          "response_enhancement": 1.0096762646358786
+        },
+        "T2": {
+          "n_total_frames": 189,
+          "n_selected": 10,
+          "baseline_response": 0.028989053227953976,
+          "max_response": 0.037297316279961135,
+          "selected_mean_response": 0.035691411296817244,
+          "response_enhancement": 1.2312030645857697
+        },
+        "T3": {
+          "n_total_frames": 192,
+          "n_selected": 10,
+          "baseline_response": 0.10003585348357573,
+          "max_response": 0.10797262017990483,
+          "selected_mean_response": 0.10726831496210835,
+          "response_enhancement": 1.0722986921133253
+        }
+      }
+    }
+  },
+  "benchmark_comparison": {
+    "paper_sensitivity": 0.116,
+    "paper_lod": 3.26,
+    "paper_roi": [
+      675,
+      689
+    ],
+    "achieved_sensitivity": -0.16447598533688682,
+    "achieved_lod": 6.659819165888628,
+    "achieved_r2": 0.6942017380228335,
+    "achieved_spearman": -0.39999999999999997
+  },
+  "provenance": {
+    "generated_at": "2026-02-10T16:36:22.442783",
+    "git_commit": "aff19078a8547cefd4a16b4d02bb8d0f72f1e367",
+    "config_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\config\\config.yaml",
+    "config_sha256": "eabbcbef3616648cbea17ab082a8619829f64cd1d004eaaf505d7b87facfedb4",
+    "data_dir": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Toluene",
+    "reference_file": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Toluene\\toluene_ref air.csv",
+    "roi_range_nm": [
+      840.0,
+      860.0
+    ],
+    "selected_methods": {
+      "wavelength_shift": "centroid",
+      "absorbance": "raw"
+    },
+    "environment": {
+      "platform": "Windows-10-10.0.26200-SP0",
+      "versions": {
+        "python": "3.10.11",
+        "numpy": "2.2.6",
+        "pandas": "2.3.3",
+        "scipy": "1.15.3",
+        "sklearn": "1.7.2",
+        "matplotlib": "3.10.8"
+      }
+    },
+    "script": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\run_scientific_pipeline.py",
+    "gas": "Toluene"
+  }
+}
