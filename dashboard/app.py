@@ -38,11 +38,14 @@ if str(REPO_ROOT) not in sys.path:
 # Logging (Streamlit runs in a fresh process; initialise here)
 # ---------------------------------------------------------------------------
 try:
+    import os as _os
     from gas_analysis.logging_setup import configure_logging  # noqa: E402
 
+    _log_dir = Path(_os.environ.get("LOG_DIR", str(REPO_ROOT / "logs")))
+    _log_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(
         level=logging.INFO,
-        log_file=REPO_ROOT / "logs" / "dashboard.log",
+        log_file=_log_dir / "dashboard.log",
         console=False,  # Streamlit captures stderr; write to file instead
     )
 except Exception:
@@ -145,7 +148,9 @@ with tab_exp:
 # ===========================================================================
 # Tab 3 — Batch Analysis
 # ===========================================================================
-with tab_batch:
+
+
+def _render_batch() -> None:
     st.title("🔬 Batch Spectrum Analysis")
 
     if not SIGNAL_PROC_AVAILABLE:
@@ -155,7 +160,7 @@ with tab_batch:
         )
         with st.expander("Error details"):
             st.code(_import_errors.get("signal_proc", "Unknown error"))
-        st.stop()
+        return
 
     # ---- Sidebar --------------------------------------------------------
     st.sidebar.header("Data Configuration")
@@ -165,7 +170,14 @@ with tab_batch:
         help="Directory containing gas sub-folders (e.g. data/JOY_Data/)",
     )
 
-    root_path = Path(data_root)
+    root_path = Path(data_root).resolve()
+    # Restrict traversal to paths within the repo root to prevent directory traversal
+    try:
+        root_path.relative_to(REPO_ROOT)
+    except ValueError:
+        st.sidebar.error("Data Root must be inside the project directory.")
+        root_path = REPO_ROOT / "data"
+
     if root_path.exists():
         available_gases = sorted(d.name for d in root_path.iterdir() if d.is_dir())
     else:
@@ -178,7 +190,7 @@ with tab_batch:
             "├── Ethanol/\n│   ├── 0.5 ppm-1/\n│   └── ...\n"
             "└── ref_EtOH.csv\n```"
         )
-        st.stop()
+        return
 
     gas_type = st.sidebar.selectbox("Select Gas", available_gases)
     gas_path = root_path / gas_type
@@ -189,7 +201,7 @@ with tab_batch:
 
     if not csv_files:
         st.info(f"No CSV files found in `{gas_path}`.")
-        st.stop()
+        return
 
     file_map = {f.name: f for f in csv_files}
     selected_filename = st.sidebar.selectbox("Select Spectrum", list(file_map.keys()))
@@ -240,7 +252,7 @@ with tab_batch:
         except Exception as exc:
             st.error(f"Failed to load spectrum: {exc}")
             log.error("Spectrum load error (%s): %s", selected_file, exc)
-            st.stop()
+            return
 
         # Load reference
         intensity_ref = None
@@ -390,7 +402,7 @@ with tab_batch:
                         exp_scan = scan_experiment_root(gas_path, gas_type=gas_type)
                     except ValueError as _ve:
                         st.warning(str(_ve))
-                        st.stop()
+                        return
 
                     if not exp_scan.concentrations:
                         st.warning(
@@ -398,7 +410,7 @@ with tab_batch:
                             "Check that folder names contain a numeric concentration "
                             "(e.g. `0.5 ppm-1`, `vary-EtOH-0.5-1`)."
                         )
-                        st.stop()
+                        return
 
                     st.success(
                         f"Found {len(exp_scan.concentrations)} concentration levels: "
@@ -443,7 +455,7 @@ with tab_batch:
 
                     if not mean_spectra or common_wl is None:
                         st.error("No spectra could be loaded.")
-                        st.stop()
+                        return
 
                     Z = np.array(mean_spectra)
                     concs = np.array(conc_levels)
@@ -965,6 +977,11 @@ with tab_batch:
                         import traceback
 
                         st.code(traceback.format_exc())
+
+
+
+with tab_batch:
+    _render_batch()
 
 # ===========================================================================
 # Tab 4 — Live Sensor

@@ -206,9 +206,14 @@ def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
     peak_abs = float(absorbance[peak_idx])
 
     # ── SNR ───────────────────────────────────────────────────────────────
-    noise_mask = (wl >= 690) & (wl <= 720)
-    noise_std = float(np.std(absorbance[noise_mask])) if noise_mask.sum() > 5 else 1e-9
-    snr = abs(peak_abs) / noise_std if noise_std > 0 else 0.0
+    # Use lowest 10% of wavelength range as noise reference (adapts to any sensor range)
+    wl_range = float(wl[-1] - wl[0])
+    noise_mask = wl <= (float(wl[0]) + 0.10 * wl_range)
+    if noise_mask.sum() <= 5:
+        noise_mask = np.ones(len(wl), dtype=bool)  # fallback: whole spectrum
+    noise_std = float(np.std(absorbance[noise_mask])) if noise_mask.sum() > 0 else 1e-9
+    noise_std = max(noise_std, 1e-9)
+    snr = abs(peak_abs) / noise_std
 
     # ── wavelength shift (reference peak vs sample peak) ─────────────────
     ref_peak_idx = int(np.argmax(r_sm))
@@ -564,10 +569,12 @@ def render() -> None:
             return
 
         st.subheader("Step 4 — Analysis Results")
+        _ref_src = (ss.get("exp_reference") or {}).get("source", "N/A")
+        _smp_src = (ss.get("exp_sample") or {}).get("source", "N/A")
         st.caption(
             f"Gas: **{cfg['gas']}** | "
-            f"Ref: {ss['exp_reference']['source']} | "
-            f"Sample: {ss['exp_sample']['source']}"
+            f"Ref: {_ref_src} | "
+            f"Sample: {_smp_src}"
         )
 
         # ── key metrics ───────────────────────────────────────────────────

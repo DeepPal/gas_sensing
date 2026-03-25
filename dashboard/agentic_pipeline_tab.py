@@ -152,6 +152,8 @@ def _acquire_frames(
         frames = []
         prog = st.progress(0, text="Acquiring…")
         for i in range(n_frames):
+            # Safe default — replaced by hardware read when available
+            frame = _simulate_frame(wl, concentration_ppm)
             if spec is not None:
                 # Retry once on stale VISA handle
                 for attempt in range(2):
@@ -173,8 +175,6 @@ def _acquire_frames(
                                 break
                         else:
                             raise
-            else:
-                frame = _simulate_frame(wl, concentration_ppm)
 
             frames.append(frame)
             current_mean = np.mean(frames, axis=0)
@@ -244,6 +244,13 @@ def _scan_dataset_dir() -> list[Path]:
     if not base.exists():
         return []
     return sorted(base.rglob("*.csv"))
+
+
+@st.cache_data(show_spinner=False)
+def _load_csv_spectrum(path_str: str) -> tuple[np.ndarray, np.ndarray]:
+    """Load wavelength + intensity from a two-column CSV. Cached per file path."""
+    df = pd.read_csv(path_str, header=None, names=["wl", "intensity"])
+    return df["wl"].values, df["intensity"].values
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -375,6 +382,9 @@ def render() -> None:
             save_meta = st.form_submit_button("✅ Confirm Metadata & Arm Recording", type="primary")
 
         if save_meta:
+            import re as _re
+            # Sanitize gas name: keep only alphanumeric, dash, and underscore chars
+            gas = _re.sub(r"[^\w\-]", "_", gas.strip()) or "unknown"
             # Only reset the buffer when gas/concentration changes, not every save
             old_meta = ss.get("ap_meta", {})
             if old_meta.get("gas") != gas or old_meta.get("concentration_ppm") != conc:
@@ -578,10 +588,10 @@ def render() -> None:
                     spectra_batch = []
                     wl_ref_arr = None
                     for f in steady_files:
-                        df_ = pd.read_csv(f, header=None, names=["wl", "intensity"])
+                        wl_arr, int_arr = _load_csv_spectrum(str(f))
                         if wl_ref_arr is None:
-                            wl_ref_arr = df_["wl"].values
-                        spectra_batch.append(df_["intensity"].values)
+                            wl_ref_arr = wl_arr
+                        spectra_batch.append(int_arr)
                     if spectra_batch and wl_ref_arr is not None:
                         mean_spec = np.mean(spectra_batch, axis=0)
                         items.append((lbl, wl_ref_arr, mean_spec))
@@ -634,6 +644,8 @@ def render() -> None:
 
         if st.button("⚙️ Run Preprocessing", type="primary"):
             ref_arr = ss.get("ap_ref_spectrum")
+            # Clear stale reference peak so Step 3 re-derives it from the new data
+            ss.pop("ap_ref_peak_wl", None)
             with st.spinner("Processing all spectra…"):
                 ss["ap_preprocessed"] = []
                 qc_rows = []
@@ -1093,10 +1105,9 @@ def render() -> None:
                     "Select model file", pkl_files, format_func=lambda p: p.name
                 )
                 if st.button("📂 Load Model from Disk"):
-                    import pickle
+                    import joblib
 
-                    with open(chosen_pkl, "rb") as _f:
-                        loaded_m = pickle.load(_f)
+                    loaded_m = joblib.load(chosen_pkl)
                     ss["ap_gpr_sklearn"] = loaded_m
                     ss["ap_model_trained"] = True
                     ss["ap_y_concs"] = np.array([100.0])
@@ -1110,7 +1121,8 @@ def render() -> None:
             return
 
         meta = ss.get("ap_meta", {})
-        np.linspace(200, 1000, 1000)
+        if not meta:
+            st.warning("No acquisition metadata found — concentration estimates may be missing.")
 
         # ── Model status ──────────────────────────────────────────────────
         c1, c2, c3 = st.columns(3)

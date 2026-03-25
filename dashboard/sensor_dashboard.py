@@ -72,9 +72,15 @@ def render() -> None:
     recent_data = LiveDataStore.get_latest(500)
     if recent_data:
         df = _build_dataframe(recent_data)
-        _render_concentration_trend(df)
-        _render_shift_trend(df)
-        _render_recent_table(df)
+        for _render_fn, _label in [
+            (_render_concentration_trend, "Concentration trend"),
+            (_render_shift_trend, "Wavelength shift trend"),
+            (_render_recent_table, "Recent results"),
+        ]:
+            try:
+                _render_fn(df)
+            except Exception as _exc:
+                st.warning(f"{_label} unavailable: {_exc}")
     else:
         st.info(
             "No data yet.  Click **Connect & Start** above to begin acquisition,\n"
@@ -86,7 +92,9 @@ def render() -> None:
         st.markdown("---")
         _render_agent_status()
 
-    # ---- Auto-refresh ----
+    # ---- Auto-refresh (only when sensor is actively streaming) ----
+    # Sleeping unconditionally blocks the entire Streamlit server process;
+    # gate on is_running() so idle tab visits cost nothing.
     refresh_rate = st.sidebar.slider(
         "Dashboard Refresh (s)",
         min_value=1,
@@ -94,8 +102,9 @@ def render() -> None:
         value=2,
         key="sensor_refresh_rate",
     )
-    time.sleep(refresh_rate)
-    st.rerun()
+    if LiveDataStore.is_running():
+        time.sleep(refresh_rate)
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +444,9 @@ def _build_dataframe(recent_data: list) -> pd.DataFrame:
         # utc=True normalises timezone-aware datetimes; tz_convert(None) strips
         # tz info so Plotly/Streamlit can display without UTC suffix clutter.
         df["datetime"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_convert(None)
+    else:
+        # Guarantee "datetime" column exists so renderers never KeyError
+        df["datetime"] = pd.Timestamp.now()
     return df
 
 
