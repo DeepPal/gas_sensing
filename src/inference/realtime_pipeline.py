@@ -275,6 +275,11 @@ class CalibrationStage:
         self.config = config
         self._gpr_model: Any = None  # set by SensorOrchestrator
         self._cnn_model: Any = None
+        self._reference: np.ndarray | None = None  # set via set_reference()
+
+    def set_reference(self, reference_intensities: np.ndarray) -> None:
+        """Provide the reference spectrum used by GPR feature extraction."""
+        self._reference = reference_intensities.copy()
 
     def set_calibration(
         self,

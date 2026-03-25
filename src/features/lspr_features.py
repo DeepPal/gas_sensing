@@ -433,7 +433,7 @@ def extract_lspr_features(
 
         ref_peak_idx = np.argmax(ref_roi)
         feat.delta_intensity_peak = float(gas_roi[ref_peak_idx] - ref_roi[ref_peak_idx])
-        feat.delta_intensity_area = float(np.trapezoid(diff))
+        feat.delta_intensity_area = float(np.trapezoid(diff, x=wavelengths[mask]))
         feat.delta_intensity_std = float(np.std(diff))
 
         # SNR: dimensionally consistent estimate.

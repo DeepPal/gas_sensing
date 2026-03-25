@@ -36,6 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Create non-root user for runtime stages (pip installs still run as root)
+RUN groupadd -r appuser && useradd --no-create-home -r -g appuser appuser
+
 # =============================================================================
 # Stage 2 — deps: pip install (cached layer — only reruns when pyproject changes)
 # =============================================================================
@@ -66,7 +69,7 @@ COPY run.py        ./run.py
 RUN python -m compileall -q src/ config/ 2>/dev/null || true
 
 # Runtime output directory (override with a named volume in production)
-RUN mkdir -p /app/output /app/data
+RUN mkdir -p /app/output /app/data && chown appuser:appuser /app/output /app/data
 
 # =============================================================================
 # Stage 4 — api: FastAPI inference server (DEFAULT target)
@@ -77,6 +80,9 @@ EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
+
+# Drop to non-root for runtime
+USER appuser
 
 # uvicorn with 2 workers; override via WORKERS env var
 # Shell form required here to expand ${WORKERS} and ${LOG_LEVEL} env vars
@@ -96,6 +102,9 @@ EXPOSE 8501
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# Drop to non-root for runtime
+USER appuser
 
 CMD ["streamlit", "run", "dashboard/app.py", \
      "--server.address", "0.0.0.0", \
