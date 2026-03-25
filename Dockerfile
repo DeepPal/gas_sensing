@@ -79,7 +79,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # uvicorn with 2 workers; override via WORKERS env var
-CMD uvicorn src.api.main:app \
+# Shell form required here to expand ${WORKERS} and ${LOG_LEVEL} env vars
+SHELL ["/bin/sh", "-c"]
+CMD exec uvicorn src.api.main:app \
         --host 0.0.0.0 \
         --port 8000 \
         --workers ${WORKERS:-2} \
@@ -114,4 +116,4 @@ COPY tests/ ./tests/
 
 # Run pytest then mypy; non-zero exit on any failure
 CMD ["sh", "-c", \
-     "pytest -q --tb=short tests/ && mypy src --no-site-packages --ignore-missing-imports"]
+     "pytest -q --tb=short tests/ && mypy src --ignore-missing-imports --follow-imports=skip"]

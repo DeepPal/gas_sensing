@@ -185,7 +185,7 @@ def fit_multi_roi_fusion(
     rmse_cv = float("nan")
     cv_preds: np.ndarray | None = None
     if n >= 4:
-        cv_arr = np.empty(n, dtype=float)
+        cv_arr: np.ndarray = np.empty(n, dtype=float)
         valid = True
         for i in range(n):
             X_train = np.delete(X, i, axis=0)
