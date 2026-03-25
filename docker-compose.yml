@@ -1,0 +1,122 @@
+# =============================================================================
+# Au-MIP LSPR Gas Sensing Platform — Docker Compose
+# =============================================================================
+#
+# Services
+# --------
+#   api        FastAPI inference server  → http://localhost:8000
+#   dashboard  Streamlit analytics UI    → http://localhost:8501
+#   tests      CI test runner (profile: test)
+#
+# Quick start
+# -----------
+#   docker compose up                        # start api + dashboard
+#   docker compose up --build                # rebuild images first
+#   docker compose --profile test run tests  # run CI test suite
+#   docker compose down                      # stop & remove containers
+#
+# Environment variables (.env file or shell exports)
+#   WORKERS=2           number of uvicorn workers
+#   LOG_LEVEL=info      uvicorn log level (debug | info | warning)
+#   CONFIG_PATH=config/config.yaml   override config file path
+
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Shared build context (both api + dashboard use the same source image)
+# ---------------------------------------------------------------------------
+x-build: &default-build
+  context: .
+  dockerfile: Dockerfile
+
+x-common-env: &common-env
+  PYTHONUNBUFFERED: "1"
+  CONFIG_PATH: /app/config/config.yaml
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  # ==========================================================================
+  # Inference API — FastAPI / uvicorn
+  # ==========================================================================
+  api:
+    build:
+      <<: *default-build
+      target: api
+    container_name: gas-api
+    image: gas-api:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data read-only; output is writable
+      - ./data:/app/data:ro
+      - ./output:/app/output
+      - ./config:/app/config:ro
+      # Optional: mount trained models so they persist across rebuilds
+      - ./output/models:/app/output/models
+    environment:
+      <<: *common-env
+      WORKERS: ${WORKERS:-2}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - gas-net
+
+  # ==========================================================================
+  # Analytics Dashboard — Streamlit
+  # ==========================================================================
+  dashboard:
+    build:
+      <<: *default-build
+      target: dashboard
+    container_name: gas-dashboard
+    image: gas-dashboard:latest
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data:ro
+      - ./output:/app/output
+      - ./config:/app/config:ro
+    environment:
+      <<: *common-env
+      # Point dashboard at the API container by service name
+      API_BASE_URL: http://api:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gas-net
+
+  # ==========================================================================
+  # CI Test Runner  (docker compose --profile test run tests)
+  # ==========================================================================
+  tests:
+    build:
+      <<: *default-build
+      target: test
+    container_name: gas-tests
+    image: gas-test:latest
+    profiles:
+      - test
+    volumes:
+      - ./output/test-reports:/app/test-reports
+    environment:
+      <<: *common-env
+      PYTEST_ADDOPTS: "--tb=short -q"
+    networks:
+      - gas-net
+
+networks:
+  gas-net:
+    driver: bridge

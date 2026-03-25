@@ -10,8 +10,4 @@ __version__ = "1.0.0"
 from .core.pipeline import run_full_pipeline
 from .core.preprocessing import baseline_correction, smooth_spectrum
 
-__all__ = [
-    'run_full_pipeline',
-    'baseline_correction',
-    'smooth_spectrum'
-]
+__all__ = ["run_full_pipeline", "baseline_correction", "smooth_spectrum"]

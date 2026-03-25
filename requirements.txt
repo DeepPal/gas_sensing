@@ -7,3 +7,24 @@ pyyaml>=6.0
 pyserial>=3.5
 PyWavelets>=1.4.1
 pytest>=7.0
+markdown>=3.4
+weasyprint>=56.0
+pypandoc>=1.11
+playwright>=1.45
+streamlit>=1.30.0
+torch>=2.0.0
+torchvision>=0.15.0
+ruff>=0.1.0
+mypy>=1.0.0
+black>=23.0.0
+plotly>=5.0.0
+joblib>=1.2.0
+pyarrow>=10.0.0
+pyvisa>=1.13.0
+# ML experiment tracking
+mlflow>=2.5.0
+# ONNX edge deployment (optional — needed for src/models/onnx_export.py)
+onnx>=1.14.0
+onnxruntime>=1.16.0
+# Statistics
+statsmodels>=0.14.0

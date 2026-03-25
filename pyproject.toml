@@ -1,0 +1,270 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+[project]
+name = "gas-analysis"
+version = "3.0.0"
+description = "Au-MIP LSPR gas sensing platform: modular AI system with real-time inference API, MLflow tracking, and spectral processing"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Chula Research Team", email = "research@example.com" },
+]
+keywords = [
+    "LSPR",
+    "surface-plasmon-resonance",
+    "gas-sensor",
+    "spectroscopy",
+    "calibration",
+    "machine-learning",
+    "real-time",
+    "au-nanoparticle",
+    "molecularly-imprinted-polymer",
+    "VOC",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core dependencies — required for ALL modes (batch, real-time, API)
+dependencies = [
+    # Numerics
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "pandas>=1.3.0",
+    "PyWavelets>=1.4.1",
+    # ML (non-torch)
+    "scikit-learn>=1.0.0",
+    "joblib>=1.2.0",
+    "statsmodels>=0.13.0",
+    # Config
+    "pyyaml>=6.0",
+    # Data
+    "pyarrow>=10.0.0",
+    # Viz (used by batch reports)
+    "matplotlib>=3.4.0",
+    "plotly>=5.0.0",
+    # Dashboard
+    "streamlit>=1.30.0",
+    # Hardware serial
+    "pyserial>=3.5",
+    # API & data validation (always required — used by schemas + API)
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",    # for TestClient in tests
+]
+
+[project.optional-dependencies]
+# Deep-learning inference (1D CNN classifier)
+ml = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+# Experiment tracking (MLflow)
+tracking = [
+    "mlflow>=2.14.0",
+]
+# Hardware acquisition via VISA (ThorLabs CCS200)
+hardware = [
+    "pyvisa>=1.13.0",
+    "pyvisa-py>=0.6.0",
+]
+# Report generation
+reports = [
+    "weasyprint>=56.0",
+    "pypandoc>=1.11",
+    "markdown>=3.4",
+]
+# Development & CI tools
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+    "mypy>=1.8.0",
+    "black>=24.0.0",
+]
+# Full install (everything except torch, for CI)
+all = [
+    "mlflow>=2.14.0",
+    "pyvisa>=1.13.0",
+    "pyvisa-py>=0.6.0",
+    "weasyprint>=56.0",
+    "markdown>=3.4",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+# CLI entry points
+gas-serve            = "serve:main"
+gas-train            = "src.training.train_gpr:main"
+gas-train-cnn        = "src.training.train_cnn:main"
+gas-export-onnx      = "src.models.onnx_export:main"
+gas-cross-gas-eval   = "src.training.cross_gas_eval:main"
+gas-ablation         = "src.training.ablation:main"
+
+# ---------------------------------------------------------------------------
+# Tool: setuptools package discovery
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "config*", "dashboard*", "gas_analysis*"]
+
+[tool.setuptools.package-data]
+"src" = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Tool: ruff (linter + formatter)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = [
+    ".venv",
+    "__pycache__",
+    "PDMS_Ring_Rectum Sensor",   # separate project — not part of this package
+    "spectrometer_webapp",        # standalone webapp — linted independently
+    "n8n",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",   # line-length — handled by formatter
+    "B008",   # function calls in default args (Streamlit / FastAPI Depends pattern)
+    "N803",   # argument name should be lowercase (numpy convention: X, Y matrices)
+    "N806",   # variable in function should be lowercase (numpy convention)
+    "SIM108", # ternary operator — sometimes less readable
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy pipeline — large monolithic module with unresolved variable scoping;
+# F821 errors are real tech debt tracked separately. Do not add new code here.
+"gas_analysis/core/pipeline.py" = ["F821", "F401", "E402", "E722", "B904", "F405", "F403", "B007", "SIM102", "E741"]
+# Legacy calibration modules — bare-except and style issues tracked as tech debt
+"gas_analysis/core/calibration/**" = ["E722", "B007", "B904"]
+# Hardware acquisition drivers: bare-except is intentional (must never crash),
+# B904 raise-from not required in low-level driver error paths.
+"gas_analysis/acquisition/**" = ["E722", "B904", "SIM102", "SIM105", "SIM115", "F401"]
+# ctypes wrapper: from ctypes import * is the standard pattern; N999 = CCS200 filename
+"gas_analysis/acquisition/ccs200lib/CCS200.py" = ["F403", "F405", "N999", "E722", "B904"]
+# __init__.py re-exports: F401 false-positives on intentional public API exports
+"gas_analysis/**/__init__.py" = ["F401"]
+"src/**/__init__.py" = ["F401"]
+# Test files: assert without message, magic values, unused imports, naming conventions
+"tests/**" = ["B017", "F401", "E402", "B007", "E741", "N813"]
+# Script entry-points: conditional top-of-file imports are intentional
+"scripts/**" = ["E402", "F401", "SIM102", "B007", "E741"]
+# Dashboard tabs: Streamlit's execution model requires some top-level imports
+"dashboard/**" = ["E402", "F401", "SIM102"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "config", "dashboard", "gas_analysis"]
+force-sort-within-sections = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Tool: mypy (type checking — advisory, not blocking)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = false    # many stubs are incomplete
+disallow_untyped_defs = false  # gradually tighten
+check_untyped_defs = true
+ignore_missing_imports = true  # scientific libs often lack stubs
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["gas_analysis.core.pipeline", "gas_analysis.*"]
+ignore_errors = true           # Legacy — typed incrementally during migration
+
+# numpy/scipy stubs type all ndarray operations as ndarray[Any, dtype[Any]].
+# warn_return_any = true would flag every scientific array computation.
+# Disable for modules whose core purpose is numpy array math.
+[[tool.mypy.overrides]]
+module = [
+    "src.preprocessing.*",
+    "src.calibration.isotherms",
+    "src.features.lspr_features",
+    "src.batch.aggregation",
+    "src.models.onnx_export",
+    "src.training.ablation",
+    "src.training.mlflow_tracker",
+    "src.signal.transforms",
+    "src.signal.peak",
+    "src.signal.roi",
+    "src.calibration.transforms",
+    "src.calibration.multi_roi",
+    "src.calibration.roi_scan",
+    "src.reporting.metrics",
+    "src.reporting.environment",
+    "src.reporting.io",
+    "src.reporting.plots",
+    "src.batch.preprocessing",
+    "src.batch.response",
+]
+warn_return_any = false
+
+# ---------------------------------------------------------------------------
+# Tool: pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.4"
+addopts = "-ra -q --tb=short"
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "WARNING"
+markers = [
+    "smoke: end-to-end pipeline smoke tests covering config → preprocess → calibrate chain",
+]
+filterwarnings = [
+    "ignore::sklearn.exceptions.ConvergenceWarning",  # GPR on tiny synthetic test data
+    "ignore::UserWarning:sklearn",                    # sklearn misc on small datasets
+]
+
+# ---------------------------------------------------------------------------
+# Tool: coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src", "config"]
+omit = [
+    "*/tests/*",
+    "gas_analysis/core/pipeline.py",    # Legacy monolith
+    "src/api/main.py",                  # Covered by test_api.py integration tests
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 60                         # 60% achieved as of 339-test suite; raise as coverage grows

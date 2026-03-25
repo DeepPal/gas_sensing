@@ -1,0 +1,97 @@
+"""
+src.reporting
+=============
+Report generation, metric aggregation, and output formatting utilities.
+
+Modules
+-------
+metrics
+    Pure computation: noise maps, ROI repeatability/performance, dynamics
+    summaries, QC summaries, and signal column selection helpers.
+    All functions are CONFIG-free — all parameters passed explicitly.
+environment
+    Environment compensation metadata and coefficient estimation.
+    All functions are CONFIG-free — all parameters passed explicitly.
+io
+    JSON/CSV serialisers for pipeline analysis outputs.
+    All functions are CONFIG-free — all parameters passed explicitly.
+plots
+    Matplotlib visualisations for pipeline analysis outputs.
+    All functions are CONFIG-free — all parameters passed explicitly.
+"""
+
+from src.reporting.environment import (
+    compute_environment_coefficients,
+    compute_environment_summary,
+)
+from src.reporting.io import (
+    save_aggregated_spectra,
+    save_aggregated_summary,
+    save_canonical_spectra,
+    save_concentration_response_metrics,
+    save_dynamics_error,
+    save_dynamics_summary,
+    save_environment_compensation_summary,
+    save_noise_metrics,
+    save_quality_summary,
+    save_roi_performance_metrics,
+)
+from src.reporting.metrics import (
+    common_signal_columns,
+    compute_noise_metrics_map,
+    compute_roi_performance,
+    compute_roi_repeatability,
+    select_common_signal,
+    select_signal_column,
+    summarize_dynamics_metrics,
+    summarize_quality_control,
+    summarize_top_comparison,
+)
+from src.reporting.plots import (
+    save_aggregated_plots,
+    save_calibration_outputs,
+    save_canonical_overlay,
+    save_concentration_response_plot,
+    save_research_grade_calibration_plot,
+    save_roi_discovery_plot,
+    save_roi_repeatability_plot,
+    save_spectral_response_diagnostic,
+    save_wavelength_shift_visualization,
+)
+
+__all__ = [
+    # metrics
+    "select_signal_column",
+    "select_common_signal",
+    "common_signal_columns",
+    "compute_noise_metrics_map",
+    "compute_roi_repeatability",
+    "compute_roi_performance",
+    "summarize_dynamics_metrics",
+    "summarize_quality_control",
+    "summarize_top_comparison",
+    # environment
+    "compute_environment_summary",
+    "compute_environment_coefficients",
+    # io
+    "save_canonical_spectra",
+    "save_aggregated_spectra",
+    "save_noise_metrics",
+    "save_quality_summary",
+    "save_aggregated_summary",
+    "save_roi_performance_metrics",
+    "save_dynamics_summary",
+    "save_dynamics_error",
+    "save_concentration_response_metrics",
+    "save_environment_compensation_summary",
+    # plots
+    "save_roi_discovery_plot",
+    "save_concentration_response_plot",
+    "save_wavelength_shift_visualization",
+    "save_research_grade_calibration_plot",
+    "save_spectral_response_diagnostic",
+    "save_roi_repeatability_plot",
+    "save_aggregated_plots",
+    "save_canonical_overlay",
+    "save_calibration_outputs",
+]

@@ -1,0 +1,130 @@
+site_name: Au-MIP LSPR Gas Sensing Platform
+site_description: >-
+  Commercial-grade Au nanoparticle MIP LSPR gas sensing platform —
+  real-time acquisition, machine learning analysis, and publication-ready outputs.
+site_author: Chulalongkorn University Gas Sensing Lab
+repo_url: https://github.com/your-org/gas-sensing-platform
+repo_name: gas-sensing-platform
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]          # project root; imports src.* from here
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            unwrap_annotated: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Architecture: SYSTEM_ARCHITECTURE.md
+  - Engineering Standards: ENGINEERING_STANDARDS.md
+  - Validation (ICH Q2): ICH_Q2_VALIDATION.md
+  - Validation Strategy: VALIDATION_STRATEGY.md
+  - API Reference:
+    - Overview: api/index.md
+    - Signal Processing:
+      - Transforms: api/signal/transforms.md
+      - Peak Detection: api/signal/peak.md
+      - ROI Scanning: api/signal/roi.md
+    - Preprocessing:
+      - Normalization: api/preprocessing/normalization.md
+      - Baseline Correction: api/preprocessing/baseline.md
+      - Denoising: api/preprocessing/denoising.md
+    - Calibration:
+      - Isotherms: api/calibration/isotherms.md
+      - Transforms: api/calibration/transforms.md
+      - Multi-ROI Fusion: api/calibration/multi_roi.md
+      - ROI Scan: api/calibration/roi_scan.md
+    - Features:
+      - LSPR Features: api/features/lspr_features.md
+    - Models:
+      - CNN Classifier: api/models/cnn.md
+      - ONNX Export: api/models/onnx_export.md
+    - Scientific:
+      - Limit of Detection: api/scientific/lod.md
+      - Selectivity: api/scientific/selectivity.md
+      - Regression: api/scientific/regression.md
+    - Batch Processing:
+      - Aggregation: api/batch/aggregation.md
+      - Preprocessing: api/batch/preprocessing.md
+      - Response Analysis: api/batch/response.md
+    - Reporting:
+      - Metric Aggregation: api/reporting/metrics.md
+      - Environment Compensation: api/reporting/environment.md
+      - I/O Serialisers: api/reporting/io.md
+      - Plots: api/reporting/plots.md
+    - Inference:
+      - Orchestrator: api/inference/orchestrator.md
+    - REST API:
+      - Routes - Health: api/rest/health.md
+      - Routes - Predict: api/rest/predict.md
+    - Agents:
+      - Quality Agent: api/agents/quality.md
+    - Training:
+      - Ablation: api/training/ablation.md
+      - MLflow Tracker: api/training/mlflow_tracker.md
+  - ADRs:
+    - README: adr/README.md
+    - ADR-0001 Quality Baseline: adr/ADR-0001-governance-and-quality-baseline.md
+    - ADR-0002 Pipeline Migration: adr/ADR-0002-pipeline-strangler-fig-migration.md
+  - Specs:
+    - Agents: specs/AGENTS.md
+    - Pipeline: specs/PIPELINE.md
+    - Schema: specs/SCHEMA.md

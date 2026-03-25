@@ -1,0 +1,72 @@
+# =============================================================================
+# .dockerignore — exclude files that must NOT land inside the Docker image
+# =============================================================================
+# Rule of thumb: if it's not needed to *run* the app, exclude it.
+# Large exclusions (data/, .venv/) keep image layers small.
+
+# --- Version control ---------------------------------------------------------
+.git/
+.gitignore
+.gitattributes
+
+# --- Virtual environments / caches ------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# --- Data files (large sensor CSVs — mount as volumes at runtime) -----------
+data/
+*.csv
+
+# --- Output / generated artefacts ------------------------------------------
+output/
+reports/
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# --- Development / IDE -------------------------------------------------------
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# --- OS files ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Notebooks (not needed in container) ------------------------------------
+*.ipynb
+.ipynb_checkpoints/
+
+# --- Docs build --------------------------------------------------------------
+docs/
+site/
+mkdocs.yml
+*.md
+
+# --- CI / GitHub  ------------------------------------------------------------
+.github/
+
+# --- Secrets / env files -----------------------------------------------------
+.env
+.env.*
+secrets/
+credentials/
+
+# --- Miscellaneous large directories ----------------------------------------
+n8n/
+PDMS_Ring_Rectum\ Sensor/
+spectrometer_webapp/
+NOTES

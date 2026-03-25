@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software in your research, please cite it using the
+  metadata below.
+type: software
+title: "Au-MIP LSPR Gas Sensing Research Platform"
+abstract: >-
+  A research-grade software platform for Au nanoparticle Molecularly
+  Imprinted Polymer (Au-MIP) Localized Surface Plasmon Resonance (LSPR)
+  gas sensor characterization. Provides real-time spectral acquisition
+  from ThorLabs CCS200 spectrometers, automated signal processing
+  (airPLS/ALS baseline correction, Savitzky-Golay / wavelet denoising),
+  physics-based calibration (Langmuir/Freundlich/Hill isotherms, GPR with
+  uncertainty bounds), multi-ROI spectral fusion, 1D-CNN gas classification,
+  ICH Q2(R1) LOD/LOQ with bootstrap confidence intervals, Mandel linearity
+  test, cross-sensitivity matrix (IUPAC), and an interactive Streamlit
+  dashboard — from raw photons to calibrated VOC concentration in a unified
+  pipeline.
+authors:
+  - family-names: "Chula Research Team"
+    affiliation: "Chulalongkorn University"
+    country: TH
+repository-code: "https://github.com/your-org/Main_Research_Chula"
+license: MIT
+version: 1.0.0
+date-released: "2026-03-24"
+keywords:
+  - LSPR
+  - gas sensor
+  - Au nanoparticles
+  - molecularly imprinted polymer
+  - VOC detection
+  - surface plasmon resonance
+  - Gaussian process regression
+  - CNN classification
+  - calibration
+  - limit of detection
+  - cross-sensitivity
+  - spectroscopy
+  - ThorLabs CCS200
+preferred-citation:
+  type: article
+  title: "Au-MIP LSPR Gas Sensing Research Platform"
+  authors:
+    - family-names: "Chula Research Team"
+      affiliation: "Chulalongkorn University"
+  journal: "Journal of Analytical Chemistry"
+  year: 2026
+  notes: "Preprint / under review — update with DOI once published"
