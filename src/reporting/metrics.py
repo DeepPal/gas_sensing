@@ -294,14 +294,22 @@ def compute_roi_performance(
     ppm_span = float(np.nanmax(concs_arr) - np.nanmin(concs_arr)) or 1.0
     sensitivity = dynamic_range / ppm_span
 
-    global_stats = repeatability.get("global", {})
-    global_std = float(global_stats.get("std_transmittance", float("nan")) or 0.0)  # type: ignore[union-attr]
+    # LOD/LOQ noise: use std at the lowest concentration (blank-equivalent)
+    # per IUPAC Q2 convention.  Global pooled std conflates between-concentration
+    # signal change with noise and makes LOD orders of magnitude too pessimistic.
+    per_conc = repeatability.get("per_concentration", {})
+    if per_conc:
+        min_key = min(per_conc.keys(), key=lambda k: float(k))
+        noise_std = float((per_conc[min_key] or {}).get("std_transmittance", float("nan")) or 0.0)
+    else:
+        global_stats = repeatability.get("global", {})
+        noise_std = float((global_stats or {}).get("std_transmittance", float("nan")) or 0.0)
     if slope == 0.0:
         lod = float("inf")
         loq = float("inf")
     else:
-        lod = float(lod_sigma * global_std / abs(slope))
-        loq = float(loq_sigma * global_std / abs(slope))
+        lod = float(lod_sigma * noise_std / abs(slope))
+        loq = float(loq_sigma * noise_std / abs(slope))
 
     return {
         "regression_slope": slope,

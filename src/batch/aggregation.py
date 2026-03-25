@@ -148,7 +148,7 @@ def find_stable_block(
 
     n = Y.shape[0]
     if n == 0:
-        return 0, 0, np.array([1.0])
+        return 0, 0, np.array([], dtype=float)  # len(weights)==n invariant
     if n == 1:
         return 0, 0, np.array([1.0])
 

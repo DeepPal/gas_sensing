@@ -271,7 +271,7 @@ def find_monotonic_wavelengths(
         "candidates": results[:20],
         "best_peak": peaks_only[0] if peaks_only else None,
         "best_valley": valleys_only[0] if valleys_only else None,
-        "total_scanned": len(candidate_wl) * 2,
+        "total_scanned": len(candidate_wl[::4]) * len(window_sizes) * 2,
         "passing_count": len(results),
         "peak_candidates": peak_count,
         "valley_candidates": valley_count,

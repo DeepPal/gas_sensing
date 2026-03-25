@@ -138,15 +138,39 @@ def _rmse(y_obs: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def _aic(n_obs: int, n_params: int, rss: float) -> float:
-    """AIC for Gaussian errors: AIC = n·ln(RSS/n) + 2·k."""
-    if rss <= 0 or n_obs <= n_params:
+    """AICc (AIC with small-sample correction) for Gaussian errors.
+
+    AICc = n·ln(RSS/n) + 2k + 2k(k+1)/(n−k−1)
+
+    The correction term is essential for calibration datasets (n = 3–10);
+    at n=5, k=3 the correction adds 24 — dwarfing the bare ΔAIC threshold.
+    Falls back to bare AIC when n−k−1 ≤ 0 (degenerate case).
+    """
+    if n_obs <= n_params:
         return float("inf")
-    return float(n_obs * np.log(rss / n_obs) + 2.0 * n_params)
+    rss_safe = max(rss, 1e-300)  # avoid log(0); perfect fit → AIC → −∞
+    aic = float(n_obs * np.log(rss_safe / n_obs) + 2.0 * n_params)
+    denom = n_obs - n_params - 1
+    if denom > 0:
+        aic += 2.0 * n_params * (n_params + 1) / denom
+    return aic
+
+
+def _safe_perr(pcov: np.ndarray) -> np.ndarray:
+    """Extract parameter SEs from covariance matrix, guarding inf/NaN diagonals."""
+    if not np.all(np.isfinite(pcov)):
+        return np.full(pcov.shape[0], float("nan"))
+    diag = np.diag(pcov)
+    return np.where(diag >= 0, np.sqrt(np.clip(diag, 0.0, None)), float("nan"))
 
 
 def _build_fit_grid(c: np.ndarray, n_pts: int = 200) -> np.ndarray:
-    """Dense grid from 0 to 1.2 × max(c) for plotting fitted curves."""
-    return np.asarray(np.linspace(0.0, float(np.max(c)) * 1.2, n_pts))
+    """Dense grid from min(c) to 1.2×max(c) for plotting fitted curves.
+
+    Starts at min(c) rather than 0 to avoid 0^n artefacts in Freundlich/Hill.
+    """
+    c_start = max(float(np.min(c)), 1e-6)
+    return np.asarray(np.linspace(c_start, float(np.max(c)) * 1.2, n_pts))
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +244,7 @@ def fit_langmuir(
             bounds=([0, 1e-6], [np.inf, np.inf]),
             maxfev=5000,
         )
-        perr = np.sqrt(np.diag(pcov))
+        perr = _safe_perr(pcov)
         R_max_fit, K_fit = popt
         R_max_se, K_se = perr
     except RuntimeError as exc:
@@ -323,7 +347,7 @@ def fit_freundlich(
             bounds=([1e-9, 1e-3], [np.inf, 5.0]),
             maxfev=5000,
         )
-        perr = np.sqrt(np.diag(pcov))
+        perr = _safe_perr(pcov)
         K_fit, n_fit = popt
         K_se, n_se = perr
     except RuntimeError as exc:
@@ -412,7 +436,7 @@ def fit_hill(
             bounds=([0, 1e-6, 0.1], [np.inf, np.inf, 10.0]),
             maxfev=10000,
         )
-        perr = np.sqrt(np.diag(pcov))
+        perr = _safe_perr(pcov)
         R_max_fit, K_d_fit, n_fit = popt
         R_max_se, K_d_se, n_se = perr
     except RuntimeError as exc:

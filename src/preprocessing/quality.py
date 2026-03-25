@@ -82,7 +82,8 @@ def estimate_noise_metrics(
     if len(intensities) == 0:
         return NoiseMetrics(rms=0.0, mad=0.0, spectral_entropy=0.0, snr=0.0)
 
-    rms = float(np.sqrt(np.mean(np.square(intensities))))
+    # AC RMS (removes DC offset so the metric reflects noise, not signal level)
+    rms = float(np.sqrt(np.mean(np.square(intensities - np.mean(intensities)))))
     mad = float(np.median(np.abs(intensities - np.median(intensities))) * 1.4826)
 
     spec = np.abs(intensities - intensities.min())

@@ -37,7 +37,11 @@ class SessionMeta(BaseModel):
     def duration_seconds(self) -> float | None:
         if self.stopped_at is None:
             return None
-        return (self.stopped_at - self.started_at).total_seconds()
+        try:
+            return (self.stopped_at - self.started_at).total_seconds()
+        except TypeError:
+            # Naive/aware datetime mismatch — return None rather than crashing
+            return None
 
     @property
     def valid_rate(self) -> float:
