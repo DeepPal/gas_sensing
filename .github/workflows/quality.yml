@@ -67,6 +67,19 @@ jobs:
           cache-from: type=gha
           tags: gas-dashboard:ci
 
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: test
+          push: false
+          load: true
+          cache-from: type=gha
+          tags: gas-test:ci
+
+      - name: Run tests in Docker
+        run: docker run --rm gas-test:ci
+
   docs:
     runs-on: ubuntu-latest
 
@@ -85,8 +98,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pip install -r requirements-docs.txt
-          # Install numpy/scipy so mkdocstrings can import src modules
+          # Scientific libs for mkdocstrings import; torch CPU-only for eager imports
           pip install numpy scipy scikit-learn --quiet
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
 
       - name: Build docs (required - validates all references resolve)
         run: mkdocs build --strict

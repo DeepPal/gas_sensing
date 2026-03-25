@@ -95,14 +95,17 @@ def weighted_linear(
     # RMSE on fitted subset only (excluded points shouldn't inflate error)
     rmse = float(np.sqrt(float(np.nanmean(residuals_fit ** 2))))
 
-    # Slope standard error (WLS analytical formula, 1-predictor)
+    # Slope standard error (WLS analytical formula, 1-predictor).
+    # Use Kish effective sample size so that highly non-uniform weights
+    # (e.g. one point with w=1, the rest near 0) don't overstate df.
     xbar_w = float(np.average(xw, weights=ww))
     ss_xx = float(np.sum(ww * (xw - xbar_w) ** 2))
-    sigma2 = float(np.sum(ww * residuals_fit ** 2) / max(n_fit - 2, 1))
+    n_eff = max(float(np.sum(ww) ** 2 / np.sum(ww ** 2)), 2.0 + 1e-9)
+    sigma2 = float(np.sum(ww * residuals_fit ** 2) / max(n_eff - 2, 1e-9))
 
     if ss_xx > 1e-15 and sigma2 >= 0.0:
         slope_se = float(np.sqrt(sigma2 / ss_xx))
-        t_crit = float(stats.t.ppf(0.975, df=max(n_fit - 2, 1)))
+        t_crit = float(stats.t.ppf(0.975, df=max(n_eff - 2, 1)))
         slope_ci_low = float(lr.coef_[0]) - t_crit * slope_se
         slope_ci_high = float(lr.coef_[0]) + t_crit * slope_se
     else:
@@ -223,12 +226,11 @@ def ransac(
         x_in, y_in = x[inlier_mask], y[inlier_mask]
         n_inliers = int(inlier_mask.sum())
 
-        # R² on all data (RANSAC's model should still generalise)
-        r2_val = float(r2_score(y, preds_all))
-
-        # RMSE and SE on inliers only
+        # R², RMSE, and SE on inliers only — outliers are explicitly excluded
+        # by RANSAC, so including them in R² would unfairly penalise the model.
         if n_inliers >= 3:
             preds_in = slope * x_in + intercept
+            r2_val = float(r2_score(y_in, preds_in))
             rmse = float(np.sqrt(float(np.mean((y_in - preds_in) ** 2))))
             lr_res = stats.linregress(x_in, y_in)
             slope_se = float(lr_res.stderr) if lr_res.stderr is not None else float("nan")
@@ -236,8 +238,8 @@ def ransac(
             slope_ci_low = slope - t_crit * slope_se
             slope_ci_high = slope + t_crit * slope_se
         else:
-            preds_in_all = slope * x + intercept
-            rmse = float(np.sqrt(float(np.mean((y - preds_in_all) ** 2))))
+            r2_val = float("nan")
+            rmse = float(np.sqrt(float(np.mean((y - preds_all) ** 2))))
             slope_se = float("nan")
             slope_ci_low = float("nan")
             slope_ci_high = float("nan")

@@ -229,10 +229,14 @@ class GPRCalibration:
         state = joblib.load(path)
         obj = cls(
             random_state=state.get("random_state", 42),
-            n_restarts_optimizer=state.get("n_restarts_optimizer", 5),
+            n_restarts_optimizer=state.get("n_restarts_optimizer", 10),
         )
         obj.model = state["model"]
         obj.scaler_X = state["scaler_X"]
         obj.is_fitted = state.get("is_fitted", True)
         obj._n_train = state.get("n_train", 0)
+        # Sync self.kernel with the optimised kernel_ so inspecting obj.kernel
+        # returns the fitted hyperparameters rather than the unfitted template.
+        if obj.is_fitted and hasattr(obj.model, "kernel_"):
+            obj.kernel = obj.model.kernel_
         return obj

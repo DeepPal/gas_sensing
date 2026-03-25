@@ -160,20 +160,21 @@ def fit_multi_roi_fusion(
     n = int(y.shape[0])
     n_feat = int(X.shape[1])
 
-    # Ridge regression guards against overfitting when n/p < 5.
-    # alpha=1.0 provides mild L2 regularisation; LOOCV R² is the primary metric.
-    if n <= n_feat + 2:
+    # Use Ridge only when underdetermined (n/p < 5) to avoid OLS overfitting.
+    # For well-determined cases Ridge introduces unnecessary shrinkage bias.
+    use_ridge = n <= n_feat + 2 or (n_feat > 0 and n / n_feat < 5)
+    if use_ridge:
         log.warning(
             "Multi-ROI fusion: n=%d samples, p=%d features — underdetermined. "
             "Using Ridge(alpha=1.0); rely on LOOCV R² not training R².",
             n, n_feat,
         )
-    model = Ridge(alpha=1.0)
+    model: Ridge | LinearRegression = Ridge(alpha=1.0) if use_ridge else LinearRegression()
     model.fit(X, y)
     y_pred: np.ndarray = model.predict(X)
     r2 = float(r2_score(y, y_pred))
     rmse = math.sqrt(float(mean_squared_error(y, y_pred)))
-    residuals: np.ndarray = y_pred - y
+    residuals: np.ndarray = y - y_pred  # convention: observed − predicted
 
     lod_ppm = float("nan")
     if residuals.size > 1:
@@ -191,7 +192,7 @@ def fit_multi_roi_fusion(
             X_train = np.delete(X, i, axis=0)
             y_train = np.delete(y, i)
             try:
-                m_cv = Ridge(alpha=1.0)
+                m_cv: Ridge | LinearRegression = Ridge(alpha=1.0) if use_ridge else LinearRegression()
                 m_cv.fit(X_train, y_train)
                 cv_arr[i] = float(m_cv.predict(X[i : i + 1])[0])
             except Exception:
