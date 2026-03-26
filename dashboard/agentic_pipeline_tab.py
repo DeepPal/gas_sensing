@@ -963,6 +963,79 @@ def render() -> None:
             except Exception as _e:
                 st.info(f"Calibration curve requires scipy. ({_e})")
 
+        # ── Nonlinear Isotherm Fitting ────────────────────────────────────
+        if len(pp) >= 3:
+            with st.expander("🔁 Nonlinear Isotherm Fitting (AIC selection)", expanded=False):
+                st.caption(
+                    "Fits Langmuir, Freundlich, Hill, and linear models by AICc. "
+                    "Preferred over linear regression when the sensor nears binding-site saturation."
+                )
+                if st.button("Fit Isotherms", key="ap_btn_isotherms"):
+                    try:
+                        from src.calibration.isotherms import select_isotherm as _ap_sel_iso
+
+                        _ap_concs = np.array(concs_plot, dtype=float)
+                        if has_diff:
+                            _ap_resp = X[:, 0]  # Δλ
+                            _ap_y_lbl = "Δλ (nm)"
+                        else:
+                            _ap_peak_idx = int(np.argmax(Z.mean(axis=0)))
+                            _ap_resp = Z[:, _ap_peak_idx]
+                            _ap_y_lbl = "Peak Intensity"
+
+                        _ap_iso_sel = _ap_sel_iso(_ap_concs, _ap_resp)
+                        _ap_iso = _ap_iso_sel["best_result"]
+
+                        _ap_c1, _ap_c2 = st.columns([2, 1])
+                        with _ap_c1:
+                            _fig_ap_iso = go.Figure()
+                            _fig_ap_iso.add_trace(
+                                go.Scatter(
+                                    x=_ap_concs,
+                                    y=_ap_resp,
+                                    mode="markers",
+                                    name="Measured",
+                                    marker=dict(size=12, color="crimson"),
+                                )
+                            )
+                            _fig_ap_iso.add_trace(
+                                go.Scatter(
+                                    x=_ap_iso.concentrations_fit,
+                                    y=_ap_iso.responses_fit,
+                                    mode="lines",
+                                    name=f"{_ap_iso.model.capitalize()} (AIC winner)",
+                                    line=dict(color="royalblue", dash="dash", width=2),
+                                )
+                            )
+                            _fig_ap_iso.update_layout(
+                                title=(
+                                    f"Isotherm — {_ap_iso.model.capitalize()} "
+                                    f"(R²={_ap_iso.r_squared:.4f}, AIC={_ap_iso.aic:.2f})"
+                                ),
+                                xaxis_title="Concentration (ppm)",
+                                yaxis_title=_ap_y_lbl,
+                                height=340,
+                                margin=dict(t=40, b=30),
+                            )
+                            st.plotly_chart(_fig_ap_iso, use_container_width=True)
+                        with _ap_c2:
+                            st.markdown(f"**Winner: {_ap_iso.model.capitalize()}**")
+                            st.caption(f"AIC = {_ap_iso.aic:.2f}")
+                            st.caption(f"R² = {_ap_iso.r_squared:.4f}")
+                            st.caption(f"RMSE = {_ap_iso.rmse:.4g}")
+                            st.caption(_ap_iso_sel["recommendation"])
+                            st.markdown("**Parameters:**")
+                            for _pn, _pv in _ap_iso.params.items():
+                                if _pn == "sign":
+                                    continue
+                                _pe = _ap_iso.param_stderrs.get(_pn, float("nan"))
+                                st.caption(f"`{_pn}` = {_pv:.4g} ± {_pe:.2g}")
+                            st.markdown("**AIC table:**")
+                            for _mn, _ma, _mr2, _ in _ap_iso_sel["aic_table"]:
+                                st.caption(f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}")
+                    except Exception as _ap_iso_exc:
+                        st.error(f"Isotherm fit failed: {_ap_iso_exc}")
+
         # ── Sensitivity Heatmap ───────────────────────────────────────────
         if len(pp) >= 2:
             st.markdown("### Sensitivity Heatmap")
