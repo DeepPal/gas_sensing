@@ -95,7 +95,7 @@ SpectraAgent is a universal, AI-native spectrometer analysis platform. It is not
 - Step 1: Data ingestion (Joy_Data loader or session file picker)
 - Step 2: Reference subtraction (`diff_signal = raw − ref_interp`)
 - Step 3: Feature extraction + isotherm fitting (Langmuir/Freundlich/Hill, AIC-selected)
-- Step 4: LOD/LOQ, selectivity matrix, publication report export
+- Step 4: LOD/LOQ (regression method: LOD = 3s/m, LOQ = 10s/m where s = residual std of calibration fit, m = sensitivity at low-concentration linear region — per ICH Q2(R1) and standard *Sensors and Actuators B* practice), selectivity matrix, publication report export
 
 ### Tab 5: Agent Console
 - Real-time event log from `/ws/agent-events`; server streams `AgentEvent` JSON objects (schema in Section 4.1)
@@ -127,7 +127,9 @@ SpectraAgent is a universal, AI-native spectrometer analysis platform. It is not
 
 **Claude model:** `claude-sonnet-4-6` for all agents (best cost/quality balance for structured scientific reasoning). All calls have a 30 s timeout. On failure or missing API key, agents emit a grey `claude_unavailable` event — deterministic agents are unaffected.
 
-**Rate limiting:** Each Claude agent enforces its own per-instance cooldown (see table above) via a `_last_called: float` timestamp. The `AgentBus` does not enforce global rate limiting — each agent is responsible for its own cooldown. This prevents unbounded API spend during long sessions.
+**Rate limiting:** Each Claude agent enforces its own per-instance cooldown via a `_last_called: float` timestamp. Cooldown durations are read from `spectraagent.toml` (user-configurable). Defaults: AnomalyExplainer 300 s, ExperimentNarrator once per calibration point, DiagnosticsAgent 60 s per error code. This prevents unbounded API spend during long sessions.
+
+**Auto-explain is opt-in, default off.** `AnomalyExplainer` and `ExperimentNarrator` do not fire automatically unless the user enables "Auto-explain anomalies" in the Agent Console settings panel. By default, drift events appear in the log as deterministic events only — the user clicks "Ask Claude" to request an explanation. This prevents unexpected API charges mid-experiment.
 
 **"Ask Claude" context:** The `/api/agents/ask` endpoint builds context as `{ query, session_meta, last_20_agent_events, latest_result }`. Raw spectrum arrays are never included.
 
@@ -327,7 +329,8 @@ output/sessions/20260326_143201_EtOH_0.1ppm/
 ├── pipeline_results.csv       # Δλ, SNR, quality, gas_conc per frame
 ├── session_meta.json          # gas, conc, sensor, timestamps, model version, hardware info
 ├── agent_events.jsonl         # written by AgentBus; one JSON object per line
-├── report.html                # generated at session end; self-contained (no internet)
+├── report.html                # working report — regenerated freely, may vary with Claude
+├── report_final.html          # locked on "Finalize" — never overwritten; this is the submission copy
 └── report.pdf                 # generated only if `pip install spectraagent[pdf]`
 ```
 
@@ -359,6 +362,7 @@ Playwright headless Chromium → report.pdf
 - All AI-generated text is marked with `<span class="ai-generated">` and a visible badge "AI-generated — review before submitting"
 - Claude never invents numbers — all values come from the deterministic layer's context dict
 - Called only when user explicitly clicks "Generate Report with AI" — never automatic
+- **Finalization:** Once the user clicks "Finalize Report", the current `report.html` is copied to `report_final.html` and locked (never overwritten). Subsequent "Generate Report" calls write to `report.html` only. This ensures the submission version is reproducible — regenerating Claude prose does not alter the finalized document.
 
 ### PDF export
 - `spectraagent report <dir> --format pdf` launches headless Chromium via Playwright on the generated `report.html`
@@ -432,7 +436,40 @@ dashboard/                     # deleted at Phase 9
 
 ---
 
-## 12. Out of Scope (v1.0)
+## 12. Configuration File (`spectraagent.toml`)
+
+User-editable config at the project root. Created with defaults on first `spectraagent start` if absent.
+
+```toml
+[hardware]
+default_driver = "thorlabs_ccs"       # or "simulation"
+integration_time_ms = 50.0
+
+[physics]
+default_plugin = "lspr"
+search_min_nm = 500.0
+search_max_nm = 900.0
+
+[agents]
+auto_explain = false                  # opt-in: AnomalyExplainer/ExperimentNarrator auto-fire
+anomaly_explainer_cooldown_s = 300
+diagnostics_cooldown_s = 60
+
+[claude]
+model = "claude-sonnet-4-6"
+timeout_s = 30
+
+[server]
+host = "127.0.0.1"
+port = 8765
+open_browser = true
+```
+
+All CLI flags override the config file. Config file overrides built-in defaults.
+
+---
+
+## 13. Out of Scope (v1.0)
 
 - Multi-user authentication
 - Cloud / remote hosting
@@ -445,7 +482,7 @@ dashboard/                     # deleted at Phase 9
 
 ---
 
-## 13. Migration Path (Current → Target)
+## 14. Migration Path (Current → Target)
 
 Phases are sequential. Each phase leaves the codebase in a working state.
 
