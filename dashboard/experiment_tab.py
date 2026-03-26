@@ -58,6 +58,14 @@ except Exception:
     except Exception:
         _SP_AVAILABLE = False
 
+# ── sub-pixel peak detection (Lorentzian fit) ─────────────────────────────────
+try:
+    from src.features.lspr_features import detect_lspr_peak as _detect_peak
+
+    _PEAK_LORENTZ_AVAILABLE = True
+except Exception:
+    _PEAK_LORENTZ_AVAILABLE = False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -259,19 +267,31 @@ def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
     win_mask = (wl >= peak_min) & (wl <= peak_max)
 
     if win_mask.sum() >= 3:
-        ref_peak_idx_win = int(np.argmax(r_sm[win_mask]))
-        smp_peak_idx_win = int(np.argmax(s_sm[win_mask]))
         wl_win = wl[win_mask]
-        ref_peak_wl = float(wl_win[ref_peak_idx_win])
-        smp_peak_wl = float(wl_win[smp_peak_idx_win])
-        # Full-spectrum index of abs peak (largest extinction change in window)
+        # Lorentzian sub-pixel peak detection (±0.01 nm vs ±0.5 nm argmax).
+        # detect_lspr_peak internally falls back to argmax when Lorentzian fit fails.
+        if _PEAK_LORENTZ_AVAILABLE:
+            _rp = _detect_peak(wl, r_sm, peak_min, peak_max)
+            _sp = _detect_peak(wl, s_sm, peak_min, peak_max)
+            ref_peak_wl = _rp if _rp is not None else float(wl_win[int(np.argmax(r_sm[win_mask]))])
+            smp_peak_wl = _sp if _sp is not None else float(wl_win[int(np.argmax(s_sm[win_mask]))])
+        else:
+            ref_peak_wl = float(wl_win[int(np.argmax(r_sm[win_mask]))])
+            smp_peak_wl = float(wl_win[int(np.argmax(s_sm[win_mask]))])
+        # Absorbance peak: largest extinction change in window
         abs_peak_idx_win = int(np.argmax(np.abs(absorbance[win_mask])))
         peak_wl = float(wl_win[abs_peak_idx_win])
         peak_abs = float(absorbance[win_mask][abs_peak_idx_win])
     else:
         # Fallback: full spectrum if window covers no points
-        ref_peak_wl = float(wl[int(np.argmax(r_sm))])
-        smp_peak_wl = float(wl[int(np.argmax(s_sm))])
+        if _PEAK_LORENTZ_AVAILABLE:
+            _rp = _detect_peak(wl, r_sm)
+            _sp = _detect_peak(wl, s_sm)
+            ref_peak_wl = _rp if _rp is not None else float(wl[int(np.argmax(r_sm))])
+            smp_peak_wl = _sp if _sp is not None else float(wl[int(np.argmax(s_sm))])
+        else:
+            ref_peak_wl = float(wl[int(np.argmax(r_sm))])
+            smp_peak_wl = float(wl[int(np.argmax(s_sm))])
         peak_idx_fb = int(np.argmax(np.abs(absorbance)))
         peak_wl = float(wl[peak_idx_fb])
         peak_abs = float(absorbance[peak_idx_fb])

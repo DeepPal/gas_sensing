@@ -83,6 +83,7 @@ try:
     from src.preprocessing.baseline import airpls_baseline, als_baseline
     from src.preprocessing.baseline import correct_baseline as baseline_correction
     from src.preprocessing.denoising import smooth_spectrum, wavelet_denoise
+    from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
 
     SIGNAL_PROC_AVAILABLE = True
 except Exception as _exc:
@@ -480,20 +481,7 @@ def _render_batch() -> None:
                     # --- Response variable: Δλ (LSPR-correct) or peak intensity ---
                     # LSPR primary signal is peak wavelength SHIFT relative to a
                     # reference (air/blank).  Load ref peak wavelength if available.
-                    _ref_peak_wl: float | None = None
-                    if selected_ref_file:
-                        try:
-                            from src.batch.data_loader import read_spectrum_csv as _rsc
-
-                            _df_r = _rsc(selected_ref_file)
-                            _wl_r = _df_r["wavelength"].values
-                            _i_r = _df_r["intensity"].values
-                            _ref_peak_wl = float(_wl_r[np.argmax(_i_r)])
-                        except Exception:
-                            _ref_peak_wl = None
-
-                    # Apply the user-configured peak search window so that
-                    # artefacts outside the sensor response band are ignored.
+                    # Compute search window first so reference peak uses same bounds
                     _bpmin = st.session_state.get("batch_peak_min", _batch_peak_min)
                     _bpmax = st.session_state.get("batch_peak_max", _batch_peak_max)
                     _win_mask_batch = (common_wl >= _bpmin) & (common_wl <= _bpmax)
@@ -505,12 +493,36 @@ def _render_batch() -> None:
                             "interpolated wavelength points — using full spectrum."
                         )
 
+                    _ref_peak_wl: float | None = None
+                    if selected_ref_file:
+                        try:
+                            from src.batch.data_loader import read_spectrum_csv as _rsc
+
+                            _df_r = _rsc(selected_ref_file)
+                            _wl_r = _df_r["wavelength"].values
+                            _i_r = _df_r["intensity"].values
+                            # Lorentzian sub-pixel detection within the search window
+                            try:
+                                _rp = _detect_peak_app(_wl_r, _i_r, _bpmin, _bpmax)
+                                _ref_peak_wl = _rp if _rp is not None else float(_wl_r[np.argmax(_i_r)])
+                            except Exception:
+                                _ref_peak_wl = float(_wl_r[np.argmax(_i_r)])
+                        except Exception:
+                            _ref_peak_wl = None
+
                     if _ref_peak_wl is not None:
                         # Δλ = peak in window(sample) − ref peak
-                        # argmax within the search window, mapped back to common_wl
+                        # Lorentzian sub-pixel detection; falls back to argmax internally
+                        def _batch_peak_wl(wl_arr, int_arr, wmin, wmax):
+                            try:
+                                p = _detect_peak_app(wl_arr, int_arr, wmin, wmax)
+                                return p if p is not None else float(wl_arr[_win_mask_batch][np.argmax(int_arr[_win_mask_batch])])
+                            except Exception:
+                                return float(wl_arr[_win_mask_batch][np.argmax(int_arr[_win_mask_batch])])
+
                         _peak_wl_per_conc = np.array(
                             [
-                                float(common_wl[_win_mask_batch][np.argmax(spec[_win_mask_batch])])
+                                _batch_peak_wl(common_wl, spec, _bpmin, _bpmax)
                                 for spec in Z
                             ]
                         )
@@ -559,9 +571,8 @@ def _render_batch() -> None:
                                     axis=0,
                                 )
                                 if _ref_peak_wl is not None:
-                                    _ww = _t_spec[_win_mask_batch]
                                     _trial_resp.append(
-                                        float(common_wl[_win_mask_batch][np.argmax(_ww)]) - _ref_peak_wl
+                                        _batch_peak_wl(common_wl, _t_spec, _bpmin, _bpmax) - _ref_peak_wl
                                     )
                                 else:
                                     _trial_resp.append(float(_t_spec[_peak_idx_full]))
