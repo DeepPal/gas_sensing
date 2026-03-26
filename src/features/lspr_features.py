@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 LSPR_REFERENCE_PEAK_NM: float = 531.5  # Au nanoparticles reference peak
-LSPR_SENSITIVITY_NM_PER_PPM: float = -0.116  # negative: adsorption → redshift
+LSPR_SENSITIVITY_NM_PER_PPM: float = -0.116  # negative: adsorption → blue-shift (shorter λ)
 LSPR_SEARCH_MIN_NM: float = 480.0
 LSPR_SEARCH_MAX_NM: float = 600.0
 
@@ -312,7 +312,7 @@ def estimate_shift_xcorr(
     Returns
     -------
     float | None
-        Δλ in nm (negative = redshift); ``None`` if estimation fails.
+        Δλ in nm (negative = blue-shift, positive = red-shift); ``None`` if estimation fails.
     """
     ctr = center_nm if center_nm is not None else LSPR_REFERENCE_PEAK_NM
     lo, hi = ctr - window_nm / 2, ctr + window_nm / 2
