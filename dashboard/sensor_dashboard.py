@@ -113,7 +113,7 @@ def render() -> None:
 
 
 def _render_connection_panel() -> None:
-    """Connect / Stop controls with gas selector."""
+    """Connect / Stop controls with gas selector and sensor peak window."""
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 
     with col1:
@@ -143,12 +143,34 @@ def _render_connection_panel() -> None:
         if st.button("Stop", disabled=not is_running, key="btn_stop"):
             _stop_session()
 
+    # Sensor peak window — shown as expander so it doesn't clutter the panel
+    with st.expander("Sensor Peak Window", expanded=False):
+        st.caption(
+            "Wavelength window the pipeline searches for the sensor response peak. "
+            "Set to the range containing your sensor peak — outside this window is ignored."
+        )
+        _sw1, _sw2, _sw3 = st.columns(3)
+        _sw1.number_input(
+            "Min (nm)", min_value=100.0, max_value=2000.0,
+            value=350.0, step=10.0, key="live_peak_min",
+        )
+        _sw2.number_input(
+            "Max (nm)", min_value=100.0, max_value=2000.0,
+            value=950.0, step=10.0, key="live_peak_max",
+        )
+        _sw3.number_input(
+            "Cal. slope (nm/ppm)", value=-0.116, format="%.4f",
+            key="live_cal_slope",
+            help="Negative = blue-shift sensor, Positive = red-shift sensor.",
+        )
+
 
 def _start_session(gas_label: str, integration_ms: float) -> None:
     """Instantiate orchestrator and start acquisition."""
     try:
         from config.config_loader import load_config
         from src.inference.orchestrator import SensorOrchestrator
+        from src.inference.realtime_pipeline import PipelineConfig
 
         try:
             cfg = load_config(str(REPO_ROOT / "config" / "config.yaml"))
@@ -158,6 +180,18 @@ def _start_session(gas_label: str, integration_ms: float) -> None:
         orch = SensorOrchestrator.from_config(cfg)
         # Override with UI values
         orch.integration_time_ms = integration_ms
+
+        # Apply peak window and calibration slope from UI
+        _peak_min = st.session_state.get("live_peak_min", 350.0)
+        _peak_max = st.session_state.get("live_peak_max", 950.0)
+        _cal_slope = st.session_state.get("live_cal_slope", -0.116)
+        if hasattr(orch, "pipeline") and hasattr(orch.pipeline, "config"):
+            orch.pipeline.config.peak_search_min_nm = float(_peak_min)
+            orch.pipeline.config.peak_search_max_nm = float(_peak_max)
+            orch.pipeline.config.calibration_slope = float(_cal_slope)
+            orch.pipeline.config.reference_wavelength = float(
+                (_peak_min + _peak_max) / 2
+            )
 
         orch.start_session(gas_label=gas_label)
         st.session_state["orchestrator"] = orch

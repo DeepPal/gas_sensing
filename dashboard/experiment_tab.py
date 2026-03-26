@@ -160,15 +160,66 @@ def _acquire_from_ccs200(
             spec.close()
 
 
+def _noise_mask_for_region(
+    wl: np.ndarray,
+    region: str,
+    peak_wl: float | None = None,
+) -> np.ndarray:
+    """Return a boolean mask for the noise-estimation region.
+
+    Parameters
+    ----------
+    wl : wavelength axis
+    region : one of the three UI choices
+    peak_wl : sensor peak wavelength (nm); used by 'auto' to pick the tail
+        furthest from the peak
+    """
+    wl_range = float(wl[-1] - wl[0])
+
+    def _low_tail() -> np.ndarray:
+        m = wl <= (float(wl[0]) + 0.10 * wl_range)
+        return m if m.sum() > 5 else _high_tail()
+
+    def _high_tail() -> np.ndarray:
+        m = wl >= (float(wl[-1]) - 0.10 * wl_range)
+        return m if m.sum() > 5 else _fallback()
+
+    def _fallback() -> np.ndarray:
+        idx = np.concatenate(
+            [np.arange(min(5, len(wl))), np.arange(max(0, len(wl) - 5), len(wl))]
+        )
+        m = np.zeros(len(wl), dtype=bool)
+        m[idx] = True
+        return m
+
+    if region == "Low-end tail (first 10 %)":
+        return _low_tail()
+    if region == "High-end tail (last 10 %)":
+        return _high_tail()
+    # Auto: pick the tail whose centre is furthest from the sensor peak
+    if peak_wl is not None:
+        low_centre = float(wl[0]) + 0.05 * wl_range
+        high_centre = float(wl[-1]) - 0.05 * wl_range
+        if abs(low_centre - peak_wl) >= abs(high_centre - peak_wl):
+            return _low_tail()
+        return _high_tail()
+    return _low_tail()
+
+
 def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
     """
-    Core analysis:
+    General spectrometer sensor analysis — works for any sensor type
+    (LSPR, absorbance, fluorescence, etc.) as long as the response is a
+    peak wavelength shift.
+
+    Steps:
       1. Baseline-correct both spectra (ALS)
-      2. Compute absorbance = log10(ref / sample)  [Beer-Lambert]
-      3. Find peak in absorbance spectrum
-      4. Compute SNR
-      5. Apply linear calibration → concentration ppm
-    Returns a result dict.
+      2. Smooth (Savitzky-Golay)
+      3. Absorbance = log10(ref / sample)  [Beer-Lambert extinction change]
+      4. Detect sensor response peak within the configured search window
+      5. Compute SNR using the user-selected noise region
+      6. Compute Δλ (wavelength shift) between ref and sample peaks
+      7. Convert Δλ → concentration via signed calibration slope
     """
     wl = ref["wavelengths"]
     r = ref["intensities"].copy().astype(float)
@@ -194,43 +245,54 @@ def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
     else:
         r_sm, s_sm = r_bc, s_bc
 
-    # ── absorbance ────────────────────────────────────────────────────────
+    # ── absorbance (extinction change) ────────────────────────────────────
     eps = 1e-9
     r_pos = np.clip(r_sm, eps, None)
     s_pos = np.clip(s_sm, eps, None)
     absorbance = np.log10(r_pos / s_pos)
 
-    # ── peak detection ────────────────────────────────────────────────────
-    peak_idx = int(np.argmax(np.abs(absorbance)))
-    peak_wl = float(wl[peak_idx])
-    peak_abs = float(absorbance[peak_idx])
+    # ── wavelength shift — within configured sensor peak search window ────
+    # Use the user-specified window to avoid picking up UV/NIR artefacts
+    # from the spectrometer or analyte absorptions outside the sensor band.
+    peak_min = float(cfg.get("peak_search_min", wl[0]))
+    peak_max = float(cfg.get("peak_search_max", wl[-1]))
+    win_mask = (wl >= peak_min) & (wl <= peak_max)
 
-    # ── SNR ───────────────────────────────────────────────────────────────
-    # Use lowest 10% of wavelength range as noise reference (adapts to any sensor range)
-    wl_range = float(wl[-1] - wl[0])
-    noise_mask = wl <= (float(wl[0]) + 0.10 * wl_range)
-    if noise_mask.sum() <= 5:
-        noise_mask = np.ones(len(wl), dtype=bool)  # fallback: whole spectrum
-    noise_std = float(np.std(absorbance[noise_mask])) if noise_mask.sum() > 0 else 1e-9
+    if win_mask.sum() >= 3:
+        ref_peak_idx_win = int(np.argmax(r_sm[win_mask]))
+        smp_peak_idx_win = int(np.argmax(s_sm[win_mask]))
+        wl_win = wl[win_mask]
+        ref_peak_wl = float(wl_win[ref_peak_idx_win])
+        smp_peak_wl = float(wl_win[smp_peak_idx_win])
+        # Full-spectrum index of abs peak (largest extinction change in window)
+        abs_peak_idx_win = int(np.argmax(np.abs(absorbance[win_mask])))
+        peak_wl = float(wl_win[abs_peak_idx_win])
+        peak_abs = float(absorbance[win_mask][abs_peak_idx_win])
+    else:
+        # Fallback: full spectrum if window covers no points
+        ref_peak_wl = float(wl[int(np.argmax(r_sm))])
+        smp_peak_wl = float(wl[int(np.argmax(s_sm))])
+        peak_idx_fb = int(np.argmax(np.abs(absorbance)))
+        peak_wl = float(wl[peak_idx_fb])
+        peak_abs = float(absorbance[peak_idx_fb])
+
+    wl_shift_nm = smp_peak_wl - ref_peak_wl
+
+    # ── SNR — noise estimated in user-selected spectral region ────────────
+    noise_region = cfg.get("noise_region", "Auto (furthest from peak)")
+    noise_mask = _noise_mask_for_region(wl, noise_region, peak_wl=ref_peak_wl)
+    noise_std = float(np.std(absorbance[noise_mask])) if noise_mask.sum() > 1 else 1e-9
     noise_std = max(noise_std, 1e-9)
     snr = abs(peak_abs) / noise_std
 
-    # ── wavelength shift (reference peak vs sample peak) ─────────────────
-    ref_peak_idx = int(np.argmax(r_sm))
-    smp_peak_idx = int(np.argmax(s_sm))
-    wl_shift_nm = float(wl[smp_peak_idx] - wl[ref_peak_idx])
-
-    # ── calibration (linear: shift_nm / slope = ppm) ──────────────────────
-    slope = float(cfg.get("calibration_slope", 0.116))  # nm/ppm
-    conc_ppm = wl_shift_nm / slope if slope != 0 else 0.0
-    conc_ppm = float(np.clip(conc_ppm, 0, 10000))
-
-    # ── replicate RSD (if multiple frames stored) ─────────────────────────
-    rsd_ref = 0.0
-    if "frames" in ref and len(ref["frames"]) > 1:
-        peak_vals = [f[peak_idx] for f in ref["frames"]]
-        m = np.mean(peak_vals)
-        rsd_ref = float(np.std(peak_vals) / m * 100) if m != 0 else 0.0
+    # ── concentration from wavelength shift (signed slope) ─────────────────
+    # Handles both red-shift (positive slope) and blue-shift (negative slope)
+    # sensors. slope = Δλ / Δconcentration — negative for blue-shift sensors.
+    slope = float(cfg.get("calibration_slope", -0.116))
+    if abs(slope) > 1e-12:
+        conc_ppm = float(max(0.0, wl_shift_nm / slope))
+    else:
+        conc_ppm = 0.0
 
     return dict(
         wavelengths=wl,
@@ -241,10 +303,13 @@ def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
         peak_absorbance=peak_abs,
         snr=snr,
         noise_std=noise_std,
+        ref_peak_wl=ref_peak_wl,
+        smp_peak_wl=smp_peak_wl,
         wavelength_shift_nm=wl_shift_nm,
         concentration_ppm=conc_ppm,
         calibration_slope=slope,
-        rsd_ref_pct=rsd_ref,
+        peak_search_min=peak_min,
+        peak_search_max=peak_max,
     )
 
 
@@ -264,6 +329,7 @@ def render() -> None:
     ss.setdefault("exp_reference", None)
     ss.setdefault("exp_sample", None)
     ss.setdefault("exp_result", None)
+    ss.setdefault("exp_session_runs", [])  # accumulates runs across experiments
 
     step = ss["exp_step"]
 
@@ -319,14 +385,48 @@ def render() -> None:
             help="Where reference, sample, and result CSVs are saved",
         )
 
-        # Calibration override
-        with st.expander("Calibration settings (optional override)"):
-            slope = st.number_input(
-                "Calibration slope (nm / ppm)",
-                value=0.116,
-                format="%.4f",
-                help="From your calibration curve. Default 0.116 nm/ppm",
+        # Sensor & calibration settings
+        with st.expander("Sensor & Calibration Settings", expanded=True):
+            st.caption(
+                "Configure these for your specific sensor. "
+                "Works for any spectrometer-based sensor (LSPR, absorbance, fluorescence, etc.)."
             )
+            _sc1, _sc2 = st.columns(2)
+            with _sc1:
+                peak_search_min = st.number_input(
+                    "Peak search min (nm)",
+                    min_value=100.0,
+                    max_value=2000.0,
+                    value=480.0,
+                    step=10.0,
+                    help="Lower bound of the wavelength window to search for the sensor response peak.",
+                )
+                peak_search_max = st.number_input(
+                    "Peak search max (nm)",
+                    min_value=100.0,
+                    max_value=2000.0,
+                    value=800.0,
+                    step=10.0,
+                    help="Upper bound of the wavelength window to search for the sensor response peak.",
+                )
+            with _sc2:
+                slope = st.number_input(
+                    "Calibration slope (nm / ppm)",
+                    value=-0.116,
+                    format="%.4f",
+                    help=(
+                        "Slope of your calibration curve (Δλ / ppm). "
+                        "**Negative** if your sensor peak shifts to shorter wavelengths on gas exposure "
+                        "(blue-shift). **Positive** if the peak shifts to longer wavelengths (red-shift)."
+                    ),
+                )
+                noise_region = st.selectbox(
+                    "SNR noise region",
+                    ["Low-end tail (first 10 %)", "High-end tail (last 10 %)", "Auto (furthest from peak)"],
+                    index=2,
+                    help="Spectral region used to estimate baseline noise for SNR. "
+                    "Choose a region away from both the sensor peak and any analyte absorptions.",
+                )
 
         if st.button("→ Next: Capture Reference", type="primary", disabled=not gas):
             ss["exp_config"] = dict(
@@ -337,6 +437,9 @@ def render() -> None:
                 n_frames=n_frames,
                 output_dir=output_dir,
                 calibration_slope=slope,
+                peak_search_min=peak_search_min,
+                peak_search_max=peak_search_max,
+                noise_region=noise_region,
             )
             ss["exp_step"] = 2
             ss["exp_reference"] = None
@@ -577,7 +680,7 @@ def render() -> None:
             f"Sample: {_smp_src}"
         )
 
-        # ── key metrics ───────────────────────────────────────────────────
+        # ── key metrics row 1 ─────────────────────────────────────────────
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(
             "Estimated concentration",
@@ -585,14 +688,14 @@ def render() -> None:
             help="From calibration: Δλ / slope",
         )
         m2.metric(
-            "Wavelength shift",
+            "Wavelength shift Δλ",
             f"{res['wavelength_shift_nm']:+.4f} nm",
-            help="Sample peak − Reference peak",
+            help="Sample peak − Reference peak (within search window)",
         )
         m3.metric(
-            "Peak absorbance",
-            f"{res['peak_absorbance']:.4f}",
-            help=f"At {res['peak_wavelength_nm']:.1f} nm",
+            "Sample peak",
+            f"{res['smp_peak_wl']:.3f} nm",
+            help=f"Reference peak: {res['ref_peak_wl']:.3f} nm",
         )
         m4.metric(
             "SNR",
@@ -601,40 +704,57 @@ def render() -> None:
             delta_color="normal" if res["snr"] > 10 else "inverse",
         )
 
-        # ── absorbance spectrum ───────────────────────────────────────────
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=res["wavelengths"],
-                y=res["absorbance"],
-                name="Absorbance",
-                line=dict(color="#9C27B0", width=1.5),
+        # ── accuracy row (known vs estimated) ────────────────────────────
+        _known_conc = float(cfg.get("concentration", 0.0))
+        if _known_conc > 0:
+            _delta_conc = res["concentration_ppm"] - _known_conc
+            _pct_err = _delta_conc / _known_conc * 100
+            a1, a2, a3 = st.columns(3)
+            a1.metric("Known concentration", f"{_known_conc:.2f} ppm")
+            a2.metric(
+                "Estimated concentration",
+                f"{res['concentration_ppm']:.2f} ppm",
+                delta=f"{_delta_conc:+.3f} ppm",
+                delta_color="normal" if abs(_pct_err) < 10 else "inverse",
             )
-        )
-        fig.add_vline(
-            x=res["peak_wavelength_nm"],
-            line_dash="dash",
-            line_color="#FF5722",
-            annotation_text=f"Peak {res['peak_wavelength_nm']:.1f} nm",
-            annotation_position="top right",
-        )
-        fig.update_layout(
-            title="Absorbance Spectrum  [log₁₀(Reference / Sample)]",
-            xaxis_title="Wavelength (nm)",
-            yaxis_title="Absorbance (a.u.)",
-            height=320,
-            margin=dict(t=40, b=40),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            a3.metric(
+                "Relative error",
+                f"{abs(_pct_err):.1f} %",
+                delta="< 10 % (acceptable)" if abs(_pct_err) < 10 else "> 10 % (review calibration)",
+                delta_color="normal" if abs(_pct_err) < 10 else "inverse",
+            )
 
-        # ── corrected spectra overlay ─────────────────────────────────────
+        # ── LOD / LOQ single-point estimate ──────────────────────────────
+        try:
+            from src.scientific.lod import calculate_lod_3sigma, calculate_loq_10sigma
+
+            _lod_sp = calculate_lod_3sigma(res["noise_std"], res["calibration_slope"])
+            _loq_sp = calculate_loq_10sigma(res["noise_std"], res["calibration_slope"])
+            l1, l2 = st.columns(2)
+            l1.metric(
+                "Est. LOD (3σ/S)",
+                f"{_lod_sp:.3f} ppm" if _lod_sp < 1e6 else "N/A",
+                help="Single-point IUPAC LOD = 3σ_noise / sensitivity. "
+                "For a calibration-based LOD use the Batch Analysis tab.",
+            )
+            l2.metric(
+                "Est. LOQ (10σ/S)",
+                f"{_loq_sp:.3f} ppm" if _loq_sp < 1e6 else "N/A",
+                help="Single-point IUPAC LOQ = 10σ_noise / sensitivity.",
+            )
+        except Exception:
+            pass
+
+        # ── corrected spectra overlay (primary view) ─────────────────────
+        # Show ref vs sample peaks directly — this is the primary signal
+        # for any spectrometer-based sensor (the intensity + peak position).
         fig2 = go.Figure()
         fig2.add_trace(
             go.Scatter(
                 x=res["wavelengths"],
                 y=res["ref_corrected"],
                 name="Reference (baseline-corrected)",
-                line=dict(color="#2196F3", width=1.2, dash="dot"),
+                line=dict(color="#2196F3", width=1.5, dash="dot"),
             )
         )
         fig2.add_trace(
@@ -642,29 +762,92 @@ def render() -> None:
                 x=res["wavelengths"],
                 y=res["smp_corrected"],
                 name=f"Sample — {cfg['gas']} (baseline-corrected)",
-                line=dict(color="#FF5722", width=1.2),
+                line=dict(color="#FF5722", width=1.5),
             )
         )
+        # Mark the detected peaks within the search window
+        fig2.add_vline(
+            x=res["ref_peak_wl"],
+            line_dash="dot",
+            line_color="#2196F3",
+            annotation_text=f"Ref {res['ref_peak_wl']:.2f} nm",
+            annotation_position="top left",
+        )
+        fig2.add_vline(
+            x=res["smp_peak_wl"],
+            line_dash="dash",
+            line_color="#FF5722",
+            annotation_text=f"Sample {res['smp_peak_wl']:.2f} nm",
+            annotation_position="top right",
+        )
+        # Shade the configured peak search window
+        fig2.add_vrect(
+            x0=res["peak_search_min"],
+            x1=res["peak_search_max"],
+            fillcolor="rgba(100,200,100,0.07)",
+            line_width=0,
+            annotation_text="Search window",
+            annotation_position="top left",
+        )
+        _shift_sign = "+" if res["wavelength_shift_nm"] >= 0 else ""
         fig2.update_layout(
-            title="Baseline-Corrected Spectra",
+            title=(
+                f"Spectra — Δλ = {_shift_sign}{res['wavelength_shift_nm']:.4f} nm  "
+                f"({cfg['gas']})"
+            ),
             xaxis_title="Wavelength (nm)",
             yaxis_title="Intensity (a.u.)",
-            height=300,
-            margin=dict(t=40, b=40),
+            height=360,
+            margin=dict(t=50, b=40),
         )
         st.plotly_chart(fig2, use_container_width=True)
 
+        # ── absorbance spectrum (secondary — extinction change) ───────────
+        with st.expander("Absorbance spectrum  [log₁₀(Reference / Sample)]"):
+            fig = go.Figure()
+            fig.add_trace(
+                go.Scatter(
+                    x=res["wavelengths"],
+                    y=res["absorbance"],
+                    name="Absorbance",
+                    line=dict(color="#9C27B0", width=1.5),
+                )
+            )
+            fig.add_vline(
+                x=res["peak_wavelength_nm"],
+                line_dash="dash",
+                line_color="#FF5722",
+                annotation_text=f"Max ΔA {res['peak_wavelength_nm']:.1f} nm",
+                annotation_position="top right",
+            )
+            fig.add_vrect(
+                x0=res["peak_search_min"],
+                x1=res["peak_search_max"],
+                fillcolor="rgba(100,200,100,0.07)",
+                line_width=0,
+            )
+            fig.update_layout(
+                xaxis_title="Wavelength (nm)",
+                yaxis_title="Absorbance (a.u.)",
+                height=280,
+                margin=dict(t=20, b=40),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
         # ── calibration info ──────────────────────────────────────────────
-        with st.expander("Calibration details"):
+        with st.expander("Calibration & measurement details"):
+            _noise_lbl = cfg.get("noise_region", "Auto")
             st.markdown(f"""
 | Parameter | Value |
 |---|---|
-| Calibration slope | {res["calibration_slope"]} nm/ppm |
-| Wavelength shift | {res["wavelength_shift_nm"]:+.4f} nm |
+| Calibration slope | {res["calibration_slope"]:+.4f} nm/ppm |
+| Reference peak | {res["ref_peak_wl"]:.3f} nm |
+| Sample peak | {res["smp_peak_wl"]:.3f} nm |
+| Wavelength shift Δλ | {res["wavelength_shift_nm"]:+.4f} nm |
 | Concentration (linear) | {res["concentration_ppm"]:.3f} ppm |
-| Peak wavelength | {res["peak_wavelength_nm"]:.2f} nm |
-| Noise std (690–720 nm) | {res["noise_std"]:.6f} |
+| Noise std ({_noise_lbl}) | {res["noise_std"]:.6f} |
 | SNR | {res["snr"]:.1f} |
+| Peak search window | {res["peak_search_min"]:.0f} – {res["peak_search_max"]:.0f} nm |
 """)
             if res["snr"] < 3:
                 st.warning(
@@ -729,11 +912,15 @@ def render() -> None:
                     "n_frames": cfg["n_frames"],
                     "ref_source": ss["exp_reference"]["source"],
                     "smp_source": ss["exp_sample"]["source"],
+                    "ref_peak_wl_nm": res["ref_peak_wl"],
+                    "smp_peak_wl_nm": res["smp_peak_wl"],
                     "peak_wavelength_nm": res["peak_wavelength_nm"],
                     "peak_absorbance": res["peak_absorbance"],
                     "wavelength_shift_nm": res["wavelength_shift_nm"],
                     "concentration_ppm": res["concentration_ppm"],
                     "calibration_slope_nm_per_ppm": res["calibration_slope"],
+                    "peak_search_min_nm": res["peak_search_min"],
+                    "peak_search_max_nm": res["peak_search_max"],
                     "snr": res["snr"],
                     "noise_std": res["noise_std"],
                 }
@@ -769,6 +956,248 @@ Files written:
             file_name=f"{stem}_result.json",
             mime="application/json",
         )
+
+        # ── multi-run session tracker ─────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📊 Multi-Run Session Tracker")
+        st.caption(
+            "Log each measurement to build a calibration curve and compute "
+            "RSD / reproducibility across repeated runs. Runs persist across experiments."
+        )
+
+        _known_ppm = float(cfg.get("concentration", 0.0))
+        _est_ppm = float(res["concentration_ppm"])
+        _run_entry = {
+            "gas": cfg["gas"],
+            "label": cfg.get("label", ""),
+            "conc_known_ppm": _known_ppm,
+            "conc_est_ppm": _est_ppm,
+            "error_ppm": round(_est_ppm - _known_ppm, 4) if _known_ppm > 0 else None,
+            "error_pct": round((_est_ppm - _known_ppm) / _known_ppm * 100, 2) if _known_ppm > 0 else None,
+            "wl_shift_nm": float(res["wavelength_shift_nm"]),
+            "ref_peak_nm": float(res["ref_peak_wl"]),
+            "smp_peak_nm": float(res["smp_peak_wl"]),
+            "snr": float(res["snr"]),
+            "noise_std": float(res["noise_std"]),
+            "peak_win": f"{res['peak_search_min']:.0f}–{res['peak_search_max']:.0f} nm",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        }
+
+        _log_col, _clear_col = st.columns([3, 1])
+        with _log_col:
+            if st.button("+ Log This Run to Session", type="primary"):
+                ss["exp_session_runs"].append(_run_entry)
+                st.rerun()
+        with _clear_col:
+            if st.button("Clear Session"):
+                ss["exp_session_runs"] = []
+                st.rerun()
+
+        if ss["exp_session_runs"]:
+            _session_df = pd.DataFrame(ss["exp_session_runs"])
+            _gas_runs = _session_df[_session_df["gas"] == cfg["gas"]].copy()
+
+            if not _gas_runs.empty:
+                st.markdown(
+                    f"**{cfg['gas']}** — {len(_gas_runs)} run(s) logged "
+                    f"({_session_df['gas'].nunique()} gas(es) total in session)"
+                )
+                # Display log table
+                with st.expander("Run log", expanded=True):
+                    _display_cols = {
+                        "conc_known_ppm": "Known (ppm)",
+                        "conc_est_ppm": "Est. (ppm)",
+                        "error_ppm": "Err (ppm)",
+                        "error_pct": "Err (%)",
+                        "wl_shift_nm": "Δλ (nm)",
+                        "ref_peak_nm": "Ref peak (nm)",
+                        "smp_peak_nm": "Smp peak (nm)",
+                        "peak_win": "Search window",
+                        "snr": "SNR",
+                        "label": "Label",
+                        "timestamp": "Time",
+                    }
+                    st.dataframe(
+                        _gas_runs[list(_display_cols)].rename(columns=_display_cols),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                # Per-concentration statistics
+                _grp = (
+                    _gas_runs.groupby("conc_known_ppm")["wl_shift_nm"]
+                    .agg(["mean", "std", "count"])
+                    .reset_index()
+                )
+                _grp.columns = pd.Index(["Conc (ppm)", "Mean Δλ (nm)", "Std Δλ (nm)", "n"])
+                _grp["RSD (%)"] = (
+                    (_grp["Std Δλ (nm)"] / _grp["Mean Δλ (nm)"].abs() * 100)
+                    .where(_grp["n"] > 1)
+                    .round(2)
+                )
+                _grp["Std Δλ (nm)"] = _grp["Std Δλ (nm)"].where(_grp["n"] > 1)
+
+                st.markdown("**Reproducibility per concentration**")
+                st.dataframe(_grp.round(4), use_container_width=True, hide_index=True)
+
+                _valid_rsd = _grp["RSD (%)"].dropna()
+                if not _valid_rsd.empty:
+                    st.caption(
+                        f"Mean RSD: **{_valid_rsd.mean():.1f} %** | "
+                        f"Max: **{_valid_rsd.max():.1f} %** "
+                        "(< 5 % is good reproducibility for LSPR sensing)"
+                    )
+
+                # Calibration curve from session if ≥ 2 distinct concentrations
+                _unique_concs = _grp["Conc (ppm)"].dropna()
+                if len(_unique_concs) >= 2:
+                    from scipy.stats import linregress as _lr_sess
+
+                    _cal_concs = _grp["Conc (ppm)"].values
+                    _cal_shifts = _grp["Mean Δλ (nm)"].values
+                    _cal_stds = _grp["Std Δλ (nm)"].fillna(0).values
+                    _s_slope, _s_intercept, _s_r, *_ = _lr_sess(_cal_concs, _cal_shifts)
+                    _x_fit = np.linspace(_cal_concs.min(), _cal_concs.max(), 200)
+
+                    _fig_sess_cal = go.Figure()
+                    _fig_sess_cal.add_trace(
+                        go.Scatter(
+                            x=_cal_concs,
+                            y=_cal_shifts,
+                            mode="markers",
+                            name="Mean ± std",
+                            marker=dict(size=12, color="crimson"),
+                            error_y=dict(
+                                type="data",
+                                array=_cal_stds.tolist(),
+                                visible=any(v > 0 for v in _cal_stds),
+                                color="rgba(180,30,30,0.6)",
+                                thickness=2,
+                                width=6,
+                            ),
+                        )
+                    )
+                    _fig_sess_cal.add_trace(
+                        go.Scatter(
+                            x=_x_fit,
+                            y=_s_slope * _x_fit + _s_intercept,
+                            mode="lines",
+                            name=f"Linear fit (R²={_s_r**2:.4f})",
+                            line=dict(color="royalblue", dash="dash", width=2),
+                        )
+                    )
+                    _fig_sess_cal.update_layout(
+                        title=f"Session Calibration Curve — {cfg['gas']}",
+                        xaxis_title="Known Concentration (ppm)",
+                        yaxis_title="Δλ (nm)",
+                        height=380,
+                        margin=dict(t=40, b=40),
+                    )
+                    st.plotly_chart(_fig_sess_cal, use_container_width=True)
+
+                    # Nonlinear isotherm fitting (requires ≥ 3 distinct concentrations)
+                    if len(_unique_concs) >= 3:
+                        with st.expander("🔁 Nonlinear Isotherm Fitting (AIC selection)", expanded=False):
+                            st.caption(
+                                "Fits Langmuir, Freundlich, Hill, and linear models to the "
+                                "session calibration data and selects the best by AICc. "
+                                "Relevant when the sensor operates near binding-site saturation."
+                            )
+                            if st.button("Fit Isotherms", key="exp_btn_isotherms"):
+                                try:
+                                    from src.calibration.isotherms import select_isotherm as _sel_iso
+
+                                    _iso_sel = _sel_iso(_cal_concs, _cal_shifts)
+                                    _iso_best = _iso_sel["best_result"]
+
+                                    _iso_c1, _iso_c2 = st.columns([2, 1])
+                                    with _iso_c1:
+                                        _fig_iso = go.Figure()
+                                        _fig_iso.add_trace(
+                                            go.Scatter(
+                                                x=_cal_concs,
+                                                y=_cal_shifts,
+                                                mode="markers",
+                                                name="Mean Δλ",
+                                                marker=dict(size=12, color="crimson"),
+                                                error_y=dict(
+                                                    type="data",
+                                                    array=_cal_stds.tolist(),
+                                                    visible=any(v > 0 for v in _cal_stds),
+                                                ),
+                                            )
+                                        )
+                                        _fig_iso.add_trace(
+                                            go.Scatter(
+                                                x=_iso_best.concentrations_fit,
+                                                y=_iso_best.responses_fit,
+                                                mode="lines",
+                                                name=f"{_iso_best.model.capitalize()} (AIC winner)",
+                                                line=dict(color="royalblue", dash="dash", width=2),
+                                            )
+                                        )
+                                        _fig_iso.update_layout(
+                                            title=(
+                                                f"Isotherm Fit — {_iso_best.model.capitalize()} "
+                                                f"(R²={_iso_best.r_squared:.4f}, "
+                                                f"AIC={_iso_best.aic:.2f})"
+                                            ),
+                                            xaxis_title="Concentration (ppm)",
+                                            yaxis_title="Δλ (nm)",
+                                            height=340,
+                                            margin=dict(t=40, b=30),
+                                        )
+                                        st.plotly_chart(_fig_iso, use_container_width=True)
+
+                                    with _iso_c2:
+                                        st.markdown(f"**Winner: {_iso_best.model.capitalize()}**")
+                                        st.caption(f"AIC = {_iso_best.aic:.2f}")
+                                        st.caption(f"R² = {_iso_best.r_squared:.4f}")
+                                        st.caption(f"RMSE = {_iso_best.rmse:.4g}")
+                                        st.markdown("**Parameters:**")
+                                        for _pn, _pv in _iso_best.params.items():
+                                            if _pn == "sign":
+                                                continue
+                                            _pe = _iso_best.param_stderrs.get(_pn, float("nan"))
+                                            st.caption(f"`{_pn}` = {_pv:.4g} ± {_pe:.2g}")
+                                        st.markdown("**AIC table:**")
+                                        for _mn, _ma, _mr2, _mrmse in _iso_sel["aic_table"]:
+                                            st.caption(
+                                                f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}"
+                                            )
+                                except Exception as _iso_exc:
+                                    st.error(f"Isotherm fit failed: {_iso_exc}")
+
+                    # Session LOD / LOQ from calibration sensitivity + mean noise
+                    try:
+                        from src.scientific.lod import (
+                            calculate_lod_3sigma,
+                            calculate_loq_10sigma,
+                        )
+
+                        _avg_noise = float(_gas_runs["noise_std"].mean())
+                        _sess_lod = calculate_lod_3sigma(_avg_noise, _s_slope)
+                        _sess_loq = calculate_loq_10sigma(_avg_noise, _s_slope)
+                        _lc1, _lc2, _lc3 = st.columns(3)
+                        _lc1.metric("Session Sensitivity", f"{abs(_s_slope):.4g} nm/ppm")
+                        _lc2.metric(
+                            "Session LOD (3σ/S)",
+                            f"{_sess_lod:.3f} ppm" if _sess_lod < 1e6 else "N/A",
+                            help="From session calibration slope + mean noise",
+                        )
+                        _lc3.metric(
+                            "Session LOQ (10σ/S)",
+                            f"{_sess_loq:.3f} ppm" if _sess_loq < 1e6 else "N/A",
+                        )
+                    except Exception:
+                        pass
+            else:
+                st.info(
+                    f"No runs logged for **{cfg['gas']}** yet. "
+                    "Click **+ Log This Run** above to start."
+                )
+        else:
+            st.info("Session is empty. Click **+ Log This Run** to start building a session log.")
 
         # ── new experiment ────────────────────────────────────────────────
         st.markdown("---")

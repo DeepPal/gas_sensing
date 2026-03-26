@@ -65,7 +65,7 @@ class PipelineConfig:
 
     # Sensor / hardware
     integration_time_ms: float = 50.0
-    target_wavelength: float = 532.0
+    target_wavelength: float = -1.0  # sentinel: auto → midpoint of search window
     acquisition_rate_hz: float = 2.0
 
     # Stage 1: Preprocessing
@@ -76,13 +76,27 @@ class PipelineConfig:
     baseline_method: str = "als"
 
     # Stage 2: Feature extraction
-    reference_wavelength: float = LSPR_REFERENCE_PEAK_NM
-    peak_search_min_nm: float = 480.0
-    peak_search_max_nm: float = 600.0
+    # ── SENSOR-SPECIFIC — must be set for your sensor ──────────────────────
+    # reference_wavelength: expected peak location for the reference (blank)
+    #   spectrum.  Used as the xcorr ROI centre and as the argmax fallback.
+    #   Default (-1.0 sentinel) → auto-set to midpoint of search window in
+    #   __post_init__.  Set explicitly to your sensor's known reference peak.
+    # peak_search_min/max_nm: wavelength window searched for the sensor peak.
+    #   Set to the narrowest range that reliably contains your sensor's
+    #   response peak across all operating conditions.  A too-wide window
+    #   will pick up analyte absorptions or spectrometer noise edges.
+    # Default: 350–950 nm covers most CCD spectrometer sensors (visible range).
+    # ──────────────────────────────────────────────────────────────────────
+    reference_wavelength: float = -1.0  # sentinel: auto → midpoint of search window
+    peak_search_min_nm: float = 350.0
+    peak_search_max_nm: float = 950.0
     shift_window_nm: float = 20.0
     shift_upsample: int = 10
 
     # Stage 3: Calibration (heuristic fallback)
+    # calibration_slope sign convention:
+    #   Negative (e.g. -0.116 nm/ppm) → sensor peak blue-shifts on gas exposure.
+    #   Positive                       → sensor peak red-shifts on gas exposure.
     calibration_slope: float = LSPR_SENSITIVITY_NM_PER_PPM  # nm/ppm
     calibration_intercept: float = 0.0
 
@@ -92,6 +106,15 @@ class PipelineConfig:
 
     # Buffer / output
     buffer_size: int = 10_000
+
+    def __post_init__(self) -> None:
+        # Auto-set sentinel fields to the midpoint of the search window when
+        # the caller did not provide an explicit value (-1.0 sentinel).
+        midpoint = (self.peak_search_min_nm + self.peak_search_max_nm) / 2
+        if self.reference_wavelength < 0:
+            self.reference_wavelength = midpoint
+        if self.target_wavelength < 0:
+            self.target_wavelength = midpoint
 
 
 # ---------------------------------------------------------------------------

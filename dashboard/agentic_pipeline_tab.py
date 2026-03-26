@@ -115,9 +115,24 @@ def _step_badge(n: int, label: str, done: bool, active: bool) -> str:
     )
 
 
-def _simulate_frame(wl: np.ndarray, concentration_ppm: float = 100.0) -> np.ndarray:
-    """Produce a realistic simulated frame with a Gaussian peak + noise."""
-    peak = np.exp(-0.5 * ((wl - 532) / 18) ** 2) * (concentration_ppm / 100) * 4.5
+def _simulate_frame(
+    wl: np.ndarray,
+    concentration_ppm: float = 100.0,
+    sim_peak_nm: float = 532.0,
+) -> np.ndarray:
+    """Produce a realistic simulated frame with a Gaussian peak + noise.
+
+    Parameters
+    ----------
+    wl:
+        Wavelength array (nm).
+    concentration_ppm:
+        Analyte concentration used to scale peak amplitude.
+    sim_peak_nm:
+        Centre wavelength of the simulated Gaussian peak (nm).
+        Override to match your sensor's expected peak position.
+    """
+    peak = np.exp(-0.5 * ((wl - sim_peak_nm) / 18) ** 2) * (concentration_ppm / 100) * 4.5
     noise = np.random.normal(0, 0.04, len(wl))
     return peak + noise
 
@@ -127,6 +142,7 @@ def _acquire_frames(
     n_frames: int,
     concentration_ppm: float,
     chart_ph,
+    sim_peak_nm: float = 532.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Acquire n_frames from CCS200 (or simulation) and return
@@ -153,7 +169,7 @@ def _acquire_frames(
         prog = st.progress(0, text="Acquiring…")
         for i in range(n_frames):
             # Safe default — replaced by hardware read when available
-            frame = _simulate_frame(wl, concentration_ppm)
+            frame = _simulate_frame(wl, concentration_ppm, sim_peak_nm)
             if spec is not None:
                 # Retry once on stale VISA handle
                 for attempt in range(2):
@@ -171,7 +187,7 @@ def _acquire_frames(
                                 spec, wl = _open_spec()
                             except Exception:
                                 spec = None
-                                frame = _simulate_frame(wl, concentration_ppm)
+                                frame = _simulate_frame(wl, concentration_ppm, sim_peak_nm)
                                 break
                         else:
                             raise
@@ -295,8 +311,20 @@ def render() -> None:
         st.subheader("Step 1 — Acquisition & Logging")
 
         if not _HW_AVAILABLE:
-            st.info(
+            _sim_col1, _sim_col2 = st.columns([3, 1])
+            _sim_col1.info(
                 "🔵 **Simulation mode** — No ThorLabs CCS200 detected. Using synthetic Gaussian peaks."
+            )
+            ss.setdefault("ap_sim_peak_nm", 532.0)
+            ss["ap_sim_peak_nm"] = _sim_col2.number_input(
+                "Sim peak (nm)",
+                min_value=200.0,
+                max_value=1100.0,
+                value=float(ss["ap_sim_peak_nm"]),
+                step=1.0,
+                help="Centre wavelength of the simulated Gaussian peak. "
+                "Set to your sensor's expected peak position.",
+                key="ap_sim_peak_input",
             )
 
         # ── Section A: Live Spectral Preview (Agent 01) ───────────────────
@@ -329,7 +357,10 @@ def render() -> None:
         chart_preview_ph = prev_left.empty()
         if preview_clicked:
             with st.spinner("Acquiring preview…"):
-                wl_p, fr_p = _acquire_frames(prev_int_ms, 5, 100.0, chart_preview_ph)
+                wl_p, fr_p = _acquire_frames(
+                    prev_int_ms, 5, 100.0, chart_preview_ph,
+                    sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
+                )
             ss["ap_preview_wl"] = wl_p
             ss["ap_preview_frame"] = fr_p
         if ss.get("ap_preview_frame") is not None:
@@ -426,6 +457,7 @@ def render() -> None:
                     meta["n_frames"],
                     meta["concentration_ppm"],
                     chart_ph,
+                    sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
                 )
 
             # QC check
@@ -1148,6 +1180,7 @@ def render() -> None:
                 meta.get("n_frames", 10),
                 meta.get("concentration_ppm", 100.0),
                 chart_ph2,
+                sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
             )
             proc = _preprocess(wl_live, frame, "Savitzky-Golay", "ALS", "Min-Max [0,1]")
 

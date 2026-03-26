@@ -176,7 +176,7 @@ def _render_batch() -> None:
         root_path.relative_to(REPO_ROOT)
     except ValueError:
         st.sidebar.error("Data Root must be inside the project directory.")
-        root_path = REPO_ROOT / "data"
+        return
 
     if root_path.exists():
         available_gases = sorted(d.name for d in root_path.iterdir() if d.is_dir())
@@ -389,6 +389,23 @@ def _render_batch() -> None:
             "and generates heatmaps, calibration curves, and LOD estimates."
         )
 
+        # ── Sensor peak search window ─────────────────────────────────────
+        with st.expander("Sensor Peak Window (must match your sensor)", expanded=False):
+            st.caption(
+                "Wavelength window used to locate the sensor response peak for Δλ "
+                "computation. Set to the region where your sensor peak sits — "
+                "outside this window the peak is ignored."
+            )
+            _pw_col1, _pw_col2 = st.columns(2)
+            _batch_peak_min = _pw_col1.number_input(
+                "Peak search min (nm)", min_value=100.0, max_value=2000.0,
+                value=480.0, step=10.0, key="batch_peak_min",
+            )
+            _batch_peak_max = _pw_col2.number_input(
+                "Peak search max (nm)", min_value=100.0, max_value=2000.0,
+                value=800.0, step=10.0, key="batch_peak_max",
+            )
+
         if st.button("Generate Heatmap & Calibration Curve"):
             with st.spinner(f"Processing {len(csv_files)} files…"):
                 try:
@@ -475,27 +492,91 @@ def _render_batch() -> None:
                         except Exception:
                             _ref_peak_wl = None
 
+                    # Apply the user-configured peak search window so that
+                    # artefacts outside the sensor response band are ignored.
+                    _bpmin = st.session_state.get("batch_peak_min", _batch_peak_min)
+                    _bpmax = st.session_state.get("batch_peak_max", _batch_peak_max)
+                    _win_mask_batch = (common_wl >= _bpmin) & (common_wl <= _bpmax)
+                    if _win_mask_batch.sum() < 3:
+                        # Window covers no points — fall back to full spectrum
+                        _win_mask_batch = np.ones(len(common_wl), dtype=bool)
+                        st.warning(
+                            f"Peak search window {_bpmin:.0f}–{_bpmax:.0f} nm covers no "
+                            "interpolated wavelength points — using full spectrum."
+                        )
+
                     if _ref_peak_wl is not None:
-                        # Δλ = peak_wavelength(sample) − peak_wavelength(reference)
+                        # Δλ = peak in window(sample) − ref peak
+                        # argmax within the search window, mapped back to common_wl
                         _peak_wl_per_conc = np.array(
-                            [float(common_wl[np.argmax(spec)]) for spec in Z]
+                            [
+                                float(common_wl[_win_mask_batch][np.argmax(spec[_win_mask_batch])])
+                                for spec in Z
+                            ]
                         )
                         responses = _peak_wl_per_conc - _ref_peak_wl
                         response_label = "Δλ (nm)"
                         sensitivity_unit = "nm/ppm"
                         st.info(
-                            f"**LSPR mode** — response = Δλ relative to "
-                            f"reference peak at **{_ref_peak_wl:.2f} nm**"
+                            f"Response = Δλ relative to reference peak at "
+                            f"**{_ref_peak_wl:.2f} nm** | search window "
+                            f"**{_bpmin:.0f}–{_bpmax:.0f} nm**"
                         )
                     else:
-                        _peak_idx = int(np.argmax(np.mean(Z, axis=0)))
-                        responses = Z[:, _peak_idx]
-                        response_label = f"Intensity @ {common_wl[_peak_idx]:.1f} nm (a.u.)"
+                        _peak_idx = int(np.argmax(np.mean(Z[:, _win_mask_batch], axis=0)))
+                        # Map windowed index back to full common_wl index
+                        _peak_idx_full = int(np.where(_win_mask_batch)[0][_peak_idx])
+                        responses = Z[:, _peak_idx_full]
+                        response_label = f"Intensity @ {common_wl[_peak_idx_full]:.1f} nm (a.u.)"
                         sensitivity_unit = "a.u./ppm"
                         st.warning(
                             "No reference spectrum — falling back to **peak intensity** "
-                            "(not Δλ). Load a reference file for LSPR-correct analysis."
+                            f"(window {_bpmin:.0f}–{_bpmax:.0f} nm). "
+                            "Load a reference file for Δλ analysis."
                         )
+
+                    # --- Per-trial spread for error bars and RSD ---
+                    # Compute per-trial response for each concentration to get σ across replicates.
+                    # Uses the same response variable (Δλ or peak intensity) as the calibration curve.
+                    _conc_stds = np.zeros(len(concs))
+                    _conc_n_trials: list[int] = []
+                    _conc_rsd_pct: list[float] = []
+                    for _ci, _c_val in enumerate(concs):
+                        _trial_resp: list[float] = []
+                        for _frames_list in scan_data.get(_c_val, {}).values():
+                            if not _frames_list:
+                                continue
+                            try:
+                                _t_spec = np.mean(
+                                    [
+                                        np.interp(
+                                            common_wl,
+                                            _f["wavelength"].values,
+                                            _f["intensity"].values,
+                                        )
+                                        for _f in _frames_list
+                                    ],
+                                    axis=0,
+                                )
+                                if _ref_peak_wl is not None:
+                                    _ww = _t_spec[_win_mask_batch]
+                                    _trial_resp.append(
+                                        float(common_wl[_win_mask_batch][np.argmax(_ww)]) - _ref_peak_wl
+                                    )
+                                else:
+                                    _trial_resp.append(float(_t_spec[_peak_idx_full]))
+                            except Exception:
+                                continue
+                        _conc_n_trials.append(len(_trial_resp))
+                        if len(_trial_resp) >= 2:
+                            _std_v = float(np.std(_trial_resp, ddof=1))
+                            _mean_v = float(np.mean(_trial_resp))
+                            _conc_stds[_ci] = _std_v
+                            _conc_rsd_pct.append(
+                                abs(_std_v / _mean_v * 100) if _mean_v != 0 else float("nan")
+                            )
+                        else:
+                            _conc_rsd_pct.append(float("nan"))
 
                     # --- Spectral overlay ---
                     colors = [f"hsl({h},70%,50%)" for h in np.linspace(0, 240, len(concs))]
@@ -523,13 +604,22 @@ def _render_batch() -> None:
                     x_fit = np.linspace(concs.min(), concs.max(), 100)
 
                     fig_cal = go.Figure()
+                    _has_error_bars = any(s > 0 for s in _conc_stds)
                     fig_cal.add_trace(
                         go.Scatter(
                             x=concs,
                             y=responses,
                             mode="markers",
-                            name="Measured",
+                            name="Measured (mean ± σ)",
                             marker=dict(size=12, color="red"),
+                            error_y=dict(
+                                type="data",
+                                array=_conc_stds.tolist(),
+                                visible=_has_error_bars,
+                                color="rgba(200,50,50,0.6)",
+                                thickness=2,
+                                width=6,
+                            ),
                         )
                     )
                     fig_cal.add_trace(
@@ -548,6 +638,34 @@ def _render_batch() -> None:
                         height=400,
                     )
                     st.plotly_chart(fig_cal, use_container_width=True)
+
+                    # --- Per-concentration reproducibility table ---
+                    with st.expander("📋 Per-Concentration Reproducibility Statistics"):
+                        _rsd_display = [
+                            f"{v:.1f} %" if not np.isnan(v) else "— (1 trial)"
+                            for v in _conc_rsd_pct
+                        ]
+                        _std_display = [
+                            f"{s:.4g}" if s > 0 else "—"
+                            for s in _conc_stds
+                        ]
+                        _repro_df = pd.DataFrame(
+                            {
+                                "Concentration (ppm)": concs,
+                                f"Response ({response_label})": np.round(responses, 4),
+                                "σ (std across trials)": _std_display,
+                                "RSD": _rsd_display,
+                                "n trials": _conc_n_trials,
+                            }
+                        )
+                        st.dataframe(_repro_df, use_container_width=True, hide_index=True)
+                        if any(not np.isnan(v) for v in _conc_rsd_pct):
+                            _valid_rsd = [v for v in _conc_rsd_pct if not np.isnan(v)]
+                            st.caption(
+                                f"Mean RSD across concentrations: **{np.mean(_valid_rsd):.1f} %** "
+                                f"| Max: **{np.max(_valid_rsd):.1f} %** "
+                                "(RSD < 5 % indicates good reproducibility for gas sensing)"
+                            )
 
                     # --- Heatmap ---
                     fig_hm = go.Figure(
@@ -599,15 +717,21 @@ def _render_batch() -> None:
                             mandel_linearity_test,
                         )
 
+                        from src.scientific.lod import calculate_loq_10sigma
+
                         lod = calculate_lod_3sigma(baseline_noise, slope)
                         lod_str = f"{lod:.3f} ppm"
+                        loq = calculate_loq_10sigma(baseline_noise, slope)
+                        loq_str = f"{loq:.3f} ppm"
 
                         # Bootstrap 95 % CI on LOD
                         try:
-                            boot = lod_bootstrap_ci(concs, responses, n_bootstrap=500)
+                            _lod_pt, _lod_lo, _lod_hi = lod_bootstrap_ci(
+                                concs, responses, n_bootstrap=500
+                            )
                             lod_ci_str = (
-                                f"{boot['lod_mean']:.3f} ppm "
-                                f"[{boot['lod_ci_low']:.3f}–{boot['lod_ci_high']:.3f}]"
+                                f"{_lod_pt:.3f} ppm "
+                                f"[{_lod_lo:.3f}–{_lod_hi:.3f}]"
                             )
                         except Exception:
                             lod_ci_str = "N/A"
@@ -621,20 +745,22 @@ def _render_batch() -> None:
                     except Exception:
                         lod_str = "N/A"
                         lod_ci_str = "N/A"
+                        loq_str = "N/A"
                         mandel = None
 
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Sensitivity", f"{abs(slope):.4g} {sensitivity_unit}")
                     c1.metric("Linearity R²", f"{r_val**2:.4f}")
                     _noise_label = (
                         "Δλ Noise σ (nm)" if _ref_peak_wl is not None else "Baseline Noise σ"
                     )
                     c2.metric(_noise_label, f"{baseline_noise:.2e}")
-                    c2.metric("LOD (3σ/slope)", lod_str)
+                    c2.metric("LOD (3σ/S)", lod_str, help="IUPAC LOD = 3σ_noise / sensitivity")
+                    c3.metric("LOQ (10σ/S)", loq_str, help="IUPAC LOQ = 10σ_noise / sensitivity — lowest reliably quantifiable concentration")
                     c3.metric("LOD 95 % CI (bootstrap)", lod_ci_str)
                     if mandel:
                         verdict = "PASS" if mandel["is_linear"] else "FAIL"
-                        c3.metric(
+                        c4.metric(
                             "Mandel Linearity",
                             f"{verdict}  p={mandel['p_value']:.3f}",
                             help="ICH Q2(R1) F-test: PASS = quadratic term not significant (p>0.05)",
@@ -652,7 +778,8 @@ def _render_batch() -> None:
                         try:
                             from src.calibration.isotherms import select_isotherm
 
-                            iso = select_isotherm(concs, responses)
+                            iso_sel = select_isotherm(concs, responses)
+                            iso = iso_sel["best_result"]
 
                             i_c1, i_c2 = st.columns([2, 1])
                             with i_c1:
@@ -692,12 +819,16 @@ def _render_batch() -> None:
                                 st.caption(f"AIC = {iso.aic:.2f}")
                                 st.caption(f"R² = {iso.r_squared:.4f}")
                                 st.caption(f"RMSE = {iso.rmse:.4g}")
+                                st.caption(iso_sel["recommendation"])
                                 st.markdown("**Parameters:**")
                                 for pname, pval in iso.params.items():
                                     if pname == "sign":
                                         continue
                                     perr = iso.param_stderrs.get(pname, float("nan"))
                                     st.caption(f"`{pname}` = {pval:.4g} ± {perr:.2g}")
+                                st.markdown("**AIC table:**")
+                                for _mn, _ma, _mr2, _mrmse in iso_sel["aic_table"]:
+                                    st.caption(f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}")
 
                         except Exception as exc:
                             st.error(f"Isotherm fitting failed: {exc}")
@@ -902,6 +1033,7 @@ def _render_batch() -> None:
                             ("Sensitivity", f"{abs(slope):.4g} {sensitivity_unit}"),
                             ("Linearity R²", f"{r_val**2:.4f}"),
                             ("LOD (3σ/S)", lod_str),
+                            ("LOQ (10σ/S)", loq_str),
                             ("LOD 95% CI", lod_ci_str),
                             ("Stable-plateau frames", "20-frame tail + MAD gating"),
                         ]

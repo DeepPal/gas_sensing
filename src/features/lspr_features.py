@@ -1,11 +1,24 @@
 """
 src.features.lspr_features
 ============================
-LSPR-specific feature extraction: peak detection, wavelength shift (Δλ),
-and the 4-component LSPR feature vector used as model input.
+Spectrometer-based sensor feature extraction: peak detection, wavelength
+shift (Δλ), and the 4-component feature vector used as model input.
+
+Originally developed for Au-MIP LSPR sensors; the peak-detection and
+feature-extraction logic is general and works for any spectrometer sensor
+whose response is a wavelength shift or intensity change.
 
 Physics note: the primary signal is Δλ = λ_gas − λ_reference (nm).
-A negative Δλ indicates analyte adsorption (redshift) on the Au-MIP surface.
+- **Negative Δλ** (blue-shift): analyte adsorption shortens the effective
+  optical path or decreases the local refractive index.  Sensitivity slope < 0.
+- **Positive Δλ** (red-shift): analyte increases the local refractive index.
+  Sensitivity slope > 0.
+The sign of ``LSPR_SENSITIVITY_NM_PER_PPM`` matches the sensor's response
+direction and must be confirmed experimentally for each sensor type.
+
+``LSPR_REFERENCE_PEAK_NM``, ``LSPR_SEARCH_MIN_NM``, and
+``LSPR_SEARCH_MAX_NM`` are **defaults** that should be overridden at the
+call site for sensors with a different spectral range.
 """
 
 from __future__ import annotations
