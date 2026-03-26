@@ -6,9 +6,9 @@ build-backend = "setuptools.build_meta"
 # Project metadata
 # ---------------------------------------------------------------------------
 [project]
-name = "gas-analysis"
-version = "3.0.0"
-description = "Au-MIP LSPR gas sensing platform: modular AI system with real-time inference API, MLflow tracking, and spectral processing"
+name = "spectraagent"
+version = "1.0.0"
+description = "Universal agentic spectroscopy platform — AI-native sensor analysis"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -26,6 +26,9 @@ keywords = [
     "au-nanoparticle",
     "molecularly-imprinted-polymer",
     "VOC",
+    "SPR",
+    "spectrometer",
+    "agentic-ai",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -53,13 +56,16 @@ dependencies = [
     "statsmodels>=0.13.0",
     # Config
     "pyyaml>=6.0",
+    "tomli>=2.0; python_version < '3.11'",
     # Data
     "pyarrow>=10.0.0",
     # Viz (used by batch reports)
     "matplotlib>=3.4.0",
     "plotly>=5.0.0",
-    # Dashboard
-    "streamlit>=1.30.0",
+    # CLI
+    "typer>=0.9.0",
+    # AI
+    "anthropic>=0.25.0",
     # Hardware serial
     "pyserial>=3.5",
     # API & data validation (always required — used by schemas + API)
@@ -84,11 +90,9 @@ hardware = [
     "pyvisa>=1.13.0",
     "pyvisa-py>=0.6.0",
 ]
-# Report generation
-reports = [
-    "weasyprint>=56.0",
-    "pypandoc>=1.11",
-    "markdown>=3.4",
+# PDF report generation
+pdf = [
+    "playwright>=1.40",
 ]
 # Development & CI tools
 dev = [
@@ -105,13 +109,12 @@ all = [
     "mlflow>=2.14.0",
     "pyvisa>=1.13.0",
     "pyvisa-py>=0.6.0",
-    "weasyprint>=56.0",
-    "markdown>=3.4",
-    "pypandoc>=1.11",
+    "playwright>=1.40",
 ]
 
 [project.scripts]
 # CLI entry points
+spectraagent         = "spectraagent.__main__:cli"
 gas-serve            = "serve:main"
 gas-train            = "src.training.train_gpr:main"
 gas-train-cnn        = "src.training.train_cnn:main"
@@ -119,15 +122,23 @@ gas-export-onnx      = "src.models.onnx_export:main"
 gas-cross-gas-eval   = "src.training.cross_gas_eval:main"
 gas-ablation         = "src.training.ablation:main"
 
+[project.entry-points."spectraagent.hardware"]
+thorlabs_ccs = "spectraagent.drivers.thorlabs:ThorlabsCCSDriver"
+simulation   = "spectraagent.drivers.simulation:SimulationDriver"
+
+[project.entry-points."spectraagent.sensor_physics"]
+lspr = "spectraagent.physics.lspr:LSPRPlugin"
+
 # ---------------------------------------------------------------------------
 # Tool: setuptools package discovery
 # ---------------------------------------------------------------------------
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "config*", "dashboard*", "gas_analysis*"]
+include = ["src*", "config*", "dashboard*", "gas_analysis*", "spectraagent*"]
 
 [tool.setuptools.package-data]
 "src" = ["py.typed"]
+"spectraagent" = ["webapp/static/dist/**/*"]
 
 # ---------------------------------------------------------------------------
 # Tool: ruff (linter + formatter)
@@ -184,7 +195,7 @@ ignore = [
 "dashboard/**" = ["E402", "F401", "SIM102"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["src", "config", "dashboard", "gas_analysis"]
+known-first-party = ["src", "config", "dashboard", "gas_analysis", "spectraagent"]
 force-sort-within-sections = true
 
 [tool.ruff.format]
