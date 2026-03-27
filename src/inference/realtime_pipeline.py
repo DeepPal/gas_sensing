@@ -35,9 +35,12 @@ import numpy as np
 from src.features.lspr_features import (
     LSPR_REFERENCE_PEAK_NM,
     LSPR_SENSITIVITY_NM_PER_PPM,
+    LSPRReference,
+    compute_lspr_reference,
     concentration_from_shift,
     detect_lspr_peak,
     estimate_shift_xcorr,
+    extract_lspr_features,
     refine_peak_centroid,
 )
 from src.preprocessing import (
@@ -298,11 +301,13 @@ class CalibrationStage:
         self.config = config
         self._gpr_model: Any = None  # set by SensorOrchestrator
         self._cnn_model: Any = None
-        self._reference: np.ndarray | None = None  # set via set_reference()
+        self._reference: np.ndarray | None = None  # raw intensities, set via set_reference()
+        self._lspr_ref: LSPRReference | None = None  # lazy-init on first frame with wavelengths
 
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Provide the reference spectrum used by GPR feature extraction."""
         self._reference = reference_intensities.copy()
+        self._lspr_ref = None  # invalidate cache — rebuilt on next frame
 
     def set_calibration(
         self,
@@ -338,13 +343,19 @@ class CalibrationStage:
         # GPR (if model loaded externally by orchestrator)
         if self._gpr_model is not None and spectrum.processed_intensities is not None:
             try:
-                from src.features import extract_lspr_features
-
-                if hasattr(self, "_reference") and self._reference is not None:
+                if self._reference is not None:
+                    # Lazy-init the reference Lorentzian fit on the first frame.
+                    # Wavelengths are only available here (not in set_reference),
+                    # so we defer until we have both arrays.
+                    if self._lspr_ref is None:
+                        self._lspr_ref = compute_lspr_reference(
+                            spectrum.wavelengths, self._reference
+                        )
                     feat = extract_lspr_features(
                         spectrum.wavelengths,
                         spectrum.processed_intensities,
                         self._reference,
+                        lspr_ref=self._lspr_ref,
                     )
                     X = np.array([feat.feature_vector])
                     mean, std = self._gpr_model.predict(X, return_std=True)
@@ -465,6 +476,7 @@ class RealTimePipeline:
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Set or update the reference spectrum for shift calculation."""
         self._features.set_reference(reference_intensities)
+        self._calibration.set_reference(reference_intensities)  # invalidates LSPRReference cache
         log.info("Reference spectrum updated (%d points).", len(reference_intensities))
 
     def set_calibration(

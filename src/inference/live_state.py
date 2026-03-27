@@ -92,12 +92,20 @@ class _LiveDataStore:
         raw_intensities:
             Optional raw spectrum for the live chart display.
         """
+        # Copy outside the lock — np.asarray can allocate; holding the lock
+        # during allocation blocks the dashboard reader thread unnecessarily.
+        result_copy = dict(result_dict)
+        intensities_copy = (
+            np.asarray(raw_intensities, dtype=float).copy()
+            if raw_intensities is not None
+            else None
+        )
         with self._lock:
-            self._deque.append(dict(result_dict))
+            self._deque.append(result_copy)
             self._sample_count += 1
-            self._last_result = dict(result_dict)
-            if raw_intensities is not None:
-                self._latest_intensities = np.asarray(raw_intensities, dtype=float)
+            self._last_result = result_copy
+            if intensities_copy is not None:
+                self._latest_intensities = intensities_copy
 
     # ------------------------------------------------------------------
     # Reader API (Streamlit / dashboard thread)
