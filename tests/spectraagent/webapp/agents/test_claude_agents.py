@@ -254,7 +254,6 @@ def test_experiment_narrator_fires_once_per_point():
 def test_experiment_narrator_fires_again_for_higher_n_points():
     """ExperimentNarrator fires again when n_points increases (new calibration point added)."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
 
     agent = ExperimentNarrator(bus, auto_explain=True)
     mock_client = _mock_claude_client("More data improves fit.")
@@ -320,7 +319,6 @@ def test_diagnostics_respects_per_code_cooldown():
 def test_diagnostics_different_codes_fire_independently():
     """Different error codes are tracked independently by their own cooldown timers."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
 
     agent = DiagnosticsAgent(bus, cooldown_s=9999.0)
     mock_client = _mock_claude_client()
@@ -395,7 +393,9 @@ def test_runner_dispatches_drift_warn_to_anomaly_explainer():
         runner.start()
         with patch("spectraagent.webapp.agents.claude_agents._get_client", return_value=mock_client):
             bus.emit(_drift_warn_event())
-            # Give the runner loop two ticks to process
+            # Give the chain: fanout tick → queue.get → on_event → _call → messages.create
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
             await asyncio.sleep(0)
             await asyncio.sleep(0)
         runner.stop()
@@ -403,8 +403,8 @@ def test_runner_dispatches_drift_warn_to_anomaly_explainer():
     loop.run_until_complete(run())
     _flush(loop)
 
-    # AnomalyExplainer should have called Claude
-    assert mock_client.messages.create.call_count >= 1
+    # AnomalyExplainer should have called Claude exactly once
+    assert mock_client.messages.create.call_count == 1
     loop.close()
 
 
@@ -427,8 +427,7 @@ def test_report_writer_returns_text():
             "concentration": 0.5,
         }))
 
-    assert result is not None
-    assert "LSPR" in result or len(result) > 0
+    assert result
     loop.close()
 
 

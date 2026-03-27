@@ -79,6 +79,7 @@ class _BaseClaude:
         self._model = model
         self._timeout_s = timeout_s
         self._AgentEvent = AgentEvent
+        self._client: Optional[Any] = None
 
     async def _call(self, prompt: str) -> Optional[str]:
         """Call Claude with the given prompt. Returns text or None.
@@ -86,7 +87,9 @@ class _BaseClaude:
         On failure (no key, timeout, API error) emits a claude_unavailable
         event (level="info") onto the bus and returns None.  Never raises.
         """
-        client = _get_client()
+        if self._client is None:
+            self._client = _get_client()
+        client = self._client
         if client is None:
             self._bus.emit(self._AgentEvent(
                 source=self.source,
@@ -192,8 +195,7 @@ class AnomalyExplainer(_BaseClaude):
         )
         text = await self._call(prompt)
         if text:
-            from spectraagent.webapp.agent_bus import AgentEvent
-            self._bus.emit(AgentEvent(
+            self._bus.emit(self._AgentEvent(
                 source=self.source,
                 level="claude",
                 type="anomaly_explanation",
@@ -269,8 +271,7 @@ class ExperimentNarrator(_BaseClaude):
         )
         text = await self._call(prompt)
         if text:
-            from spectraagent.webapp.agent_bus import AgentEvent
-            self._bus.emit(AgentEvent(
+            self._bus.emit(self._AgentEvent(
                 source=self.source,
                 level="claude",
                 type="experiment_narration",
@@ -393,8 +394,7 @@ class DiagnosticsAgent(_BaseClaude):
         )
         text = await self._call(prompt)
         if text:
-            from spectraagent.webapp.agent_bus import AgentEvent
-            self._bus.emit(AgentEvent(
+            self._bus.emit(self._AgentEvent(
                 source=self.source,
                 level="claude",
                 type="diagnostics",
@@ -456,9 +456,10 @@ class ClaudeAgentRunner:
 
     async def _run(self) -> None:
         """Main dispatch loop. Runs until cancelled."""
+        q = self._q  # local ref; immune to stop() clearing self._q
         while True:
             try:
-                event = await self._q.get()
+                event = await q.get()
                 for agent in self._agents:
                     try:
                         await agent.on_event(event)
