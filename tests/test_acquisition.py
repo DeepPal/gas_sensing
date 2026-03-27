@@ -122,3 +122,19 @@ class TestCCS200SpectrometerContract:
     def test_class_has_default_integration(self, spec_cls):
         assert hasattr(spec_cls, "DEFAULT_INTEGRATION_S")
         assert spec_cls.DEFAULT_INTEGRATION_S > 0
+
+
+# ---------------------------------------------------------------------------
+# Task 12: _SessionWriter save_raw default changed to True
+# ---------------------------------------------------------------------------
+
+
+class TestSessionWriterSaveRawDefault:
+    """Verify _SessionWriter defaults save_raw to True (Task 12)."""
+
+    def test_save_raw_defaults_to_true(self, tmp_path):
+        import inspect
+        from src.inference.orchestrator import _SessionWriter
+
+        sig = inspect.signature(_SessionWriter.__init__)
+        assert sig.parameters["save_raw"].default is True
