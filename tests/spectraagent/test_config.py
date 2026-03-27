@@ -49,3 +49,31 @@ def test_plugins_list_shows_lspr():
     result = runner.invoke(cli, ["plugins", "list"])
     assert result.exit_code == 0
     assert "lspr" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 13: integration test for `spectraagent start --simulate --no-browser`
+# ---------------------------------------------------------------------------
+
+import subprocess
+import sys
+import time
+import httpx
+
+
+def test_start_simulate_no_browser_serves_health():
+    """Integration test: start server in subprocess, hit /api/health, then kill it."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "spectraagent", "start", "--simulate", "--no-browser"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        time.sleep(4)
+        resp = httpx.get("http://127.0.0.1:8765/api/health", timeout=5)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert resp.json()["simulate"] is True
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
