@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,14 +20,12 @@ from typing import Any
 import numpy as np
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from collections import deque
-
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import spectraagent
-from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
+from spectraagent.webapp.agent_bus import AgentBus
 from spectraagent.webapp.session_writer import SessionWriter
 
 log = logging.getLogger(__name__)
@@ -93,9 +93,6 @@ class AgentSettings(BaseModel):
     auto_explain: bool
 
 
-# Module-level AgentBus singleton (created once per process, shared across requests)
-_agent_bus = AgentBus()
-
 _ASK_MODEL = "claude-sonnet-4-6"
 
 
@@ -131,11 +128,68 @@ def create_app(simulate: bool = False) -> FastAPI:
         If True, use SimulationDriver regardless of config.
         Hardware connection is NOT started here — that happens in the CLI.
     """
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Manage per-app async resources for startup and shutdown."""
+        loop = asyncio.get_running_loop()
+        app.state.asyncio_loop = loop
+        app.state.agent_bus.setup_loop(loop)
+
+        async def _log_events() -> None:
+            q = app.state.agent_bus.subscribe()
+            try:
+                while True:
+                    event = await q.get()
+                    event_dict = event.to_dict()
+                    app.state.agent_events_log.append(event_dict)
+                    sw = getattr(app.state, "session_writer", None)
+                    if sw is not None:
+                        sw.append_event(event_dict)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                app.state.agent_bus.unsubscribe(q)
+
+        app.state.log_events_task = asyncio.ensure_future(_log_events())
+        try:
+            for callback in list(app.state.startup_callbacks):
+                result = callback()
+                if asyncio.iscoroutine(result):
+                    await result
+            yield
+        finally:
+            for callback in reversed(list(app.state.shutdown_callbacks)):
+                result = callback()
+                if asyncio.iscoroutine(result):
+                    await result
+
+            task = getattr(app.state, "log_events_task", None)
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            claude_runner = getattr(app.state, "claude_runner", None)
+            if claude_runner is not None:
+                try:
+                    claude_runner.stop()
+                except Exception:
+                    pass
+
+            if app.state.session_running:
+                sw = getattr(app.state, "session_writer", None)
+                if sw is not None:
+                    sw.stop_session(frame_count=int(app.state.session_frame_count))
+                app.state.session_running = False
+
     app = FastAPI(
         title="SpectraAgent",
         version=spectraagent.__version__,
         docs_url="/api/docs",
         redoc_url=None,
+        lifespan=lifespan,
     )
 
     # CORS — allow all origins so LAN clients work without configuration
@@ -152,47 +206,19 @@ def create_app(simulate: bool = False) -> FastAPI:
     app.state.plugin = None
     app.state.reference = None
     app.state.cached_ref = None
+    app.state.latest_spectrum = None
+    app.state.asyncio_loop = None
+    app.state.session_running = False
+    app.state.session_frame_count = 0
+    app.state.startup_callbacks = []
+    app.state.shutdown_callbacks = []
 
-    # Store AgentBus on app.state so tests and other modules can reach it
-    app.state.agent_bus = _agent_bus
+    # Keep AgentBus scoped to this app instance.
+    agent_bus = AgentBus()
+    app.state.agent_bus = agent_bus
     # Bounded event log for /api/agents/ask context (last 200 events)
     app.state.agent_events_log = deque(maxlen=200)
     app.state.session_writer = SessionWriter()
-
-    @app.on_event("startup")
-    async def _startup() -> None:
-        """Wire AgentBus to the running event loop once uvicorn starts."""
-        _agent_bus.setup_loop(asyncio.get_running_loop())
-
-        # Start background task that populates agent_events_log for ask context
-        async def _log_events() -> None:
-            q = _agent_bus.subscribe()
-            try:
-                while True:
-                    event = await q.get()
-                    event_dict = event.to_dict()
-                    app.state.agent_events_log.append(event_dict)
-                    # Also persist to active session (no-op when no session)
-                    sw = getattr(app.state, "session_writer", None)
-                    if sw is not None:
-                        sw.append_event(event_dict)
-            except asyncio.CancelledError:
-                pass
-            finally:
-                _agent_bus.unsubscribe(q)
-
-        app.state.log_events_task = asyncio.ensure_future(_log_events())
-
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        """Cancel the event-logging background task on shutdown."""
-        task = getattr(app.state, "log_events_task", None)
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
 
     # ------------------------------------------------------------------
     # Health endpoint
@@ -249,7 +275,7 @@ def create_app(simulate: bool = False) -> FastAPI:
     @app.websocket("/ws/agent-events")
     async def ws_agent_events(websocket: WebSocket) -> None:
         await websocket.accept()
-        q = _agent_bus.subscribe()
+        q = agent_bus.subscribe()
         try:
             while True:
                 event = await q.get()
@@ -257,7 +283,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
-            _agent_bus.unsubscribe(q)
+            agent_bus.unsubscribe(q)
 
     # ------------------------------------------------------------------
     # Acquisition API
@@ -268,7 +294,6 @@ def create_app(simulate: bool = False) -> FastAPI:
         "target_concentration": None,
     }
     _session_active: dict[str, Any] = {"running": False, "session_id": None}
-    _latest_spectrum: dict[str, Any] = {"wl": None, "intensities": None}
 
     @app.post("/api/acquisition/config")
     async def acq_config(cfg: AcquisitionConfig) -> JSONResponse:
@@ -282,6 +307,8 @@ def create_app(simulate: bool = False) -> FastAPI:
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         _session_active["running"] = True
         _session_active["session_id"] = session_id
+        app.state.session_running = True
+        app.state.session_frame_count = 0
         sw = getattr(app.state, "session_writer", None)
         if sw is not None:
             meta = {
@@ -295,15 +322,17 @@ def create_app(simulate: bool = False) -> FastAPI:
     @app.post("/api/acquisition/stop")
     async def acq_stop() -> JSONResponse:
         _session_active["running"] = False
+        app.state.session_running = False
         sw = getattr(app.state, "session_writer", None)
         if sw is not None:
-            sw.stop_session()
+            sw.stop_session(frame_count=int(app.state.session_frame_count))
         return JSONResponse({"status": "stopped",
                              "session_id": _session_active.get("session_id")})
 
     @app.post("/api/acquisition/reference")
     async def acq_reference() -> JSONResponse:
-        intensities = _latest_spectrum.get("intensities")
+        latest_spectrum = getattr(app.state, "latest_spectrum", None)
+        intensities = None if latest_spectrum is None else latest_spectrum.get("intensities")
         if intensities is None:
             return JSONResponse(
                 {"error": "No spectrum available yet — wait for first frame"},

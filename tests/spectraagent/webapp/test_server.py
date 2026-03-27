@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spectraagent.webapp.server import create_app, Broadcaster
+from spectraagent.webapp.session_writer import SessionWriter
 
 
 @pytest.fixture
@@ -247,8 +248,6 @@ def test_sessions_get_not_found_returns_404(client):
 
 def test_acquisition_start_stop_creates_session(client, tmp_path):
     """POST /api/acquisition/start then stop populates session list."""
-    from spectraagent.webapp.session_writer import SessionWriter
-
     # Inject a temp-dir writer into the live app via the client's app
     sw = SessionWriter(sessions_dir=tmp_path / "sessions")
     client.app.state.session_writer = sw
@@ -265,6 +264,37 @@ def test_acquisition_start_stop_creates_session(client, tmp_path):
     sessions = sw.list_sessions()
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
+    assert sessions[0]["stopped_at"] is not None
+
+
+def test_lifespan_startup_callback_runs():
+    """App-scoped startup callbacks registered before TestClient entry are executed."""
+    app = create_app(simulate=True)
+    app.state.startup_marker = False
+
+    def _mark_started() -> None:
+        app.state.startup_marker = True
+
+    app.state.startup_callbacks.append(_mark_started)
+
+    with TestClient(app):
+        assert app.state.startup_marker is True
+
+
+def test_shutdown_finalizes_active_session(tmp_path):
+    """Lifespan shutdown finalizes an active session with the last frame count."""
+    app = create_app(simulate=True)
+    writer = SessionWriter(sessions_dir=tmp_path / "sessions")
+    app.state.session_writer = writer
+
+    with TestClient(app) as client:
+        start_resp = client.post("/api/acquisition/start")
+        assert start_resp.status_code == 200
+        app.state.session_frame_count = 7
+
+    sessions = writer.list_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["frame_count"] == 7
     assert sessions[0]["stopped_at"] is not None
 
 
