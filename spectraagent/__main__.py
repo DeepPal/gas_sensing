@@ -125,16 +125,13 @@ def _acquisition_loop(
         # ------------------------------------------------------------------
         # Broadcast spectrum to /ws/spectrum clients
         # ------------------------------------------------------------------
+        bus_loop = getattr(getattr(app.state, "agent_bus", None), "_loop", None)
         spectrum_bc = getattr(app.state, "spectrum_bc", None)
-        if spectrum_bc is not None:
+        if bus_loop is not None and spectrum_bc is not None:
             msg = json.dumps({"wl": wl_list, "i": intensities.tolist()})
-            try:
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(
-                    lambda m=msg: asyncio.ensure_future(spectrum_bc.broadcast(m))
-                )
-            except RuntimeError:
-                pass
+            bus_loop.call_soon_threadsafe(
+                lambda m=msg: asyncio.ensure_future(spectrum_bc.broadcast(m))
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -205,15 +202,18 @@ def start(
     app.state.planner_agent = ExperimentPlannerAgent(agent_bus)
     typer.echo("Agents ready: Quality, Drift, Calibration, Planner")
 
-    # Step 5: Start the acquisition broadcast loop in a daemon thread
-    acq_thread = threading.Thread(
-        target=_acquisition_loop,
-        args=(driver, app),
-        daemon=True,
-        name="spectraagent-acquisition",
-    )
-    acq_thread.start()
-    typer.echo("Acquisition loop started")
+    # Step 5: Start acquisition thread after AgentBus is wired (deferred to startup event)
+    @app.on_event("startup")
+    async def _start_acquisition_loop() -> None:
+        """Start acquisition AFTER setup_loop() fires so AgentBus is ready."""
+        acq_thread = threading.Thread(
+            target=_acquisition_loop,
+            args=(driver, app),
+            daemon=True,
+            name="spectraagent-acquisition",
+        )
+        acq_thread.start()
+        typer.echo("Acquisition loop started")
 
     # Step 6: Open browser
     if not no_browser and cfg.server.open_browser:
