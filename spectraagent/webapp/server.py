@@ -22,7 +22,7 @@ from collections import deque
 
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import spectraagent
 from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
@@ -81,7 +81,7 @@ class CalibrationPoint(BaseModel):
 
 
 class AskRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=2000)
 
 
 # Module-level AgentBus singleton (created once per process, shared across requests)
@@ -361,7 +361,7 @@ def create_app(simulate: bool = False) -> FastAPI:
             except Exception as exc:
                 log.warning("agents_ask: Claude streaming error: %s", exc)
                 yield (
-                    f'data: {json.dumps({"text": f"Error: {exc}", "done": False})}\n\n'
+                    f'data: {json.dumps({"text": "An error occurred while streaming the response.", "done": False})}\n\n'
                 )
             finally:
                 yield f'data: {json.dumps({"done": True})}\n\n'
