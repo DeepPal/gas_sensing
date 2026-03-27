@@ -225,3 +225,44 @@ def test_agents_ask_sse_format_done_true(client):
     assert len(frames) >= 1, "Expected at least one SSE data frame"
     last_frame = _json.loads(frames[-1])
     assert last_frame.get("done") is True, f"Last frame must have done=true, got: {last_frame}"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Session routes
+# ---------------------------------------------------------------------------
+
+
+def test_sessions_list_returns_200(client):
+    """GET /api/sessions returns 200 with a list (empty in test mode)."""
+    resp = client.get("/api/sessions")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_sessions_get_not_found_returns_404(client):
+    """GET /api/sessions/{session_id} returns 404 for an unknown session."""
+    resp = client.get("/api/sessions/nonexistent_session_id_xyz")
+    assert resp.status_code == 404
+
+
+def test_acquisition_start_stop_creates_session(client, tmp_path):
+    """POST /api/acquisition/start then stop populates session list."""
+    from spectraagent.webapp.session_writer import SessionWriter
+
+    # Inject a temp-dir writer into the live app via the client's app
+    sw = SessionWriter(sessions_dir=tmp_path / "sessions")
+    client.app.state.session_writer = sw
+
+    # Start then stop a session
+    start_resp = client.post("/api/acquisition/start")
+    assert start_resp.status_code == 200
+    session_id = start_resp.json()["session_id"]
+
+    stop_resp = client.post("/api/acquisition/stop")
+    assert stop_resp.status_code == 200
+
+    # The writer should have a stopped session on disk
+    sessions = sw.list_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == session_id
+    assert sessions[0]["stopped_at"] is not None

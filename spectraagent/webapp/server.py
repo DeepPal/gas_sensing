@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
 
@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 import spectraagent
 from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
+from spectraagent.webapp.session_writer import SessionWriter
 
 log = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ def create_app(simulate: bool = False) -> FastAPI:
     app.state.agent_bus = _agent_bus
     # Bounded event log for /api/agents/ask context (last 200 events)
     app.state.agent_events_log = deque(maxlen=200)
+    app.state.session_writer = SessionWriter()
 
     @app.on_event("startup")
     async def _startup() -> None:
@@ -160,7 +162,12 @@ def create_app(simulate: bool = False) -> FastAPI:
             try:
                 while True:
                     event = await q.get()
-                    app.state.agent_events_log.append(event.to_dict())
+                    event_dict = event.to_dict()
+                    app.state.agent_events_log.append(event_dict)
+                    # Also persist to active session (no-op when no session)
+                    sw = getattr(app.state, "session_writer", None)
+                    if sw is not None:
+                        sw.append_event(event_dict)
             except asyncio.CancelledError:
                 pass
             finally:
@@ -267,11 +274,22 @@ def create_app(simulate: bool = False) -> FastAPI:
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         _session_active["running"] = True
         _session_active["session_id"] = session_id
+        sw = getattr(app.state, "session_writer", None)
+        if sw is not None:
+            meta = {
+                "gas_label": _acq_config.get("gas_label", "unknown"),
+                "target_concentration": _acq_config.get("target_concentration"),
+                "hardware": getattr(getattr(app.state, "driver", None), "name", "unknown"),
+            }
+            sw.start_session(session_id, meta)
         return JSONResponse({"status": "started", "session_id": session_id})
 
     @app.post("/api/acquisition/stop")
     async def acq_stop() -> JSONResponse:
         _session_active["running"] = False
+        sw = getattr(app.state, "session_writer", None)
+        if sw is not None:
+            sw.stop_session()
         return JSONResponse({"status": "stopped",
                              "session_id": _session_active.get("session_id")})
 
@@ -313,6 +331,29 @@ def create_app(simulate: bool = False) -> FastAPI:
         if suggested is None:
             return JSONResponse({"suggestion": None, "reason": "no_gpr_fitted"})
         return JSONResponse({"suggestion": suggested})
+
+    # ------------------------------------------------------------------
+    # Session API — list and retrieve saved sessions
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sessions")
+    def sessions_list() -> JSONResponse:
+        """Return all session metadata dicts, newest first."""
+        sw = getattr(app.state, "session_writer", None)
+        if sw is None:
+            return JSONResponse([])
+        return JSONResponse(sw.list_sessions())
+
+    @app.get("/api/sessions/{session_id}")
+    def sessions_get(session_id: str) -> JSONResponse:
+        """Return metadata + last 100 agent events for a session, or 404."""
+        sw = getattr(app.state, "session_writer", None)
+        if sw is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        data = sw.get_session(session_id)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return JSONResponse(data)
 
     # ------------------------------------------------------------------
     # Claude API — free-text query with SSE streaming response
