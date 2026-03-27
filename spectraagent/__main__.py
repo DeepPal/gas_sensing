@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import logging
 from importlib.metadata import entry_points as entry_points
+from typing import TYPE_CHECKING
 
 import typer
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+    from spectraagent.drivers.base import AbstractHardwareDriver
+    from spectraagent.physics.base import AbstractSensorPhysicsPlugin
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +26,7 @@ cli = typer.Typer(
 # ---------------------------------------------------------------------------
 
 
-def _load_driver(simulate: bool, cfg) -> "AbstractHardwareDriver":
+def _load_driver(simulate: bool, cfg) -> AbstractHardwareDriver:
     """Load hardware driver: simulation if forced, else try config default, fallback sim."""
     from spectraagent.drivers.simulation import SimulationDriver
 
@@ -60,7 +66,7 @@ def _load_driver(simulate: bool, cfg) -> "AbstractHardwareDriver":
 # ---------------------------------------------------------------------------
 
 
-def _load_physics_plugin(name: str) -> "AbstractSensorPhysicsPlugin":
+def _load_physics_plugin(name: str) -> AbstractSensorPhysicsPlugin:
     """Load physics plugin by entry-point name."""
     ph_eps = {ep.name: ep for ep in entry_points(group="spectraagent.sensor_physics")}
     if name not in ph_eps:
@@ -76,8 +82,8 @@ def _load_physics_plugin(name: str) -> "AbstractSensorPhysicsPlugin":
 
 
 def _acquisition_loop(
-    driver: "AbstractHardwareDriver",
-    app: "FastAPI",
+    driver: AbstractHardwareDriver,
+    app: FastAPI,
 ) -> None:
     """Daemon thread: read spectra, run quality/drift agents, broadcast to WS clients."""
     import asyncio
@@ -99,39 +105,57 @@ def _acquisition_loop(
             continue
 
         frame_num += 1
+        _process_acquired_frame(app, wl_list, wl_np, frame_num, intensities)
 
-        # ------------------------------------------------------------------
-        # Quality gate (always runs — per spec, hard-blocks saturated frames)
-        # ------------------------------------------------------------------
-        quality_agent = getattr(app.state, "quality_agent", None)
-        if quality_agent is not None:
-            passes = quality_agent.process(frame_num, wl_np, intensities)
-            if not passes:
-                continue   # saturated frame — discard, do not broadcast
 
-        # ------------------------------------------------------------------
-        # Drift monitor (only when a physics plugin is set to detect peak)
-        # ------------------------------------------------------------------
-        drift_agent = getattr(app.state, "drift_agent", None)
-        plugin = getattr(app.state, "plugin", None)
-        if drift_agent is not None and plugin is not None:
-            try:
-                peak_wl = plugin.detect_peak(wl_np, intensities)
-                if peak_wl is not None:
-                    drift_agent.update(frame_num, peak_wl)
-            except Exception as exc:
-                log.debug("DriftAgent.update() failed: %s", exc)
+def _process_acquired_frame(
+    app: FastAPI,
+    wl_list: list[float],
+    wl_np,
+    frame_num: int,
+    intensities,
+) -> bool:
+    """Process one acquired frame.
 
-        # ------------------------------------------------------------------
-        # Broadcast spectrum to /ws/spectrum clients
-        # ------------------------------------------------------------------
-        bus_loop = getattr(getattr(app.state, "agent_bus", None), "_loop", None)
-        spectrum_bc = getattr(app.state, "spectrum_bc", None)
-        if bus_loop is not None and spectrum_bc is not None:
-            msg = json.dumps({"wl": wl_list, "i": intensities.tolist()})
-            bus_loop.call_soon_threadsafe(
-                lambda m=msg: asyncio.ensure_future(spectrum_bc.broadcast(m))
-            )
+    Returns True when the frame continues through the broadcast path, and False
+    when it is hard-blocked by the quality gate.
+    """
+    import asyncio
+    import json
+
+    app.state.latest_spectrum = {
+        "wl": wl_list,
+        "intensities": intensities,
+    }
+    if getattr(app.state, "session_running", False):
+        app.state.session_frame_count += 1
+
+    quality_agent = getattr(app.state, "quality_agent", None)
+    if quality_agent is not None:
+        passes = quality_agent.process(frame_num, wl_np, intensities)
+        if not passes:
+            return False
+
+    drift_agent = getattr(app.state, "drift_agent", None)
+    plugin = getattr(app.state, "plugin", None)
+    if drift_agent is not None and plugin is not None:
+        try:
+            peak_wl = plugin.detect_peak(wl_np, intensities)
+            if peak_wl is not None:
+                drift_agent.update(frame_num, peak_wl)
+        except Exception as exc:
+            log.debug("DriftAgent.update() failed: %s", exc)
+
+    app_loop = getattr(app.state, "asyncio_loop", None)
+    spectrum_bc = getattr(app.state, "spectrum_bc", None)
+    if app_loop is not None and spectrum_bc is not None and hasattr(spectrum_bc, "broadcast"):
+        msg = json.dumps({"wl": wl_list, "i": intensities.tolist()})
+        broadcast_fn = spectrum_bc.broadcast
+        app_loop.call_soon_threadsafe(
+            lambda m=msg, fn=broadcast_fn: asyncio.ensure_future(fn(m))
+        )
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +215,7 @@ def start(
     from spectraagent.webapp.agents.drift import DriftAgent
     from spectraagent.webapp.agents.planner import ExperimentPlannerAgent
     from spectraagent.webapp.agents.quality import QualityAgent
-    from spectraagent.webapp.server import _agent_bus as agent_bus
+    agent_bus = app.state.agent_bus
 
     app.state.quality_agent = QualityAgent(agent_bus)
     app.state.drift_agent = DriftAgent(
@@ -246,10 +270,9 @@ def start(
         "DiagnosticsAgent, ReportWriter"
     )
 
-    # Step 5: Start acquisition thread after AgentBus is wired (deferred to startup event)
-    @app.on_event("startup")
-    async def _start_acquisition_loop() -> None:
-        """Start acquisition and Claude runner AFTER setup_loop() fires."""
+    # Step 5: Start acquisition thread after AgentBus is wired (via app lifespan)
+    async def _start_runtime_services() -> None:
+        """Start acquisition and Claude runner after app lifespan startup begins."""
         acq_thread = threading.Thread(
             target=_acquisition_loop,
             args=(driver, app),
@@ -264,6 +287,8 @@ def start(
         if claude_runner is not None:
             claude_runner.start()
             typer.echo("Claude agent runner started")
+
+    app.state.startup_callbacks.append(_start_runtime_services)
 
     # Step 6: Open browser
     if not no_browser and cfg.server.open_browser:
