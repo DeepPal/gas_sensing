@@ -55,11 +55,11 @@ class SessionWriter:
         session_dir.mkdir(parents=True, exist_ok=True)
 
         full_meta: dict = {
+            **meta,
             "session_id": session_id,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "stopped_at": None,
         }
-        full_meta.update(meta)
         (session_dir / "session_meta.json").write_text(
             json.dumps(full_meta, indent=2), encoding="utf-8"
         )
@@ -121,11 +121,12 @@ class SessionWriter:
         if not self._dir.exists():
             return []
         sessions = []
-        for meta_path in sorted(self._dir.glob("*/session_meta.json"), reverse=True):
+        for meta_path in self._dir.glob("*/session_meta.json"):
             try:
                 sessions.append(json.loads(meta_path.read_text(encoding="utf-8")))
             except (json.JSONDecodeError, OSError) as exc:
                 log.warning("SessionWriter.list_sessions: skipping %s: %s", meta_path, exc)
+        sessions.sort(key=lambda s: s.get("started_at", ""), reverse=True)
         return sessions
 
     def get_session(self, session_id: str) -> Optional[dict]:

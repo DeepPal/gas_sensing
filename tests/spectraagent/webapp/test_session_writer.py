@@ -102,6 +102,21 @@ def test_list_sessions_returns_metadata(writer):
     assert sessions[0]["session_id"] == "20260327_120004"
 
 
+def test_list_sessions_newest_first(writer):
+    """list_sessions returns sessions sorted newest first by started_at."""
+    import time
+    writer.start_session("session_A", {"gas_label": "A"})
+    writer.stop_session()
+    time.sleep(0.01)  # ensure distinct started_at timestamps
+    writer.start_session("session_B", {"gas_label": "B"})
+    writer.stop_session()
+    sessions = writer.list_sessions()
+    assert len(sessions) == 2
+    # B was started after A, so B should appear first
+    assert sessions[0]["session_id"] == "session_B"
+    assert sessions[1]["session_id"] == "session_A"
+
+
 # ---------------------------------------------------------------------------
 # get_session
 # ---------------------------------------------------------------------------
