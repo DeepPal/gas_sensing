@@ -75,13 +75,20 @@ def _load_physics_plugin(name: str) -> "AbstractSensorPhysicsPlugin":
 # ---------------------------------------------------------------------------
 
 
-def _acquisition_loop(driver: "AbstractHardwareDriver", app: "FastAPI") -> None:
-    """Daemon thread: read spectra and broadcast to WebSocket clients."""
+def _acquisition_loop(
+    driver: "AbstractHardwareDriver",
+    app: "FastAPI",
+) -> None:
+    """Daemon thread: read spectra, run quality/drift agents, broadcast to WS clients."""
     import asyncio
     import json
     import time
 
-    wl = driver.get_wavelengths().tolist()
+    import numpy as np
+
+    wl_list = driver.get_wavelengths().tolist()
+    wl_np = np.array(wl_list)
+    frame_num = 0
 
     while True:
         try:
@@ -91,9 +98,36 @@ def _acquisition_loop(driver: "AbstractHardwareDriver", app: "FastAPI") -> None:
             time.sleep(1.0)
             continue
 
+        frame_num += 1
+
+        # ------------------------------------------------------------------
+        # Quality gate (always runs — per spec, hard-blocks saturated frames)
+        # ------------------------------------------------------------------
+        quality_agent = getattr(app.state, "quality_agent", None)
+        if quality_agent is not None:
+            passes = quality_agent.process(frame_num, wl_np, intensities)
+            if not passes:
+                continue   # saturated frame — discard, do not broadcast
+
+        # ------------------------------------------------------------------
+        # Drift monitor (only when a physics plugin is set to detect peak)
+        # ------------------------------------------------------------------
+        drift_agent = getattr(app.state, "drift_agent", None)
+        plugin = getattr(app.state, "plugin", None)
+        if drift_agent is not None and plugin is not None:
+            try:
+                peak_wl = plugin.detect_peak(wl_np, intensities)
+                if peak_wl is not None:
+                    drift_agent.update(frame_num, peak_wl)
+            except Exception as exc:
+                log.debug("DriftAgent.update() failed: %s", exc)
+
+        # ------------------------------------------------------------------
+        # Broadcast spectrum to /ws/spectrum clients
+        # ------------------------------------------------------------------
         spectrum_bc = getattr(app.state, "spectrum_bc", None)
         if spectrum_bc is not None:
-            msg = json.dumps({"wl": wl, "i": intensities.tolist()})
+            msg = json.dumps({"wl": wl_list, "i": intensities.tolist()})
             try:
                 loop = asyncio.get_event_loop()
                 loop.call_soon_threadsafe(
@@ -154,6 +188,22 @@ def start(
     app.state.plugin = plugin
     app.state.reference = None
     app.state.cached_ref = None
+
+    # Step 5a: Create deterministic agents
+    from spectraagent.webapp.agents.calibration import CalibrationAgent
+    from spectraagent.webapp.agents.drift import DriftAgent
+    from spectraagent.webapp.agents.planner import ExperimentPlannerAgent
+    from spectraagent.webapp.agents.quality import QualityAgent
+    from spectraagent.webapp.server import _agent_bus as agent_bus
+
+    app.state.quality_agent = QualityAgent(agent_bus)
+    app.state.drift_agent = DriftAgent(
+        agent_bus,
+        integration_time_ms=cfg.hardware.integration_time_ms,
+    )
+    app.state.calibration_agent = CalibrationAgent(agent_bus)
+    app.state.planner_agent = ExperimentPlannerAgent(agent_bus)
+    typer.echo("Agents ready: Quality, Drift, Calibration, Planner")
 
     # Step 5: Start the acquisition broadcast loop in a daemon thread
     acq_thread = threading.Thread(
