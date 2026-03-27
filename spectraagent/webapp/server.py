@@ -73,6 +73,11 @@ class AcquisitionConfig(BaseModel):
     target_concentration: float | None = None
 
 
+class CalibrationPoint(BaseModel):
+    concentration: float
+    delta_lambda: float
+
+
 # Module-level AgentBus singleton (created once per process, shared across requests)
 _agent_bus = AgentBus()
 
@@ -228,6 +233,33 @@ def create_app(simulate: bool = False) -> FastAPI:
         app.state.reference = intensities
         app.state.cached_ref = None
         return JSONResponse({"status": "reference_captured", "peak_wavelength": None})
+
+    # ------------------------------------------------------------------
+    # Calibration API
+    # ------------------------------------------------------------------
+
+    @app.post("/api/calibration/add-point")
+    async def calibration_add_point(point: CalibrationPoint) -> JSONResponse:
+        """Add a calibration data point; CalibrationAgent re-fits all models."""
+        calib_agent = getattr(app.state, "calibration_agent", None)
+        if calib_agent is not None:
+            calib_agent.add_point(point.concentration, point.delta_lambda)
+        return JSONResponse({
+            "status": "added",
+            "concentration": point.concentration,
+            "delta_lambda": point.delta_lambda,
+        })
+
+    @app.post("/api/calibration/suggest")
+    async def calibration_suggest() -> JSONResponse:
+        """Return the next recommended concentration from ExperimentPlannerAgent."""
+        planner = getattr(app.state, "planner_agent", None)
+        if planner is None:
+            return JSONResponse({"suggestion": None, "reason": "planner_not_initialized"})
+        suggested = planner.suggest()
+        if suggested is None:
+            return JSONResponse({"suggestion": None, "reason": "no_gpr_fitted"})
+        return JSONResponse({"suggestion": suggested})
 
     # ------------------------------------------------------------------
     # Static files (React SPA) — mounted last so API routes take priority

@@ -143,3 +143,20 @@ def test_ws_agent_events_receives_emitted_event(client):
         parsed = json.loads(msg)
         assert parsed["type"] == "test_event"
         assert parsed["source"] == "Test"
+
+
+def test_calibration_add_point_returns_200(client):
+    resp = client.post("/api/calibration/add-point", json={
+        "concentration": 0.5,
+        "delta_lambda": -2.5,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["concentration"] == 0.5
+
+
+def test_calibration_suggest_returns_200(client):
+    resp = client.post("/api/calibration/suggest")
+    assert resp.status_code == 200
+    # No GPR fitted yet → suggestion is null
+    data = resp.json()
+    assert "suggestion" in data
