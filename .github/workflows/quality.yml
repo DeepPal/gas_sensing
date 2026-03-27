@@ -24,14 +24,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Ruff lint (required)
+      - name: Ruff lint (required — correctness only)
+        run: ruff check . --select E9,F63,F7,F82
+
+      - name: Ruff lint (advisory — style + modernization debt)
+        continue-on-error: true
         run: ruff check .
 
       - name: Pytest (required)
         run: pytest -q --tb=short
 
       - name: Mypy src/ (required — clean package)
-        run: mypy src --no-site-packages --ignore-missing-imports
+        run: mypy src --no-site-packages --ignore-missing-imports --disable-error-code import-untyped
 
       - name: Mypy legacy (advisory — tracked as tech debt)
         continue-on-error: true

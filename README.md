@@ -155,6 +155,26 @@ pip install pyvisa pyvisa-py   # VISA backend
 
 ## Usage
 
+### Runtime Paths
+
+This repository currently contains both a newer `spectraagent` runtime and older
+research/legacy entrypoints.
+
+Use these paths intentionally:
+
+- `python -m spectraagent start --simulate --no-browser`
+  Recommended for the newer FastAPI + agentic runtime. This is the primary
+  production-oriented path for current runtime hardening, session persistence,
+  WebSocket streaming, and Claude/agent integration.
+- `.venv/Scripts/python.exe -m streamlit run dashboard/app.py`
+  Recommended for the existing researcher-facing Streamlit dashboard workflow.
+- `python run.py --mode ...`
+  Legacy/compatibility CLI for older batch and sensor flows. Still useful, but
+  not the main target of current runtime modernization work.
+
+When adding new runtime features, prefer the `spectraagent` FastAPI/CLI stack
+unless the change is explicitly for the legacy dashboard or historical pipeline.
+
 ### 1. Interactive Dashboard
 
 The recommended entry point for researchers:
@@ -360,6 +380,11 @@ pytest -v --tb=short          # verbose with short tracebacks
 
 > **Note**: 18 tests are skipped when `onnx`/`onnxruntime` are not installed — this is intentional.
 > Install with `pip install onnx onnxruntime` to activate them.
+
+> **Important (pytest import mode)**: this project uses `--import-mode=importlib`.
+> Do **not** add `__init__.py` files under `tests/` package paths that mirror
+> real source package names (e.g. `tests/spectraagent/__init__.py`), because
+> they can shadow runtime packages during collection.
 
 ### Local quality gate (mirrors CI)
 

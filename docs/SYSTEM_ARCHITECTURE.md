@@ -21,6 +21,30 @@ This document describes the architecture of a novel autonomous agent system for 
 
 ---
 
+## Runtime Status (2026-03)
+
+The repository currently includes multiple generations of runtime paths. To
+reduce ambiguity, use the following interpretation when implementing new
+runtime behavior:
+
+- **Primary hardened runtime path**:
+  `python -m spectraagent start [--simulate --no-browser --port ...]`
+  This path owns current work on lifecycle hardening, session persistence,
+  FastAPI routes/WebSockets, and agent-bus integration.
+- **Research dashboard path**:
+  `streamlit run dashboard/app.py`
+  Keep this for researcher-facing workflows and UI-driven experimentation.
+- **Legacy compatibility path**:
+  `python run.py --mode ...`
+  Maintain for backward compatibility unless explicitly refactoring legacy flow.
+
+When adding new runtime infrastructure (startup/shutdown behavior, state
+management, persistence, API changes), prefer the `spectraagent` runtime path
+unless the change is specifically scoped to legacy scripts or dashboard-only
+behavior.
+
+---
+
 ## 1. System Overview
 
 ```
