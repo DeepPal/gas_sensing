@@ -85,6 +85,14 @@ class AskRequest(BaseModel):
     query: str = Field(..., max_length=2000)
 
 
+class ReportRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+
+
+class AgentSettings(BaseModel):
+    auto_explain: bool
+
+
 # Module-level AgentBus singleton (created once per process, shared across requests)
 _agent_bus = AgentBus()
 
@@ -354,6 +362,55 @@ def create_app(simulate: bool = False) -> FastAPI:
         if data is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return JSONResponse(data)
+
+    # ------------------------------------------------------------------
+    # Reports API — generate prose report for a completed session
+    # ------------------------------------------------------------------
+
+    @app.post("/api/reports/generate")
+    async def reports_generate(request: ReportRequest) -> JSONResponse:
+        """Call ReportWriter to generate a Methods+Results prose report.
+
+        Returns ``{"report": "<text>", "session_id": "<id>"}`` on success.
+        Returns 503 when ReportWriter is not available or Claude is unreachable.
+        """
+        writer = getattr(app.state, "report_writer", None)
+        if writer is None:
+            raise HTTPException(status_code=503, detail="ReportWriter not available")
+
+        # Build context from session data if available
+        sw = getattr(app.state, "session_writer", None)
+        context: dict = {"session_id": request.session_id}
+        if sw is not None:
+            session_data = sw.get_session(request.session_id)
+            if session_data is not None:
+                context.update(session_data)
+
+        text = await writer.write(context)
+        if text is None:
+            raise HTTPException(
+                status_code=503, detail="Claude unavailable: set ANTHROPIC_API_KEY"
+            )
+        return JSONResponse({"report": text, "session_id": request.session_id})
+
+    # ------------------------------------------------------------------
+    # Agent settings — runtime toggle for auto-explain
+    # ------------------------------------------------------------------
+
+    @app.put("/api/agents/settings")
+    def agents_settings(settings: AgentSettings) -> JSONResponse:
+        """Toggle auto_explain for AnomalyExplainer and ExperimentNarrator.
+
+        Graceful: if agents are not yet created (no API key configured),
+        the request still returns 200 — there is nothing to toggle.
+        """
+        anomaly = getattr(app.state, "anomaly_explainer", None)
+        narrator = getattr(app.state, "experiment_narrator", None)
+        if anomaly is not None:
+            anomaly.set_auto_explain(settings.auto_explain)
+        if narrator is not None:
+            narrator.set_auto_explain(settings.auto_explain)
+        return JSONResponse({"auto_explain": settings.auto_explain})
 
     # ------------------------------------------------------------------
     # Claude API — free-text query with SSE streaming response

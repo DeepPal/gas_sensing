@@ -266,3 +266,51 @@ def test_acquisition_start_stop_creates_session(client, tmp_path):
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["stopped_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 3: /api/reports/generate and /api/agents/settings
+# ---------------------------------------------------------------------------
+
+
+def test_reports_generate_requires_session_id(client):
+    """POST /api/reports/generate without session_id returns 422."""
+    resp = client.post("/api/reports/generate", json={})
+    assert resp.status_code == 422
+
+
+def test_reports_generate_no_writer_returns_503(client):
+    """POST /api/reports/generate returns 503 when ReportWriter is not on app.state."""
+    client.app.state.report_writer = None  # explicitly clear
+    resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
+    assert resp.status_code == 503
+    assert "ReportWriter" in resp.json()["detail"]
+
+
+def test_reports_generate_claude_unavailable_returns_503(client):
+    """POST /api/reports/generate returns 503 when writer.write() returns None."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_writer = MagicMock()
+    mock_writer.write = AsyncMock(return_value=None)
+    client.app.state.report_writer = mock_writer
+
+    resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
+    assert resp.status_code == 503
+    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
+
+    # Clean up
+    client.app.state.report_writer = None
+
+
+def test_agents_settings_returns_200(client):
+    """PUT /api/agents/settings returns 200 with echoed auto_explain value."""
+    resp = client.put("/api/agents/settings", json={"auto_explain": True})
+    assert resp.status_code == 200
+    assert resp.json()["auto_explain"] is True
+
+
+def test_agents_settings_requires_auto_explain(client):
+    """PUT /api/agents/settings without auto_explain returns 422."""
+    resp = client.put("/api/agents/settings", json={})
+    assert resp.status_code == 422
