@@ -18,7 +18,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import IO, Optional
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class AgentBus:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._subscribers: list[asyncio.Queue] = []
         self._jsonl_path: Optional[Path] = jsonl_path
-        self._jsonl_file = None  # opened lazily on first write
+        self._jsonl_file: Optional[IO[str]] = None  # opened lazily on first write
 
     def setup_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Call once from the asyncio event loop thread (e.g. FastAPI startup)."""
