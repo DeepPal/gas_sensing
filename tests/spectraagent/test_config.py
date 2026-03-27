@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from spectraagent.config import SpectraAgentConfig, load_config
+from typer.testing import CliRunner
+from spectraagent.__main__ import cli
 
 
 def test_defaults_when_no_file(tmp_path):
@@ -33,3 +35,17 @@ def test_physics_defaults(tmp_path):
     assert cfg.physics.default_plugin == "lspr"
     assert cfg.physics.search_min_nm == 500.0
     assert cfg.physics.search_max_nm == 900.0
+
+
+def test_plugins_list_shows_simulation():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["plugins", "list"])
+    assert result.exit_code == 0
+    assert "simulation" in result.output.lower()
+
+
+def test_plugins_list_shows_lspr():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["plugins", "list"])
+    assert result.exit_code == 0
+    assert "lspr" in result.output.lower()

@@ -1,6 +1,8 @@
 """spectraagent.__main__ — CLI entry point (Typer)."""
 from __future__ import annotations
 
+from importlib.metadata import entry_points as _entry_points
+
 import typer
 
 cli = typer.Typer(
@@ -26,8 +28,30 @@ def start(
 def plugins_cmd(
     action: str = typer.Argument("list", help="Action: list"),
 ) -> None:
-    """Show discovered plugins."""
-    typer.echo("spectraagent plugins — not yet implemented (Task 6)")
+    """Show discovered plugins and their status."""
+    if action != "list":
+        typer.echo(f"Unknown action: {action}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("\nHardware Drivers:")
+    hw_eps = _entry_points(group="spectraagent.hardware")
+    for ep in hw_eps:
+        try:
+            ep.load()
+            status = "✓ loadable"
+        except Exception as exc:
+            status = f"✗ {exc}"
+        typer.echo(f"  [{ep.name}]  {ep.value}  —  {status}")
+
+    typer.echo("\nSensor Physics Plugins:")
+    ph_eps = _entry_points(group="spectraagent.sensor_physics")
+    for ep in ph_eps:
+        try:
+            ep.load()
+            status = "✓ loadable"
+        except Exception as exc:
+            status = f"✗ {exc}"
+        typer.echo(f"  [{ep.name}]  {ep.value}  —  {status}")
 
 
 if __name__ == "__main__":
