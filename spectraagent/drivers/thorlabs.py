@@ -64,7 +64,9 @@ class ThorlabsCCSDriver(AbstractHardwareDriver):
     def connect(self) -> None:
         """Connect to CCS200 and start the acquisition thread."""
         self._svc.connect()
-        self._wavelengths = self._svc.wavelengths.copy()
+        wl = self._svc.wavelengths
+        assert wl is not None, "RealtimeAcquisitionService.wavelengths is None after connect()"
+        self._wavelengths = wl.copy()
         self._svc.register_callback(self._on_sample)
         self._svc.start()
         self._connected = True

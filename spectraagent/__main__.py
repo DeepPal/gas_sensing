@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import logging
 from importlib.metadata import entry_points as entry_points
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import typer
 
+from spectraagent.drivers.base import AbstractHardwareDriver
+from spectraagent.physics.base import AbstractSensorPhysicsPlugin
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
-    from spectraagent.drivers.base import AbstractHardwareDriver
-    from spectraagent.physics.base import AbstractSensorPhysicsPlugin
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _load_driver(simulate: bool, cfg) -> AbstractHardwareDriver:
     from spectraagent.drivers.simulation import SimulationDriver
 
     if simulate:
-        drv = SimulationDriver(integration_time_ms=cfg.hardware.integration_time_ms)
+        drv: AbstractHardwareDriver = SimulationDriver(integration_time_ms=cfg.hardware.integration_time_ms)
         drv.connect()
         return drv
 
@@ -48,7 +49,7 @@ def _load_driver(simulate: bool, cfg) -> AbstractHardwareDriver:
 
     try:
         cls = hw_eps[driver_name].load()
-        drv = cls(integration_time_ms=cfg.hardware.integration_time_ms)
+        drv = cls(integration_time_ms=cfg.hardware.integration_time_ms)  # type: ignore[assignment]
         drv.connect()
         return drv
     except Exception as exc:
@@ -73,7 +74,7 @@ def _load_physics_plugin(name: str) -> AbstractSensorPhysicsPlugin:
         raise typer.BadParameter(
             f"Physics plugin '{name}' not found. Run 'spectraagent plugins list'."
         )
-    return ph_eps[name].load()()
+    return cast(AbstractSensorPhysicsPlugin, ph_eps[name].load()())
 
 
 # ---------------------------------------------------------------------------

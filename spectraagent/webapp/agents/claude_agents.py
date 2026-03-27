@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +81,9 @@ class _BaseClaude:
         self._AgentEvent = AgentEvent
         self._client: Optional[Any] = None
 
+    async def on_event(self, event: Any) -> None:  # noqa: B027 — intentional no-op base
+        """Handle an AgentBus event. Subclasses override to react to specific types."""
+
     async def _call(self, prompt: str) -> Optional[str]:
         """Call Claude with the given prompt. Returns text or None.
 
@@ -108,7 +111,7 @@ class _BaseClaude:
                 ),
                 timeout=self._timeout_s,
             )
-            return msg.content[0].text
+            return cast(str, msg.content[0].text)  # type: ignore[union-attr]
         except asyncio.TimeoutError:
             log.warning("%s: Claude API timed out after %.1fs", self.source, self._timeout_s)
             self._bus.emit(self._AgentEvent(
@@ -166,7 +169,7 @@ class AnomalyExplainer(_BaseClaude):
         super().__init__(bus, model, timeout_s)
         self._cooldown_s = cooldown_s
         self._auto_explain = auto_explain
-        self._last_called: float = 0.0
+        self._last_called: float = float("-inf")  # "never called" → first call always fires
 
     def set_auto_explain(self, enabled: bool) -> None:
         """Toggle auto-explain at runtime (e.g. when user changes settings)."""
@@ -375,7 +378,7 @@ class DiagnosticsAgent(_BaseClaude):
 
         code = str(event.data.get("error_code", "unknown"))
         now = time.monotonic()
-        if now - self._last_called.get(code, 0.0) < self._cooldown_s:
+        if now - self._last_called.get(code, float("-inf")) < self._cooldown_s:
             return
         self._last_called[code] = now
 
@@ -457,6 +460,7 @@ class ClaudeAgentRunner:
     async def _run(self) -> None:
         """Main dispatch loop. Runs until cancelled."""
         q = self._q  # local ref; immune to stop() clearing self._q
+        assert q is not None, "_run() called before start()"
         while True:
             try:
                 event = await q.get()
