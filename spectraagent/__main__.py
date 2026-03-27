@@ -202,10 +202,54 @@ def start(
     app.state.planner_agent = ExperimentPlannerAgent(agent_bus)
     typer.echo("Agents ready: Quality, Drift, Calibration, Planner")
 
+    # Step 5b: Create Claude API agents
+    from spectraagent.webapp.agents.claude_agents import (
+        AnomalyExplainer,
+        ClaudeAgentRunner,
+        DiagnosticsAgent,
+        ExperimentNarrator,
+        ReportWriter,
+    )
+
+    app.state.anomaly_explainer = AnomalyExplainer(
+        agent_bus,
+        model=cfg.claude.model,
+        timeout_s=cfg.claude.timeout_s,
+        cooldown_s=cfg.agents.anomaly_explainer_cooldown_s,
+        auto_explain=cfg.agents.auto_explain,
+    )
+    app.state.experiment_narrator = ExperimentNarrator(
+        agent_bus,
+        model=cfg.claude.model,
+        timeout_s=cfg.claude.timeout_s,
+        auto_explain=cfg.agents.auto_explain,
+    )
+    app.state.diagnostics_agent = DiagnosticsAgent(
+        agent_bus,
+        model=cfg.claude.model,
+        timeout_s=cfg.claude.timeout_s,
+        cooldown_s=cfg.agents.diagnostics_cooldown_s,
+    )
+    app.state.report_writer = ReportWriter(
+        agent_bus,
+        model=cfg.claude.model,
+        timeout_s=cfg.claude.timeout_s,
+    )
+    app.state.claude_runner = ClaudeAgentRunner(
+        agent_bus,
+        anomaly_explainer=app.state.anomaly_explainer,
+        experiment_narrator=app.state.experiment_narrator,
+        diagnostics_agent=app.state.diagnostics_agent,
+    )
+    typer.echo(
+        "Claude agents ready: AnomalyExplainer, ExperimentNarrator, "
+        "DiagnosticsAgent, ReportWriter"
+    )
+
     # Step 5: Start acquisition thread after AgentBus is wired (deferred to startup event)
     @app.on_event("startup")
     async def _start_acquisition_loop() -> None:
-        """Start acquisition AFTER setup_loop() fires so AgentBus is ready."""
+        """Start acquisition and Claude runner AFTER setup_loop() fires."""
         acq_thread = threading.Thread(
             target=_acquisition_loop,
             args=(driver, app),
@@ -214,6 +258,12 @@ def start(
         )
         acq_thread.start()
         typer.echo("Acquisition loop started")
+
+        # Start Claude agent runner (requires live event loop)
+        claude_runner = getattr(app.state, "claude_runner", None)
+        if claude_runner is not None:
+            claude_runner.start()
+            typer.echo("Claude agent runner started")
 
     # Step 6: Open browser
     if not no_browser and cfg.server.open_browser:
