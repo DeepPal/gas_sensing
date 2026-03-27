@@ -107,3 +107,39 @@ def test_acquisition_stop(client):
 def test_acquisition_reference_requires_running(client):
     resp = client.post("/api/acquisition/reference")
     assert resp.status_code in (200, 400)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: /ws/agent-events WebSocket
+# ---------------------------------------------------------------------------
+
+from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
+
+
+def test_ws_agent_events_connects(client):
+    """WebSocket /ws/agent-events accepts connections without error."""
+    with client.websocket_connect("/ws/agent-events") as ws:
+        pass  # connecting and cleanly disconnecting = success
+
+
+def test_ws_agent_events_receives_emitted_event(client):
+    """Event emitted to AgentBus is delivered to connected WS client."""
+    import json
+
+    app = client.app
+    agent_bus: AgentBus = app.state.agent_bus
+    assert agent_bus is not None, "AgentBus must be initialised by create_app()"
+
+    with client.websocket_connect("/ws/agent-events") as ws:
+        # Emit an event directly from test (bus.setup_loop already called by startup)
+        agent_bus.emit(AgentEvent(
+            source="Test",
+            level="info",
+            type="test_event",
+            data={"x": 1},
+            text="hello from test",
+        ))
+        msg = ws.receive_text()
+        parsed = json.loads(msg)
+        assert parsed["type"] == "test_event"
+        assert parsed["source"] == "Test"

@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import spectraagent
+from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,10 @@ class AcquisitionConfig(BaseModel):
     target_concentration: float | None = None
 
 
+# Module-level AgentBus singleton (created once per process, shared across requests)
+_agent_bus = AgentBus()
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -107,6 +112,14 @@ def create_app(simulate: bool = False) -> FastAPI:
     app.state.plugin = None
     app.state.reference = None
     app.state.cached_ref = None
+
+    # Store AgentBus on app.state so tests and other modules can reach it
+    app.state.agent_bus = _agent_bus
+
+    @app.on_event("startup")
+    async def _startup() -> None:
+        """Wire AgentBus to the running event loop once uvicorn starts."""
+        _agent_bus.setup_loop(asyncio.get_running_loop())
 
     # ------------------------------------------------------------------
     # Health endpoint
@@ -155,6 +168,23 @@ def create_app(simulate: bool = False) -> FastAPI:
     # Store broadcasters on app.state so acquisition loop can reach them
     app.state.spectrum_bc = _spectrum_bc
     app.state.trend_bc = _trend_bc
+
+    # ------------------------------------------------------------------
+    # WebSocket: /ws/agent-events — streams AgentEvent JSON to clients
+    # ------------------------------------------------------------------
+
+    @app.websocket("/ws/agent-events")
+    async def ws_agent_events(websocket: WebSocket) -> None:
+        await websocket.accept()
+        q = _agent_bus.subscribe()
+        try:
+            while True:
+                event = await q.get()
+                await websocket.send_text(event.to_json())
+        except WebSocketDisconnect:
+            pass
+        finally:
+            _agent_bus.unsubscribe(q)
 
     # ------------------------------------------------------------------
     # Acquisition API
