@@ -44,6 +44,8 @@ class ExperimentPlannerAgent:
         max_conc: float = 10.0,
         n_candidates: int = _N_CANDIDATES,
     ) -> None:
+        if min_conc >= max_conc:
+            raise ValueError(f"min_conc ({min_conc}) must be less than max_conc ({max_conc})")
         self._bus = bus
         self._min_conc = min_conc
         self._max_conc = max_conc

@@ -14,6 +14,7 @@ Emits a ``model_selected`` event after each calibration data point once
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -22,6 +23,11 @@ from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 log = logging.getLogger(__name__)
 
 _MIN_POINTS: int = 4   # minimum before fitting is meaningful
+
+try:
+    from src.calibration.isotherms import select_isotherm as _select_isotherm
+except ImportError:
+    _select_isotherm = None  # type: ignore[assignment]
 
 
 class CalibrationAgent:
@@ -40,6 +46,7 @@ class CalibrationAgent:
         self._min_points = min_points
         self._concentrations: list[float] = []
         self._delta_lambdas: list[float] = []
+        self._lock = threading.Lock()
 
     def add_point(self, concentration: float, delta_lambda: float) -> None:
         """Add a calibration point and refit if enough data.
@@ -51,25 +58,29 @@ class CalibrationAgent:
         delta_lambda:
             Measured LSPR peak shift in nm (typically negative on adsorption).
         """
-        self._concentrations.append(float(concentration))
-        self._delta_lambdas.append(float(delta_lambda))
+        with self._lock:
+            self._concentrations.append(float(concentration))
+            self._delta_lambdas.append(float(delta_lambda))
+            if len(self._concentrations) < self._min_points:
+                return
+            c = np.array(self._concentrations)
+            r = np.array(self._delta_lambdas)
 
-        if len(self._concentrations) < self._min_points:
-            return
-
-        c = np.array(self._concentrations)
-        r = np.array(self._delta_lambdas)
         n = len(c)
 
-        try:
-            from src.calibration.isotherms import select_isotherm
+        if _select_isotherm is None:
+            log.warning("CalibrationAgent: src.calibration.isotherms not available; skipping fit")
+            return
 
-            result = select_isotherm(c, r)
+        try:
+            result = _select_isotherm(c, r)
             best_model: str = str(result["best_model"])
             best_result = result["best_result"]
+            if not hasattr(best_result, "aic") or not hasattr(best_result, "r_squared"):
+                log.warning("CalibrationAgent: best_result has no .aic/.r_squared: %r", best_result)
+                return
             best_aic: float = float(best_result.aic)
             r_squared: float = float(best_result.r_squared)
-
             self._bus.emit(AgentEvent(
                 source="CalibrationAgent",
                 level="info",
@@ -89,15 +100,17 @@ class CalibrationAgent:
                     f"(AICc={best_aic:.2f}, R²={r_squared:.4f})"
                 ),
             ))
-        except Exception as exc:
+        except (RuntimeError, ValueError, TypeError) as exc:
             log.warning("CalibrationAgent: fit failed: %s", exc)
 
     def clear(self) -> None:
         """Reset calibration data (call at new session start)."""
-        self._concentrations.clear()
-        self._delta_lambdas.clear()
+        with self._lock:
+            self._concentrations.clear()
+            self._delta_lambdas.clear()
 
     @property
     def data(self) -> tuple[list[float], list[float]]:
         """Return (concentrations, delta_lambdas) accumulated so far."""
-        return list(self._concentrations), list(self._delta_lambdas)
+        with self._lock:
+            return list(self._concentrations), list(self._delta_lambdas)
