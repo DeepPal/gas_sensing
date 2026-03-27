@@ -169,10 +169,11 @@ def test_calibration_suggest_returns_200(client):
 
 
 def test_agents_ask_endpoint_exists(client):
-    """POST /api/agents/ask exists (not 404/405)."""
-    resp = client.post("/api/agents/ask", json={"query": "What is happening?"})
-    assert resp.status_code not in (404, 405), (
-        f"Expected endpoint to exist, got {resp.status_code}"
+    """POST /api/agents/ask exists and returns 200."""
+    with patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+        resp = client.post("/api/agents/ask", json={"query": "What is happening?"})
+    assert resp.status_code == 200, (
+        f"Expected 200, got {resp.status_code}"
     )
 
 

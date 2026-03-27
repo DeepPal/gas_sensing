@@ -166,7 +166,18 @@ def create_app(simulate: bool = False) -> FastAPI:
             finally:
                 _agent_bus.unsubscribe(q)
 
-        asyncio.ensure_future(_log_events())
+        app.state.log_events_task = asyncio.ensure_future(_log_events())
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        """Cancel the event-logging background task on shutdown."""
+        task = getattr(app.state, "log_events_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     # ------------------------------------------------------------------
     # Health endpoint
