@@ -303,6 +303,25 @@ def test_reports_generate_claude_unavailable_returns_503(client):
     client.app.state.report_writer = None
 
 
+def test_reports_generate_success_returns_200(client):
+    """POST /api/reports/generate returns 200 with {report, session_id} when write() succeeds."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_writer = MagicMock()
+    mock_writer.write = AsyncMock(return_value="Methods: Au-MIP LSPR sensor...")
+    client.app.state.report_writer = mock_writer
+
+    resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session_id"] == "20260327_120000"
+    assert "report" in data
+    assert isinstance(data["report"], str)
+
+    # Clean up
+    client.app.state.report_writer = None
+
+
 def test_agents_settings_returns_200(client):
     """PUT /api/agents/settings returns 200 with echoed auto_explain value."""
     resp = client.put("/api/agents/settings", json={"auto_explain": True})
