@@ -103,6 +103,18 @@ except Exception as _exc:
         log.error("signal_proc unavailable: %s", _exc2)
 
 # ---------------------------------------------------------------------------
+# Live server — start once per process before any Streamlit calls
+# ---------------------------------------------------------------------------
+_LIVE_SERVER_PORT = 5006
+
+try:
+    from dashboard.live_server import start_live_server as _start_live_server
+
+    _start_live_server(port=_LIVE_SERVER_PORT)
+except Exception as _exc:
+    log.warning("Live server could not start (live view will be unavailable): %s", _exc)
+
+# ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
 # ---------------------------------------------------------------------------
 st.set_page_config(
@@ -1133,7 +1145,7 @@ with tab_live:
     try:
         from dashboard.sensor_dashboard import render as _render_live  # type: ignore[import]
 
-        _render_live()
+        _render_live(live_server_port=_LIVE_SERVER_PORT)
     except ImportError as exc:
         st.error(f"Live sensor module not available: {exc}")
         log.warning("sensor_dashboard import failed: %s", exc)
