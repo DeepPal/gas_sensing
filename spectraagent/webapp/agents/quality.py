@@ -37,11 +37,15 @@ def _compute_snr(wavelengths: np.ndarray, intensities: np.ndarray) -> float:
     peaks (SNR >> 3) from featureless noise frames (SNR < 3) where the
     apparent "peak" is merely a statistical extreme of the noise distribution.
     """
+    if len(intensities) == 0:
+        return 0.0
+    if len(intensities) < 4:
+        return 0.0
     n = len(intensities)
-    margin = max(n // 20, 10)
+    margin = min(max(n // 20, 10), n // 4)
     noise = np.concatenate([intensities[:margin], intensities[-margin:]])
     noise_amplitude = float(np.mean(noise)) + float(np.std(noise))
-    if noise_amplitude < 1e-9:
+    if not (noise_amplitude > 1e-9):
         noise_amplitude = 1e-9
     return float(np.max(intensities)) / noise_amplitude
 
@@ -111,7 +115,7 @@ class QualityAgent:
                 data={
                     "frame": frame_num,
                     "snr": round(snr, 2),
-                    "saturation_pct": 0.0,
+                    "saturation_pct": round(sat_pct, 2),
                     "quality": "low_snr",
                 },
                 text=(

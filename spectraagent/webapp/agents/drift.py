@@ -45,6 +45,8 @@ class DriftAgent:
         window_frames: int = _WINDOW_FRAMES,
         drift_threshold_nm_per_min: float = _DRIFT_THRESHOLD_NM_PER_MIN,
     ) -> None:
+        if integration_time_ms <= 0:
+            raise ValueError(f"integration_time_ms must be > 0, got {integration_time_ms}")
         self._bus = bus
         self._window = window_frames
         self._threshold = drift_threshold_nm_per_min
@@ -93,7 +95,8 @@ class DriftAgent:
                 ),
             ))
             if handle is not None:
-                # Track so reset() can cancel delivery before the loop tick.
+                # Prune already-cancelled handles before appending, to prevent unbounded growth.
+                self._pending = [h for h in self._pending if not h.cancelled()]
                 self._pending.append(handle)
 
     def reset(self) -> None:
