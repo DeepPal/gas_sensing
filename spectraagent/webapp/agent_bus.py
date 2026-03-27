@@ -94,11 +94,16 @@ class AgentBus:
             self._jsonl_file = None
         self._jsonl_path = path
 
-    def emit(self, event: AgentEvent) -> None:
-        """Emit an event from any thread. No-op if setup_loop() not yet called."""
+    def emit(self, event: AgentEvent) -> Optional["asyncio.Handle"]:
+        """Emit an event from any thread. No-op if setup_loop() not yet called.
+
+        Returns the asyncio Handle for the scheduled fanout callback, or None
+        if the bus has no event loop attached.  Callers may call
+        ``handle.cancel()`` to suppress delivery before the next loop tick.
+        """
         if self._loop is None:
-            return
-        self._loop.call_soon_threadsafe(self._fanout, event)
+            return None
+        return self._loop.call_soon_threadsafe(self._fanout, event)
 
     def subscribe(self) -> asyncio.Queue:
         """Register a new WebSocket client. Returns its dedicated queue."""
