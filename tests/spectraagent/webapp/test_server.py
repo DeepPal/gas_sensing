@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -160,3 +161,66 @@ def test_calibration_suggest_returns_200(client):
     # No GPR fitted yet → suggestion is null
     data = resp.json()
     assert "suggestion" in data
+
+
+# ---------------------------------------------------------------------------
+# Task 3: /api/agents/ask SSE endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_agents_ask_endpoint_exists(client):
+    """POST /api/agents/ask exists (not 404/405)."""
+    resp = client.post("/api/agents/ask", json={"query": "What is happening?"})
+    assert resp.status_code not in (404, 405), (
+        f"Expected endpoint to exist, got {resp.status_code}"
+    )
+
+
+def test_agents_ask_no_api_key_returns_200_with_sse(client):
+    """Without API key, /api/agents/ask returns 200 text/event-stream with unavailable message."""
+    import os
+
+    saved_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        with patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+            resp = client.post("/api/agents/ask", json={"query": "What is happening?"})
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+        # Response body must contain an SSE frame with unavailable indication
+        body = resp.text
+        assert "data:" in body
+        assert "unavailable" in body.lower() or "ANTHROPIC" in body
+    finally:
+        if saved_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = saved_key
+
+
+def test_agents_ask_requires_query_field(client):
+    """Missing 'query' field returns 422 Unprocessable Entity."""
+    resp = client.post("/api/agents/ask", json={})
+    assert resp.status_code == 422
+
+
+def test_agents_ask_empty_query_returns_200(client):
+    """Empty string query is technically valid — endpoint handles it."""
+    with patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+        resp = client.post("/api/agents/ask", json={"query": ""})
+    assert resp.status_code == 200
+
+
+def test_agents_ask_sse_format_done_true(client):
+    """Response must include a final SSE frame with done=true."""
+    import json as _json
+
+    with patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+        resp = client.post("/api/agents/ask", json={"query": "test"})
+
+    # Parse SSE frames
+    frames = [
+        line[len("data: "):]
+        for line in resp.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert len(frames) >= 1, "Expected at least one SSE data frame"
+    last_frame = _json.loads(frames[-1])
+    assert last_frame.get("done") is True, f"Last frame must have done=true, got: {last_frame}"

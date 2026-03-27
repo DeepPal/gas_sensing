@@ -18,7 +18,9 @@ from typing import Any
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from collections import deque
+
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -78,8 +80,32 @@ class CalibrationPoint(BaseModel):
     delta_lambda: float
 
 
+class AskRequest(BaseModel):
+    query: str
+
+
 # Module-level AgentBus singleton (created once per process, shared across requests)
 _agent_bus = AgentBus()
+
+_ASK_MODEL = "claude-sonnet-4-6"
+
+
+def _get_ask_client():
+    """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
+
+    Module-level so tests can patch it:
+        with patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+            ...
+    """
+    import os
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        return anthropic.AsyncAnthropic(api_key=api_key)
+    except ImportError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +146,27 @@ def create_app(simulate: bool = False) -> FastAPI:
 
     # Store AgentBus on app.state so tests and other modules can reach it
     app.state.agent_bus = _agent_bus
+    # Bounded event log for /api/agents/ask context (last 200 events)
+    app.state.agent_events_log = deque(maxlen=200)
 
     @app.on_event("startup")
     async def _startup() -> None:
         """Wire AgentBus to the running event loop once uvicorn starts."""
         _agent_bus.setup_loop(asyncio.get_running_loop())
+
+        # Start background task that populates agent_events_log for ask context
+        async def _log_events() -> None:
+            q = _agent_bus.subscribe()
+            try:
+                while True:
+                    event = await q.get()
+                    app.state.agent_events_log.append(event.to_dict())
+            except asyncio.CancelledError:
+                pass
+            finally:
+                _agent_bus.unsubscribe(q)
+
+        asyncio.ensure_future(_log_events())
 
     # ------------------------------------------------------------------
     # Health endpoint
@@ -260,6 +302,60 @@ def create_app(simulate: bool = False) -> FastAPI:
         if suggested is None:
             return JSONResponse({"suggestion": None, "reason": "no_gpr_fitted"})
         return JSONResponse({"suggestion": suggested})
+
+    # ------------------------------------------------------------------
+    # Claude API — free-text query with SSE streaming response
+    # ------------------------------------------------------------------
+
+    @app.post("/api/agents/ask")
+    async def agents_ask(request: AskRequest) -> StreamingResponse:
+        """Stream a Claude response to a free-text query about the current session.
+
+        Returns Server-Sent Events (SSE) with content-type text/event-stream.
+        Each chunk: ``data: {"text": "...", "done": false}\\n\\n``
+        Final frame: ``data: {"done": true}\\n\\n``
+        """
+        query = request.query
+        events_log = list(app.state.agent_events_log)
+        context = {
+            "query": query,
+            "last_20_agent_events": events_log[-20:],
+        }
+
+        async def _generate():
+            client = _get_ask_client()
+            if client is None:
+                yield (
+                    f'data: {json.dumps({"text": "Claude unavailable: set ANTHROPIC_API_KEY", "done": False})}\n\n'
+                )
+                yield f'data: {json.dumps({"done": True})}\n\n'
+                return
+
+            prompt = (
+                f"You are a spectroscopy AI assistant. "
+                f"Context about the current session:\n"
+                f"{json.dumps(context, indent=2, default=str)}\n\n"
+                f"User question: {query}\n\n"
+                f"Respond concisely and accurately. "
+                f"Only reference data that appears in the context."
+            )
+            try:
+                async with client.messages.stream(
+                    model=_ASK_MODEL,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                ) as stream:
+                    async for chunk in stream.text_stream:
+                        yield f'data: {json.dumps({"text": chunk, "done": False})}\n\n'
+            except Exception as exc:
+                log.warning("agents_ask: Claude streaming error: %s", exc)
+                yield (
+                    f'data: {json.dumps({"text": f"Error: {exc}", "done": False})}\n\n'
+                )
+            finally:
+                yield f'data: {json.dumps({"done": True})}\n\n'
+
+        return StreamingResponse(_generate(), media_type="text/event-stream")
 
     # ------------------------------------------------------------------
     # Static files (React SPA) — mounted last so API routes take priority
