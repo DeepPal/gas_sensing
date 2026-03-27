@@ -22,6 +22,11 @@ roi_scan
 
 from src.calibration.gpr import GPRCalibration
 from src.calibration.multi_roi import fit_multi_roi_fusion, select_multi_roi_candidates
+from src.calibration.physics_kernel import (
+    LangmuirMeanFunction,
+    PhysicsInformedGPR,
+    fit_langmuir_params,
+)
 from src.calibration.roi_scan import (
     RoiScanConfig,
     compute_concentration_response,
@@ -31,6 +36,9 @@ from src.calibration.transforms import transform_concentrations
 
 __all__ = [
     "GPRCalibration",
+    "LangmuirMeanFunction",
+    "PhysicsInformedGPR",
+    "fit_langmuir_params",
     "transform_concentrations",
     "select_multi_roi_candidates",
     "fit_multi_roi_fusion",

@@ -59,3 +59,5 @@ def test_physics_informed_gpr_drop_in_for_gpr_calibration():
     # Must be 1-D arrays of length 1
     assert mean.ndim == 1 and std.ndim == 1
     assert mean.shape == std.shape
+    # A shift of -1.5 nm corresponds to a positive concentration
+    assert mean[0] > 0.0, f"Expected positive concentration for Δλ=-1.5 nm, got {mean[0]}"

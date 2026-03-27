@@ -16,8 +16,6 @@ Public API
 """
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -98,8 +96,16 @@ def fit_langmuir_params(
 class PhysicsInformedGPR:
     """Drop-in replacement for GPRCalibration that uses a Langmuir prior mean.
 
-    The GP models *residuals* from the Langmuir isotherm, so it only has to
-    learn the deviation from the physically motivated trend.
+    Two operating modes, detected automatically from training data:
+
+    * ``_fit_on_shifts=True``  (X=shifts, y=concentrations):
+      Plain GP trained directly on (shifts → concentrations).  No Langmuir
+      residual subtraction — the Langmuir parameters are still fitted for
+      potential forward-direction diagnostics, but the GP sees raw targets.
+
+    * ``_fit_on_shifts=False`` (X=concentrations, y=shifts):
+      GP trained on Langmuir residuals: y_fit = shifts − Langmuir(concs).
+      ``predict()`` adds the Langmuir mean back to GP output.
 
     Usage (same contract as GPRCalibration)
     ----------------------------------------
@@ -124,11 +130,18 @@ class PhysicsInformedGPR:
         # Track input mode: fit on (shifts → ppm) or (ppm → shifts)
         self._fit_on_shifts: bool = True
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "PhysicsInformedGPR":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> dict[str, object]:
         """Fit the physics-informed GPR.
 
+        Parameters
+        ----------
         X : (n, 1) — feature column (Δλ shifts or concentrations)
         y : (n,)   — targets
+
+        Returns
+        -------
+        dict with keys ``log_marginal_likelihood``, ``kernel_params``,
+        ``n_samples`` — same contract as ``GPRCalibration.fit()``.
         """
         X_2d = np.atleast_2d(X)
         y_1d = np.ravel(y)
@@ -136,9 +149,9 @@ class PhysicsInformedGPR:
         # Detect if X is shifts (median <= 0) or concentrations (median > 0)
         self._fit_on_shifts = bool(np.median(X_2d.ravel()) <= 0)
 
-        # Fit Langmuir on concentrations vs shifts direction
+        # Always fit Langmuir for diagnostics / forward-direction use
         if self._fit_on_shifts:
-            # X = shifts, y = concentrations — invert for Langmuir fitting
+            # X = shifts, y = concentrations
             concs = y_1d
             shifts = X_2d.ravel()
         else:
@@ -149,22 +162,19 @@ class PhysicsInformedGPR:
             params = fit_langmuir_params(concs, shifts)
             self._langmuir = LangmuirMeanFunction(**params)
 
-        # Subtract Langmuir mean from targets and set up GP fit arrays
-        if self._langmuir is not None:
-            if self._fit_on_shifts:
-                # Langmuir maps conc → shift; subtract Langmuir from shift space
-                # GP is trained on concentration axis, predicting shift residuals
-                langmuir_pred = self._langmuir(concs.reshape(-1, 1)).ravel()
-                residuals = shifts - langmuir_pred
-                X_fit = concs.reshape(-1, 1)
-                y_fit = residuals
-            else:
-                langmuir_pred = self._langmuir(X_2d).ravel()
-                y_fit = y_1d - langmuir_pred
-                X_fit = X_2d
-        else:
+        # Build GP training arrays
+        if self._fit_on_shifts:
+            # Plain GP: shifts → concentrations (no residual subtraction)
             X_fit = X_2d
             y_fit = y_1d
+        else:
+            # Langmuir-residual GP: concs → (shifts − Langmuir(concs))
+            if self._langmuir is not None:
+                langmuir_pred = self._langmuir(X_2d).ravel()
+                y_fit = y_1d - langmuir_pred
+            else:
+                y_fit = y_1d
+            X_fit = X_2d
 
         X_scaled = self._scaler_X.fit_transform(X_fit)
 
@@ -180,7 +190,18 @@ class PhysicsInformedGPR:
         )
         self._gpr.fit(X_scaled, y_fit)
         self._fitted = True
-        return self
+
+        return {
+            "log_marginal_likelihood": float(
+                self._gpr.log_marginal_likelihood(self._gpr.kernel_.theta)
+            ),
+            "kernel_params": {
+                k: float(v)
+                for k, v in self._gpr.kernel_.get_params().items()
+                if isinstance(v, (int, float))
+            },
+            "n_samples": len(y_fit),
+        }
 
     def predict(
         self,
@@ -197,26 +218,17 @@ class PhysicsInformedGPR:
             raise RuntimeError("PhysicsInformedGPR.fit() must be called first.")
 
         X_2d = np.atleast_2d(X)
-
-        if self._fit_on_shifts:
-            # GP was trained on concentration axis; invert X (shifts) to conc space
-            # using the Langmuir curve to find the approximate concentration,
-            # then query the GP. For prediction we evaluate in shift-space:
-            # just scale the input directly (shift values) using the scaler
-            # that was fit on concentration values — this is an approximation,
-            # but it maintains the correct std output.
-            # Better approach: query GP directly in its trained space.
-            # The scaler was fit on concentrations, so transform shifts as proxy.
-            X_scaled = self._scaler_X.transform(X_2d)
-        else:
-            X_scaled = self._scaler_X.transform(X_2d)
+        X_scaled = self._scaler_X.transform(X_2d)
 
         gpr_mean, gpr_std = self._gpr.predict(X_scaled, return_std=True)
 
         if self._langmuir is not None and not self._fit_on_shifts:
+            # Add Langmuir mean back to recover predicted shifts
             langmuir_pred = self._langmuir(X_2d).ravel()
             mean = gpr_mean + langmuir_pred
         else:
             mean = gpr_mean
 
+        if not return_std:
+            return mean.ravel(), np.zeros_like(mean.ravel())
         return mean.ravel(), gpr_std.ravel()
