@@ -337,7 +337,7 @@ def detect_outliers(spectra: list[np.ndarray], threshold: float = 3.0) -> list[b
         "std": np.std(X, axis=1),
         "max": np.max(X, axis=1),
         "min": np.min(X, axis=1),
-        "range": np.ptp(X, axis=1),
+        "range": np.max(X, axis=1) - np.min(X, axis=1),
     }
 
     # Compute Z-scores for each metric
