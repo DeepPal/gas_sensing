@@ -33,7 +33,6 @@ import uuid
 import numpy as np
 
 from src.features.lspr_features import (
-    LSPR_REFERENCE_PEAK_NM,
     LSPR_SENSITIVITY_NM_PER_PPM,
     LSPRReference,
     compute_lspr_reference,
@@ -152,6 +151,10 @@ class SpectrumData:
     # Stage 3 intelligence outputs (set by SensorOrchestrator if models loaded)
     gas_type: str | None = None
     gpr_uncertainty: float | None = None
+
+    # Stage 3 conformal prediction interval (90% coverage, set when GPR + calibration data present)
+    ci_low: float | None = None   # lower bound (ppm)
+    ci_high: float | None = None  # upper bound (ppm)
 
     # Stage 4 outputs
     saturation_flag: bool = False
@@ -299,10 +302,34 @@ class CalibrationStage:
 
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
-        self._gpr_model: Any = None  # set by SensorOrchestrator
+        self._gpr_model: Any = None  # set by SensorOrchestrator or set_gpr()
         self._cnn_model: Any = None
         self._reference: np.ndarray | None = None  # raw intensities, set via set_reference()
         self._lspr_ref: LSPRReference | None = None  # lazy-init on first frame with wavelengths
+        self._conformal: Any = None  # ConformalCalibrator, set by set_gpr()
+
+    def set_gpr(
+        self,
+        model: Any,
+        X_cal: Any = None,
+        y_cal: Any = None,
+    ) -> None:
+        """Inject a fitted GPR model and calibration data for conformal intervals.
+
+        Parameters
+        ----------
+        model  : fitted GPRCalibration or PhysicsInformedGPR
+        X_cal  : (n, d) calibration features — same feature space the model was fit on
+        y_cal  : (n,) calibration targets (concentrations ppm)
+        """
+        self._gpr_model = model
+        if X_cal is not None and y_cal is not None:
+            from src.calibration.conformal import ConformalCalibrator
+            cal = ConformalCalibrator()
+            cal.calibrate(model, np.asarray(X_cal), np.asarray(y_cal))
+            self._conformal = cal
+        else:
+            self._conformal = None
 
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Provide the reference spectrum used by GPR feature extraction."""
@@ -363,6 +390,35 @@ class CalibrationStage:
                     spectrum.concentration_std_ppm = float(std[0])
                     spectrum.gpr_uncertainty = float(std[0])
                     results["gpr"] = True
+
+                    # Conformal prediction interval (90% coverage, if calibrated)
+                    if self._conformal is not None:
+                        try:
+                            lo, hi = self._conformal.predict_interval(
+                                self._gpr_model, X, alpha=0.10
+                            )
+                            spectrum.ci_low = float(lo[0])
+                            spectrum.ci_high = float(hi[0])
+                        except Exception as ci_exc:
+                            log.debug("Conformal interval failed: %s", ci_exc)
+                elif spectrum.wavelength_shift is not None:
+                    # Fallback: no reference spectrum available — use Δλ directly
+                    # as a 1-D input to the GPR (works when GPR was fit on shifts).
+                    X_shift = np.array([[spectrum.wavelength_shift]])
+                    mean, std = self._gpr_model.predict(X_shift, return_std=True)
+                    spectrum.concentration_ppm = float(max(0.0, mean[0]))
+                    spectrum.concentration_std_ppm = float(std[0])
+                    spectrum.gpr_uncertainty = float(std[0])
+                    results["gpr"] = True
+                    if self._conformal is not None:
+                        try:
+                            lo, hi = self._conformal.predict_interval(
+                                self._gpr_model, X_shift, alpha=0.10
+                            )
+                            spectrum.ci_low = float(lo[0])
+                            spectrum.ci_high = float(hi[0])
+                        except Exception as ci_exc:
+                            log.debug("Conformal interval (shift fallback) failed: %s", ci_exc)
             except Exception as exc:
                 log.debug("GPR inference failed: %s", exc)
 
