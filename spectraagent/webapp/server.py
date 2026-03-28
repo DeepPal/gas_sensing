@@ -9,15 +9,15 @@ and by the test suite (``TestClient(create_app(simulate=True))``).
 from __future__ import annotations
 
 import asyncio
+from collections import deque
+import contextlib
+from contextlib import asynccontextmanager
+from datetime import datetime
 import json
 import logging
-from contextlib import asynccontextmanager
-from collections import deque
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -166,17 +166,13 @@ def create_app(simulate: bool = False) -> FastAPI:
             task = getattr(app.state, "log_events_task", None)
             if task is not None and not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
             claude_runner = getattr(app.state, "claude_runner", None)
             if claude_runner is not None:
-                try:
+                with contextlib.suppress(Exception):
                     claude_runner.stop()
-                except Exception:
-                    pass
 
             if app.state.session_running:
                 sw = getattr(app.state, "session_writer", None)
@@ -323,9 +319,40 @@ def create_app(simulate: bool = False) -> FastAPI:
     async def acq_stop() -> JSONResponse:
         _session_active["running"] = False
         app.state.session_running = False
+        frame_count = int(app.state.session_frame_count)
         sw = getattr(app.state, "session_writer", None)
         if sw is not None:
-            sw.stop_session(frame_count=int(app.state.session_frame_count))
+            sw.stop_session(frame_count=frame_count)
+
+        # Auto-run SessionAnalyzer and emit results to the agent bus
+        session_events = getattr(app.state, "session_events", [])
+        try:
+            from src.inference.session_analyzer import SessionAnalyzer
+            analysis = SessionAnalyzer().analyze(session_events, frame_count)
+            app.state.last_session_analysis = analysis
+            bus = getattr(app.state, "agent_bus", None)
+            if bus is not None:
+                from spectraagent.webapp.agent_bus import AgentEvent
+                bus.emit(AgentEvent(
+                    source="SessionAnalyzer",
+                    level="info",
+                    type="session_complete",
+                    data={
+                        "lod_ppm": analysis.lod_ppm,
+                        "loq_ppm": analysis.loq_ppm,
+                        "calibration_r2": analysis.calibration_r2,
+                        "mean_snr": analysis.mean_snr,
+                        "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
+                        "frame_count": analysis.frame_count,
+                        "summary": analysis.summary_text,
+                    },
+                    text=analysis.summary_text,
+                ))
+        except Exception as exc:
+            log.warning("Post-session analysis failed: %s", exc)
+        # Clear events for next session
+        app.state.session_events = []
+
         return JSONResponse({"status": "stopped",
                              "session_id": _session_active.get("session_id")})
 
