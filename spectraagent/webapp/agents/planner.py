@@ -1,40 +1,36 @@
 """
 spectraagent.webapp.agents.planner
 ====================================
-ExperimentPlannerAgent — suggests the next concentration to measure.
+ExperimentPlannerAgent — suggests the next calibration concentration.
 
-Uses GPRCalibration posterior uncertainty: queries predict() on a grid of
-candidate concentrations and returns the one with the highest posterior std
-(maximum information gain per spec Section 4 — no BoTorch needed).
-
-Called on-demand via POST /api/calibration/suggest or by CalibrationAgent
-after model selection.
+Upgraded from linspace max-variance to Bayesian Experimental Design using
+logspace candidates and space-filling fallback for sparse early-session data.
 """
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-import numpy as np
-
 from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 
 log = logging.getLogger(__name__)
 
-_N_CANDIDATES: int = 50
-
 
 class ExperimentPlannerAgent:
-    """Concentration suggestion using GPR posterior uncertainty.
+    """Concentration suggestion using Bayesian Experimental Design.
+
+    Uses BayesianExperimentDesigner from src.calibration.active_learning with
+    logspace candidates so low and high concentration regions are both explored.
+    Falls back to space-filling when no GPR is fitted yet.
 
     Parameters
     ----------
     bus:
         AgentBus for emitting events.
     min_conc, max_conc:
-        Concentration range to search.
+        Concentration range to search (ppm).
     n_candidates:
-        Grid resolution (default 50).
+        Grid resolution for BED search (default 100).
     """
 
     def __init__(
@@ -42,54 +38,53 @@ class ExperimentPlannerAgent:
         bus: AgentBus,
         min_conc: float = 0.01,
         max_conc: float = 10.0,
-        n_candidates: int = _N_CANDIDATES,
+        n_candidates: int = 100,
     ) -> None:
         if min_conc >= max_conc:
-            raise ValueError(f"min_conc ({min_conc}) must be less than max_conc ({max_conc})")
+            raise ValueError(f"min_conc ({min_conc}) must be < max_conc ({max_conc})")
         self._bus = bus
         self._min_conc = min_conc
         self._max_conc = max_conc
         self._n_candidates = n_candidates
-        self._gpr = None  # set via set_gpr()
+        self._gpr = None
+        self._measured: list[float] = []
+
+        from src.calibration.active_learning import BayesianExperimentDesigner
+        self._designer = BayesianExperimentDesigner(
+            min_conc=min_conc,
+            max_conc=max_conc,
+            n_candidates=n_candidates,
+        )
 
     def set_gpr(self, gpr) -> None:
-        """Inject a fitted GPRCalibration (or compatible mock) instance."""
+        """Inject a fitted GPRCalibration (or PhysicsInformedGPR) instance."""
         self._gpr = gpr
 
-    def suggest(self) -> Optional[float]:
-        """Return the concentration with the highest GPR posterior std.
+    def record_measured(self, concentration: float) -> None:
+        """Record that a concentration has been measured (updates space-filling avoidance)."""
+        self._measured.append(float(concentration))
 
-        Returns None if no GPR is set or if prediction fails.
+    def suggest(self) -> Optional[float]:
+        """Return the next best concentration using Bayesian Experimental Design.
+
+        Returns None only if an unexpected internal error occurs.
         Emits an ``experiment_suggestion`` event on success.
         """
-        if self._gpr is None:
-            return None
-
         try:
-            candidates = np.linspace(self._min_conc, self._max_conc, self._n_candidates)
-            # GPRCalibration.predict() expects shape (n, 1) for 1D features
-            _, std_arr = self._gpr.predict(candidates.reshape(-1, 1))
-            best_idx = int(np.argmax(std_arr))
-            best_conc = float(candidates[best_idx])
-            best_std = float(std_arr[best_idx])
-
+            suggestion = self._designer.suggest_next(self._gpr, self._measured)
             self._bus.emit(AgentEvent(
                 source="ExperimentPlannerAgent",
                 level="info",
                 type="experiment_suggestion",
                 data={
-                    "suggested_concentration": round(best_conc, 4),
-                    "posterior_std": round(best_std, 6),
+                    "suggested_concentration": round(suggestion, 4),
+                    "measured_so_far": len(self._measured),
                     "search_range": [self._min_conc, self._max_conc],
-                    "n_candidates": self._n_candidates,
+                    "method": "bayesian_logspace",
                 },
-                text=(
-                    f"Suggested next concentration: {best_conc:.4f} "
-                    f"(posterior σ={best_std:.4g})"
-                ),
+                text=f"Suggested next concentration: {suggestion:.4f} ppm (BED logspace)",
             ))
-            return best_conc
-
+            return suggestion
         except Exception as exc:
             log.warning("ExperimentPlannerAgent.suggest() failed: %s", exc)
             return None
