@@ -20,6 +20,7 @@ roi_scan
     ``compute_concentration_response(stable_by_conc, cfg)`` → ``(response, avg_by_conc)``.
 """
 
+from src.calibration.active_learning import BayesianExperimentDesigner
 from src.calibration.conformal import ConformalCalibrator
 from src.calibration.gpr import GPRCalibration
 from src.calibration.multi_roi import fit_multi_roi_fusion, select_multi_roi_candidates
@@ -36,6 +37,7 @@ from src.calibration.roi_scan import (
 from src.calibration.transforms import transform_concentrations
 
 __all__ = [
+    "BayesianExperimentDesigner",
     "ConformalCalibrator",
     "GPRCalibration",
     "LangmuirMeanFunction",
