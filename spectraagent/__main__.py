@@ -1,8 +1,8 @@
 """spectraagent.__main__ — CLI entry point (Typer)."""
 from __future__ import annotations
 
-import logging
 from importlib.metadata import entry_points as entry_points
+import logging
 from typing import TYPE_CHECKING, cast
 
 import typer
@@ -87,8 +87,6 @@ def _acquisition_loop(
     app: FastAPI,
 ) -> None:
     """Daemon thread: read spectra, run quality/drift agents, broadcast to WS clients."""
-    import asyncio
-    import json
     import time
 
     import numpy as np
@@ -147,10 +145,52 @@ def _process_acquired_frame(
         except Exception as exc:
             log.debug("DriftAgent.update() failed: %s", exc)
 
+    # Run ML inference pipeline if wired
+    pipeline_result = None
+    pipeline = getattr(app.state, "pipeline", None)
+    if pipeline is not None:
+        try:
+            pipeline_result = pipeline.process_spectrum(wl_np, intensities)
+        except Exception as exc:
+            log.debug("RealTimePipeline.process_spectrum() failed: %s", exc)
+
+    # Accumulate session events for post-session SessionAnalyzer
+    if pipeline_result is not None and pipeline_result.success:
+        session_events = getattr(app.state, "session_events", None)
+        if session_events is not None and getattr(app.state, "session_running", False):
+            sd = pipeline_result.spectrum
+            ev = {"type": "measurement"}
+            if sd.concentration_ppm is not None:
+                ev["concentration_ppm"] = sd.concentration_ppm
+            if sd.ci_low is not None:
+                ev["ci_low"] = sd.ci_low
+            if sd.ci_high is not None:
+                ev["ci_high"] = sd.ci_high
+            if sd.wavelength_shift is not None:
+                ev["wavelength_shift"] = sd.wavelength_shift
+            if sd.snr is not None:
+                ev["snr"] = sd.snr
+            if sd.peak_wavelength is not None:
+                ev["peak_wavelength"] = sd.peak_wavelength
+            session_events.append(ev)
+
     app_loop = getattr(app.state, "asyncio_loop", None)
     spectrum_bc = getattr(app.state, "spectrum_bc", None)
     if app_loop is not None and spectrum_bc is not None and hasattr(spectrum_bc, "broadcast"):
-        msg = json.dumps({"wl": wl_list, "i": intensities.tolist()})
+        payload: dict = {"wl": wl_list, "i": intensities.tolist(), "frame": frame_num}
+        if pipeline_result is not None and pipeline_result.success:
+            sd = pipeline_result.spectrum
+            if sd.concentration_ppm is not None:
+                payload["concentration_ppm"] = round(sd.concentration_ppm, 4)
+            if sd.ci_low is not None:
+                payload["ci_low"] = round(sd.ci_low, 4)
+            if sd.ci_high is not None:
+                payload["ci_high"] = round(sd.ci_high, 4)
+            if sd.wavelength_shift is not None:
+                payload["peak_shift_nm"] = round(sd.wavelength_shift, 4)
+            if sd.snr is not None:
+                payload["snr"] = round(sd.snr, 2)
+        msg = json.dumps(payload)
         broadcast_fn = spectrum_bc.broadcast
         app_loop.call_soon_threadsafe(
             lambda m=msg, fn=broadcast_fn: asyncio.ensure_future(fn(m))
@@ -226,6 +266,19 @@ def start(
     app.state.calibration_agent = CalibrationAgent(agent_bus)
     app.state.planner_agent = ExperimentPlannerAgent(agent_bus)
     typer.echo("Agents ready: Quality, Drift, Calibration, Planner")
+
+    # Step 5aa: Wire RealTimePipeline for per-frame ML inference
+    from src.inference.realtime_pipeline import PipelineConfig, RealTimePipeline
+
+    pipeline_cfg = PipelineConfig(
+        integration_time_ms=cfg.hardware.integration_time_ms,
+        peak_search_min_nm=650.0,
+        peak_search_max_nm=780.0,
+        reference_wavelength=717.9,
+    )
+    app.state.pipeline = RealTimePipeline(pipeline_cfg)
+    app.state.session_events = []
+    typer.echo("RealTimePipeline wired")
 
     # Step 5b: Create Claude API agents
     from spectraagent.webapp.agents.claude_agents import (
