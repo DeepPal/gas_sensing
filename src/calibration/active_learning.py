@@ -77,12 +77,14 @@ class BayesianExperimentDesigner:
             self._n_candidates,
         )
 
-        # Exclude candidates too close to already-measured points.
+        # Exclude candidates too close to already-measured points (log-scale distance,
+        # consistent with the log-space candidate grid).
         if measured:
-            measured_arr = np.array(measured)
-            min_gap = (self._max_conc - self._min_conc) / (self._n_candidates * 2)
+            log_gap = np.log10(self._max_conc / self._min_conc) / (self._n_candidates * 2)
+            log_candidates = np.log10(candidates)
+            log_measured = np.log10(np.maximum(np.array(measured, dtype=float), 1e-12))
             mask = np.all(
-                np.abs(candidates[:, None] - measured_arr[None, :]) > min_gap,
+                np.abs(log_candidates[:, None] - log_measured[None, :]) > log_gap,
                 axis=1,
             )
             filtered = candidates[mask] if mask.any() else candidates
@@ -115,7 +117,7 @@ class BayesianExperimentDesigner:
             return float(np.sqrt(self._min_conc * self._max_conc))
 
         log_measured = np.log10(np.array(measured))
-        log_candidates = np.log10(np.maximum(candidates, 1e-12))
+        log_candidates = np.log10(candidates)
 
         # Min log-distance to any measured point, maximised over candidates.
         distances = np.min(
