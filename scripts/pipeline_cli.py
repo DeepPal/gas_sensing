@@ -118,16 +118,41 @@ def main():
                 }
             ]
 
-        best = sweep_hyperparameters(datasets, out_root, param_grid)  # noqa: F821  # TODO: import from src.training once implemented
+        from src.training.hyperparameter_sweep import sweep_hyperparameters
+        import numpy as _np
+
+        sweep_datasets = []
+        for ds in datasets:
+            try:
+                from gas_analysis.core.pipeline import run_full_pipeline as _rfp
+                _result = _rfp(
+                    root_dir=os.path.abspath(ds["data"]),
+                    ref_path=os.path.abspath(ds["ref"]),
+                    out_root=out_root,
+                    diff_threshold=args.diff_threshold,
+                )
+                calib = _result.get("calibration", {})
+                if calib and calib.get("shifts") is not None:
+                    sweep_datasets.append({
+                        "label": ds.get("label", Path(ds["data"]).stem),
+                        "X": _np.array(calib["shifts"]).reshape(-1, 1),
+                        "y": _np.array(calib["concentrations"]),
+                    })
+            except Exception as _e:
+                print(f"  Warning: Could not load dataset {ds.get('label', '?')}: {_e}")
+
+        if not sweep_datasets:
+            print("  No datasets could be loaded for sweep.")
+            return
+
+        best = sweep_hyperparameters(sweep_datasets, param_grid)
         print("\nHyperparameter sweep results")
         print("-----------------------------")
         for label, info in best.items():
             print(f"Dataset {label}:")
-            print(f"  Params: {info['params']}")
-            print(f"  R2: {info['r2']}")
-            print(f"  LOD: {info['lod']}")
-            print(f"  LOQ: {info['loq']}")
-            print(f"  Output dir: {info['output_dir']}")
+            print(f"  Best params: {info['best_params']}")
+            print(f"  R2:   {info['r2']:.4f}")
+            print(f"  RMSE: {info['rmse']:.4f} ppm")
         return
 
     print("\n==============================")
