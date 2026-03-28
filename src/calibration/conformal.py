@@ -72,8 +72,9 @@ class ConformalCalibrator:
         X_cal : shape (n, d) -- calibration features
         y_cal : shape (n,)   -- calibration targets
         """
-        mean, _ = model.predict(X_cal, return_std=True)
-        scores = np.abs(y_cal.ravel() - mean.ravel())
+        mean, std = model.predict(X_cal, return_std=True)
+        std_safe = np.maximum(std.ravel(), 1e-9)
+        scores = np.abs(y_cal.ravel() - mean.ravel()) / std_safe
         self._scores = scores.tolist()
         self._n_cal = len(scores)
 
@@ -104,14 +105,15 @@ class ConformalCalibrator:
                 "ConformalCalibrator.calibrate() must be called before predict_interval()."
             )
 
-        mean, _ = model.predict(X, return_std=True)
+        mean, std = model.predict(X, return_std=True)
         mean = mean.ravel()
+        std = np.maximum(std.ravel(), 1e-9)
 
         # Split conformal quantile with conservative "higher" interpolation.
         n = self._n_cal
         level = min(1.0, np.ceil((n + 1) * (1.0 - alpha)) / n)
         q_hat = float(np.quantile(np.asarray(self._scores, dtype=float), level, method="higher"))
 
-        lower = mean - q_hat
-        upper = mean + q_hat
+        lower = mean - q_hat * std
+        upper = mean + q_hat * std
         return lower, upper
