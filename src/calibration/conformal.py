@@ -109,10 +109,14 @@ class ConformalCalibrator:
         mean = mean.ravel()
         std = np.maximum(std.ravel(), 1e-9)
 
-        # Split conformal quantile with conservative "higher" interpolation.
+        # Split conformal quantile: ceil((n+1)(1-α))-th order statistic.
+        # Direct index computation avoids np.quantile(method="higher") which
+        # requires NumPy >= 1.22, while the project's minimum pin is 1.21.
         n = self._n_cal
-        level = min(1.0, np.ceil((n + 1) * (1.0 - alpha)) / n)
-        q_hat = float(np.quantile(np.asarray(self._scores, dtype=float), level, method="higher"))
+        scores_sorted = np.sort(np.asarray(self._scores, dtype=float))
+        k = int(np.ceil((n + 1) * (1.0 - alpha)))
+        k = min(max(k, 1), n)  # clamp to valid 1-indexed range
+        q_hat = float(scores_sorted[k - 1])  # convert to 0-indexed
 
         lower = mean - q_hat * std
         upper = mean + q_hat * std
