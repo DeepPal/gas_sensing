@@ -1,10 +1,11 @@
 # tests/src/calibration/test_physics_kernel.py
 import numpy as np
 import pytest
+
 from src.calibration.physics_kernel import (
     LangmuirMeanFunction,
-    fit_langmuir_params,
     PhysicsInformedGPR,
+    fit_langmuir_params,
 )
 
 
@@ -45,6 +46,27 @@ def test_physics_informed_gpr_fit_predict():
     assert mean.shape == (1,)
     assert std.shape == (1,)
     assert std[0] > 0
+
+
+def test_physics_informed_gpr_explicit_mode():
+    """mode='shift_to_conc' must work identically to auto-detection for negative shifts."""
+    np.random.seed(2)
+    concs = np.array([0.5, 1.0, 2.0, 3.0])
+    shifts = -10.0 * concs / (1.0 + concs)
+    auto_model = PhysicsInformedGPR(mode="auto")
+    auto_model.fit(shifts.reshape(-1, 1), concs)
+    explicit_model = PhysicsInformedGPR(mode="shift_to_conc")
+    explicit_model.fit(shifts.reshape(-1, 1), concs)
+    X_test = np.array([[-1.5]])
+    mean_auto, _ = auto_model.predict(X_test)
+    mean_explicit, _ = explicit_model.predict(X_test)
+    assert abs(mean_auto[0] - mean_explicit[0]) < 0.1
+
+
+def test_physics_informed_gpr_invalid_mode():
+    """mode with unexpected value must raise ValueError immediately."""
+    with pytest.raises(ValueError, match="mode must be"):
+        PhysicsInformedGPR(mode="bad_mode")
 
 
 def test_physics_informed_gpr_drop_in_for_gpr_calibration():

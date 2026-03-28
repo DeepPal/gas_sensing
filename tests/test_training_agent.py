@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import time
+from typing import Any, Optional, cast
 
 from src.agents.training import RetrainResult, RetrainTrigger, TrainingAgent
 
@@ -28,7 +29,7 @@ from src.agents.training import RetrainResult, RetrainTrigger, TrainingAgent
 
 def _agent(**kwargs) -> TrainingAgent:
     """Create a TrainingAgent with MLflow disabled and fast trigger thresholds."""
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         model_dir="output/models",
         sessions_dir="output/sessions",
         min_r2_threshold=0.90,
@@ -39,7 +40,16 @@ def _agent(**kwargs) -> TrainingAgent:
         retrain_cooldown_s=0,  # no cooldown so triggers fire immediately
     )
     defaults.update(kwargs)
-    return TrainingAgent(**defaults)
+    return TrainingAgent(
+        model_dir=str(defaults["model_dir"]),
+        sessions_dir=str(defaults["sessions_dir"]),
+        min_r2_threshold=float(defaults["min_r2_threshold"]),
+        retrain_every_n_samples=int(defaults["retrain_every_n_samples"]),
+        min_samples_for_retrain=int(defaults["min_samples_for_retrain"]),
+        cnn_epochs=int(defaults["cnn_epochs"]),
+        mlflow_uri=cast(Optional[str], defaults["mlflow_uri"]),
+        retrain_cooldown_s=int(defaults["retrain_cooldown_s"]),
+    )
 
 
 # ---------------------------------------------------------------------------

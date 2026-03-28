@@ -65,13 +65,12 @@ try:
     _SP_AVAILABLE = True
 except Exception:
     try:
-        from gas_analysis.core.preprocessing import (
+        from gas_analysis.core.preprocessing import (  # type: ignore[assignment]
             baseline_correction,
-            compute_snr,
-            estimate_noise_metrics,
             normalize_spectrum,
         )
-        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum
+        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum  # type: ignore[assignment]
+        from src.preprocessing.quality import compute_snr, estimate_noise_metrics
 
         _SP_AVAILABLE = True
     except Exception:
@@ -589,7 +588,7 @@ def render() -> None:
             )
 
             # Collect all conc-dirs for chosen gases
-            joy_items_available = {}
+            joy_items_available: dict[str, list[Path]] = {}
             for gd in gas_dirs:
                 if gd.name not in chosen_gases:
                     continue
@@ -839,7 +838,7 @@ def render() -> None:
             try:
                 concs_arr = np.array(y_concs, dtype=float)
                 peak_arr = X[:, 0]
-                slope, intercept, r2 = calculate_sensitivity(concs_arr, peak_arr)
+                slope, intercept, r2, _slope_se = calculate_sensitivity(concs_arr, peak_arr)
                 noise_floor = float(np.std(peak_arr[: max(1, len(peak_arr) // 5)]))
                 lod = calculate_lod_3sigma(noise_floor, slope)
                 loq = 10.0 * noise_floor / abs(slope) if slope != 0 else float("inf")
@@ -875,6 +874,10 @@ def render() -> None:
             for i, it in enumerate(pp):
                 mc2 = re.search(r"([\d.]+)ppm", it["label"])
                 concs_plot.append(float(mc2.group(1)) if mc2 else float(i))
+
+        assert wl_common is not None
+        assert Z is not None
+        assert concs_plot is not None
 
         # ── Spectral Overlay (Rainbow Plot) ──────────────────────────────
         if len(pp) >= 2:

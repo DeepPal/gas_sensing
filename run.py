@@ -41,8 +41,10 @@ import warnings
 # ---------------------------------------------------------------------------
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stdout is not None:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr is not None:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -168,13 +170,14 @@ class SpectrometerInterface:
                 RealtimeAcquisitionService,
             )
 
-            self._service = RealtimeAcquisitionService(
+            service = RealtimeAcquisitionService(
                 integration_time_ms=self.config.integration_time_ms,
                 target_wavelength=self.config.target_wavelength,
                 resource_string=resource,
             )
-            self._service.connect()
-            self.wavelengths = self._service.wavelengths
+            service.connect()
+            self._service = service
+            self.wavelengths = service.wavelengths
             log.info("Connected to CCS200 spectrometer")
             return True
 
@@ -202,6 +205,7 @@ class SpectrometerInterface:
     def _simulate_spectrum(self) -> dict:
         """Generate a realistic Gaussian-absorption LSPR spectrum."""
         wl = self.wavelengths
+        assert wl is not None
         noise = np.random.normal(0, self._SIM_NOISE_STD, len(wl))
         absorption = self._SIM_AMPLITUDE * np.exp(
             -((wl - self._SIM_CENTER_NM) ** 2) / (2 * self._SIM_WIDTH_NM**2)

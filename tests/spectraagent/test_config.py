@@ -1,13 +1,13 @@
-from pathlib import Path
-import json
-import shutil
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import shutil
 
 import pytest
-
-from spectraagent.config import SpectraAgentConfig, load_config
 from typer.testing import CliRunner
+
 from spectraagent.__main__ import cli
+from spectraagent.config import SpectraAgentConfig, load_config
 
 
 def test_defaults_when_no_file(tmp_path):
@@ -61,6 +61,7 @@ def test_plugins_list_shows_lspr():
 import subprocess
 import sys
 import time
+
 import httpx
 
 
@@ -75,6 +76,8 @@ def _parse_event_ts(value: str) -> datetime:
     return parsed
 
 
+@pytest.mark.integration
+@pytest.mark.reliability
 def test_start_simulate_no_browser_serves_health():
     """Integration test: start server in subprocess, hit /api/health, then kill it."""
     proc = subprocess.Popen(
@@ -93,6 +96,8 @@ def test_start_simulate_no_browser_serves_health():
         proc.wait(timeout=5)
 
 
+@pytest.mark.integration
+@pytest.mark.reliability
 def test_start_simulate_persists_session_with_nonzero_frames():
     """Integration test: simulated run persists session metadata + event log."""
     port = 8766
@@ -164,6 +169,8 @@ def test_start_simulate_persists_session_with_nonzero_frames():
             shutil.rmtree(session_dir, ignore_errors=True)
 
 
+@pytest.mark.integration
+@pytest.mark.reliability
 def test_start_simulate_event_log_grows_during_active_acquisition():
     """Integration test: active acquisition writes multiple well-formed events."""
     port = 8767
@@ -234,6 +241,8 @@ def test_start_simulate_event_log_grows_during_active_acquisition():
             shutil.rmtree(session_dir, ignore_errors=True)
 
 
+@pytest.mark.integration
+@pytest.mark.reliability
 def test_start_simulate_soak_acquisition_consistency():
     """Integration test: longer simulated run keeps event and frame persistence consistent."""
     port = 8768
@@ -319,6 +328,8 @@ def test_start_simulate_soak_acquisition_consistency():
             shutil.rmtree(session_dir, ignore_errors=True)
 
 
+@pytest.mark.integration
+@pytest.mark.reliability
 def test_start_simulate_repeated_start_stop_cycles_persist_clean_sessions():
     """Integration test: repeated acquisition cycles keep persistence stable."""
     port = 8769

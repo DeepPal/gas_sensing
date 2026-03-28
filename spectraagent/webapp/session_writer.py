@@ -13,9 +13,10 @@ Both are safe to call unconditionally from the asyncio event loop.
 """
 from __future__ import annotations
 
+import contextlib
+from datetime import datetime, timezone
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Optional
 
@@ -64,7 +65,7 @@ class SessionWriter:
             json.dumps(full_meta, indent=2), encoding="utf-8"
         )
 
-        self._events_file = open(
+        self._events_file = open(  # noqa: SIM115
             session_dir / "agent_events.jsonl", "a", encoding="utf-8"
         )
         self._active_dir = session_dir
@@ -100,10 +101,8 @@ class SessionWriter:
                 log.warning("SessionWriter.stop_session: failed to update meta: %s", exc)
 
         if self._events_file is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._events_file.close()
-            except Exception:
-                pass
             self._events_file = None
 
         log.info("SessionWriter: stopped session at %s", self._active_dir)
@@ -146,10 +145,8 @@ class SessionWriter:
             try:
                 lines = events_path.read_text(encoding="utf-8").splitlines()
                 for line in lines[-100:]:
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
             except OSError as exc:
                 log.warning("SessionWriter.get_session: failed to read events: %s", exc)
 

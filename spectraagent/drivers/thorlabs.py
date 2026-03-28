@@ -16,6 +16,7 @@ Hardware-specific notes (from calibrated experience):
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 from typing import Any
@@ -118,8 +119,6 @@ class ThorlabsCCSDriver(AbstractHardwareDriver):
         """Callback invoked by the acquisition thread on each new frame."""
         frame = np.array(data["intensities"], dtype=np.float64)
         if self._frame_queue.full():
-            try:
+            with contextlib.suppress(queue.Empty):
                 self._frame_queue.get_nowait()
-            except queue.Empty:
-                pass
         self._frame_queue.put_nowait(frame)

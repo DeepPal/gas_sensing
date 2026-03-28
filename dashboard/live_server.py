@@ -36,16 +36,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 import sys
 import threading
-from pathlib import Path
 from typing import Any
 
-import numpy as np
-import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+import numpy as np
+import uvicorn
 
 from src.inference.live_state import LiveDataStore
 

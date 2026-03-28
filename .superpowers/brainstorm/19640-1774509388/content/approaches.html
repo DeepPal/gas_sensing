@@ -1,0 +1,59 @@
+<h2>3 ways to build the full web app</h2>
+<p class="subtitle">All three replace Streamlit with FastAPI. The difference is the frontend technology stack.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="htmx" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>FastAPI + Jinja2 + HTMX + uPlot <span style="color:#6ee06e;font-size:.8rem;margin-left:8px">★ Recommended</span></h3>
+      <p>Server renders HTML pages via Jinja2 templates. HTMX handles partial page updates without full reloads (e.g. clicking "Run Preprocessing" swaps just the results panel). uPlot handles all charts. No npm, no build step — pure Python + HTML files.</p>
+      <div style="margin-top:10px;font-size:.82rem;color:#aaa">
+        <strong style="color:#c8d8f8">Stack:</strong> FastAPI · Jinja2 · HTMX · Alpine.js · uPlot<br>
+        <strong style="color:#c8d8f8">Packaging:</strong> Python wheel → <code>pip install lspr-tool &amp;&amp; lspr-tool start</code><br>
+        <strong style="color:#c8d8f8">Handoff:</strong> A lab member who knows Python can read and edit it
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>No JS build toolchain</li><li>Easiest to hand off</li><li>Builds directly on live_server.py</li><li>20 Hz WebSocket charts</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Less interactive than React</li><li>Templates are split across files</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="react" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>FastAPI + React (SPA)</h3>
+      <p>Separate frontend (React/Vite) and backend (FastAPI). React components for each tab, REST API for data, WebSocket for live charts. The kind of stack used by commercial instrument software like PicoScope or Ocean Optics OceanView.</p>
+      <div style="margin-top:10px;font-size:.82rem;color:#aaa">
+        <strong style="color:#c8d8f8">Stack:</strong> FastAPI · React · Vite · TypeScript · Recharts/uPlot<br>
+        <strong style="color:#c8d8f8">Packaging:</strong> Docker container or bundled with PyInstaller<br>
+        <strong style="color:#c8d8f8">Handoff:</strong> Requires someone comfortable with JS/React
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Richest UI components</li><li>Best type safety</li><li>Most "modern" stack</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>npm + Vite toolchain</li><li>Two separate codebases</li><li>Harder to hand off to physicist</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="vanilla" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>FastAPI + Vanilla HTML/JS (extend live_server.py)</h3>
+      <p>Directly extend the existing live_server.py pattern — one large HTML string per page, served from FastAPI routes. Works today for the Live tab; repeat the pattern for all tabs. No framework overhead at all.</p>
+      <div style="margin-top:10px;font-size:.82rem;color:#aaa">
+        <strong style="color:#c8d8f8">Stack:</strong> FastAPI · Plain HTML/CSS/JS · uPlot<br>
+        <strong style="color:#c8d8f8">Packaging:</strong> Python wheel<br>
+        <strong style="color:#c8d8f8">Handoff:</strong> Easy to read, hard to maintain as it grows
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Zero new dependencies</li><li>Fastest to start</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>HTML-in-Python strings don't scale</li><li>No component reuse</li><li>Becomes unmaintainable past ~3 pages</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">A is recommended: no build toolchain, Python-native, directly extends the existing live_server.py foundation, and a physics PhD can maintain it</p>

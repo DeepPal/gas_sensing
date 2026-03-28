@@ -34,6 +34,165 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 import contextlib
 
+from src.batch.aggregation import (
+    average_stable_block as _average_stable_block_src,
+)
+from src.batch.aggregation import (
+    average_top_frames as _average_top_frames_src,
+)
+from src.batch.aggregation import (
+    find_stable_block as _find_stable_block_src,
+)
+from src.batch.aggregation import (
+    select_canonical_per_concentration as _select_canonical_src,
+)
+from src.batch.preprocessing import sort_frame_paths as _sort_frame_paths_src
+from src.batch.response import (
+    aggregate_responsive_delta_maps as _aggregate_responsive_delta_maps_src,
+)
+from src.batch.response import (
+    scale_reference_to_baseline as _scale_reference_to_baseline_src,
+)
+from src.batch.response import (
+    score_trial_quality as _score_trial_quality_src,
+)
+from src.batch.response import (
+    summarize_responsive_delta as _summarize_responsive_delta_src,
+)
+from src.calibration.multi_roi import (
+    fit_multi_roi_fusion as _fit_multi_roi_fusion,
+)
+from src.calibration.multi_roi import (
+    select_multi_roi_candidates as _select_multi_roi_candidates,
+)
+from src.calibration.roi_scan import (
+    RoiScanConfig as _RoiScanConfig,
+)
+from src.calibration.roi_scan import (
+    compute_concentration_response as _compute_concentration_response_pure,
+)
+from src.calibration.roi_scan import (
+    stack_trials_for_response as _stack_trials_for_response,
+)
+from src.calibration.transforms import transform_concentrations as _transform_concentrations
+from src.reporting.environment import (
+    compute_environment_coefficients as _compute_environment_coefficients_pure,
+)
+from src.reporting.environment import (
+    compute_environment_summary as _compute_environment_summary_pure,
+)
+from src.reporting.io import (
+    save_aggregated_spectra as _save_aggregated_spectra_io,
+)
+from src.reporting.io import (
+    save_aggregated_summary as _save_aggregated_summary_io,
+)
+from src.reporting.io import (
+    save_canonical_spectra as _save_canonical_spectra_io,
+)
+from src.reporting.io import (
+    save_concentration_response_metrics as _save_concentration_response_metrics_io,
+)
+from src.reporting.io import (
+    save_dynamics_error as _save_dynamics_error_io,
+)
+from src.reporting.io import (
+    save_dynamics_summary as _save_dynamics_summary_io,
+)
+from src.reporting.io import (
+    save_environment_compensation_summary as _save_env_compensation_summary_io,
+)
+from src.reporting.io import (
+    save_noise_metrics as _save_noise_metrics_io,
+)
+from src.reporting.io import (
+    save_quality_summary as _save_quality_summary_io,
+)
+from src.reporting.io import (
+    save_roi_performance_metrics as _save_roi_performance_metrics_io,
+)
+from src.reporting.metrics import (
+    common_signal_columns as _common_signal_columns,
+)
+from src.reporting.metrics import (
+    compute_noise_metrics_map,
+    compute_roi_performance,
+    compute_roi_repeatability,
+    summarize_dynamics_metrics,
+    summarize_top_comparison,
+)
+from src.reporting.metrics import (
+    select_common_signal as _select_common_signal,
+)
+from src.reporting.metrics import (
+    summarize_quality_control as _summarize_quality_control_pure,
+)
+from src.reporting.plots import (
+    save_aggregated_plots as _save_aggregated_plots_src,
+)
+from src.reporting.plots import (
+    save_calibration_outputs as _save_calibration_outputs_src,
+)
+from src.reporting.plots import (
+    save_canonical_overlay as _save_canonical_overlay_src,
+)
+from src.reporting.plots import (
+    save_concentration_response_plot as _save_concentration_response_plot_pure,
+)
+from src.reporting.plots import (
+    save_research_grade_calibration_plot as _save_research_grade_calibration_plot_src,
+)
+from src.reporting.plots import (
+    save_roi_discovery_plot as _save_roi_discovery_plot_src,
+)
+from src.reporting.plots import (
+    save_roi_repeatability_plot as _save_roi_repeatability_plot_src,
+)
+from src.reporting.plots import (
+    save_spectral_response_diagnostic as _save_spectral_response_diagnostic_pure,
+)
+from src.reporting.plots import (
+    save_wavelength_shift_visualization as _save_wavelength_shift_visualization_src,
+)
+from src.scientific.regression import (
+    ransac as _ransac,
+)
+from src.scientific.regression import (
+    theil_sen as _theil_sen,
+)
+from src.scientific.regression import (
+    weighted_linear as _weighted_linear,
+)
+from src.signal.peak import (
+    estimate_shift_crosscorr as _estimate_shift_crosscorr,
+)
+from src.signal.peak import (
+    gaussian_peak_center as _gaussian_peak_center,
+)
+from src.signal.roi import (
+    compute_band_ratio_matrix as _compute_band_ratio_matrix,
+)
+from src.signal.roi import (
+    find_monotonic_wavelengths as _find_monotonic_wavelengths,
+)
+
+# ---------------------------------------------------------------------------
+# Migrated to src/ — imported here as aliases so all internal callers work
+# unchanged. The duplicate function bodies below have been removed.
+# ---------------------------------------------------------------------------
+from src.signal.transforms import (
+    append_absorbance_column as _append_absorbance_column,
+)
+from src.signal.transforms import (
+    compute_transmittance,
+)
+from src.signal.transforms import (
+    ensure_odd_window as _ensure_odd_window,
+)
+from src.signal.transforms import (
+    smooth as _smooth,
+)
+
 from ..advanced.mcr_als import (
     fit_mcrals_from_canonical,
     save_mcrals_outputs,
@@ -59,90 +218,6 @@ from .preprocessing import (
     estimate_noise_metrics,
     normalize_spectrum,
     smooth_spectrum,
-)
-
-# ---------------------------------------------------------------------------
-# Migrated to src/ — imported here as aliases so all internal callers work
-# unchanged. The duplicate function bodies below have been removed.
-# ---------------------------------------------------------------------------
-from src.signal.transforms import (
-    append_absorbance_column as _append_absorbance_column,
-    compute_transmittance,
-    ensure_odd_window as _ensure_odd_window,
-    smooth as _smooth,
-)
-from src.signal.peak import (
-    estimate_shift_crosscorr as _estimate_shift_crosscorr,
-    gaussian_peak_center as _gaussian_peak_center,
-)
-from src.scientific.regression import (
-    ransac as _ransac,
-    theil_sen as _theil_sen,
-    weighted_linear as _weighted_linear,
-)
-from src.signal.roi import (
-    compute_band_ratio_matrix as _compute_band_ratio_matrix,
-    find_monotonic_wavelengths as _find_monotonic_wavelengths,
-)
-from src.calibration.transforms import transform_concentrations as _transform_concentrations
-from src.calibration.multi_roi import (
-    fit_multi_roi_fusion as _fit_multi_roi_fusion,
-    select_multi_roi_candidates as _select_multi_roi_candidates,
-)
-from src.reporting.metrics import (
-    common_signal_columns as _common_signal_columns,
-    compute_noise_metrics_map,
-    compute_roi_performance,
-    compute_roi_repeatability,
-    select_common_signal as _select_common_signal,
-    summarize_dynamics_metrics,
-    summarize_quality_control as _summarize_quality_control_pure,
-    summarize_top_comparison,
-)
-from src.reporting.environment import (
-    compute_environment_coefficients as _compute_environment_coefficients_pure,
-    compute_environment_summary as _compute_environment_summary_pure,
-)
-from src.calibration.roi_scan import (
-    RoiScanConfig as _RoiScanConfig,
-    compute_concentration_response as _compute_concentration_response_pure,
-    stack_trials_for_response as _stack_trials_for_response,
-)
-from src.reporting.io import (
-    save_aggregated_spectra as _save_aggregated_spectra_io,
-    save_aggregated_summary as _save_aggregated_summary_io,
-    save_canonical_spectra as _save_canonical_spectra_io,
-    save_concentration_response_metrics as _save_concentration_response_metrics_io,
-    save_dynamics_error as _save_dynamics_error_io,
-    save_dynamics_summary as _save_dynamics_summary_io,
-    save_environment_compensation_summary as _save_env_compensation_summary_io,
-    save_noise_metrics as _save_noise_metrics_io,
-    save_quality_summary as _save_quality_summary_io,
-    save_roi_performance_metrics as _save_roi_performance_metrics_io,
-)
-from src.reporting.plots import (
-    save_aggregated_plots as _save_aggregated_plots_src,
-    save_calibration_outputs as _save_calibration_outputs_src,
-    save_canonical_overlay as _save_canonical_overlay_src,
-    save_concentration_response_plot as _save_concentration_response_plot_pure,
-    save_research_grade_calibration_plot as _save_research_grade_calibration_plot_src,
-    save_roi_discovery_plot as _save_roi_discovery_plot_src,
-    save_roi_repeatability_plot as _save_roi_repeatability_plot_src,
-    save_spectral_response_diagnostic as _save_spectral_response_diagnostic_pure,
-    save_wavelength_shift_visualization as _save_wavelength_shift_visualization_src,
-)
-from src.batch.aggregation import (
-    average_stable_block as _average_stable_block_src,
-    average_top_frames as _average_top_frames_src,
-    find_stable_block as _find_stable_block_src,
-    select_canonical_per_concentration as _select_canonical_src,
-)
-from src.batch.preprocessing import sort_frame_paths as _sort_frame_paths_src
-from src.batch.response import (
-    aggregate_responsive_delta_maps as _aggregate_responsive_delta_maps_src,
-    scale_reference_to_baseline as _scale_reference_to_baseline_src,
-    score_trial_quality as _score_trial_quality_src,
-    summarize_responsive_delta as _summarize_responsive_delta_src,
 )
 
 

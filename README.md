@@ -376,6 +376,8 @@ Per-gas overrides (`Ethanol`, `IPA`, `MeOH`, `MixVOC`) can be placed under the g
 pytest                        # all 430 tests
 pytest tests/test_config.py   # specific file
 pytest -v --tb=short          # verbose with short tracebacks
+pytest -m "not reliability"   # fast lane (default PR checks)
+pytest -m "reliability"       # long-running lifecycle/soak checks
 ```
 
 > **Note**: 18 tests are skipped when `onnx`/`onnxruntime` are not installed — this is intentional.
@@ -389,8 +391,13 @@ pytest -v --tb=short          # verbose with short tracebacks
 ### Local quality gate (mirrors CI)
 
 ```bash
-python scripts/quality_gate.py           # ruff + pytest
-python scripts/quality_gate.py --strict  # + mypy type checking
+python scripts/quality_gate.py                                  # fast + reliability lanes + mypy
+python scripts/quality_gate.py --lane fast                      # quick local PR-style gate
+python scripts/quality_gate.py --lane reliability --reliability-report
+python scripts/quality_gate.py --lane reliability --reliability-report --enforce-reliability-budget
+python scripts/quality_gate.py --lane fast --coverage           # stricter local coverage threshold
+python scripts/quality_gate.py --format-check                   # stricter local formatting gate
+python scripts/quality_gate.py --strict                         # make legacy mypy checks required
 ```
 
 ### Individual tools
@@ -404,6 +411,17 @@ mypy src/ gas_analysis/    # type checking
 ### CI
 
 GitHub Actions runs ruff, pytest, and mypy on every push/PR via [`.github/workflows/quality.yml`](.github/workflows/quality.yml).
+
+The quality workflow is split into two required pytest lanes:
+
+- **Fast lane**: `pytest -m "not reliability"` for quick regression feedback.
+- **Reliability lane**: `pytest -m "reliability"` for subprocess/lifecycle/soak stability checks.
+
+Reliability reports are uploaded as JUnit artifacts in each run (`reliability-report`).
+Each reliability run also publishes a markdown summary in the GitHub Actions job summary, including pass/fail counts, failure triage, skipped-test previews, and slowest tests.
+PR reliability runs also publish an advisory runtime budget check, while the nightly reliability workflow enforces runtime budgets for total suite time and slowest individual test.
+
+Nightly long-run validation is scheduled in [`.github/workflows/reliability-nightly.yml`](.github/workflows/reliability-nightly.yml), with a nightly artifact (`reliability-nightly-report`) for trend inspection.
 
 ### Advanced CLI tools
 

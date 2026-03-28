@@ -1,0 +1,60 @@
+name: Reliability Nightly
+
+on:
+  schedule:
+    # 17:00 UTC = 00:00 Asia/Bangkok
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  reliability-nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run reliability lane with JUnit report
+        run: |
+          mkdir -p output/test-results
+          pytest -q --tb=short -m "reliability" --durations=20 --junitxml=output/test-results/reliability-nightly-junit.xml
+
+      - name: Build nightly reliability markdown summary
+        if: always()
+        run: |
+          python scripts/summarize_junit.py --junit output/test-results/reliability-nightly-junit.xml --output output/test-results/reliability-nightly-summary.md --title "Reliability Nightly Summary" --top-n 10
+
+      - name: Check nightly reliability runtime budget
+        if: always()
+        run: |
+          python scripts/check_junit_budget.py --junit output/test-results/reliability-nightly-junit.xml --output output/test-results/reliability-nightly-budget.md --title "Reliability Nightly Budget" --max-total-seconds 45 --max-case-seconds 12
+
+      - name: Publish nightly reliability summary
+        if: always()
+        run: |
+          cat output/test-results/reliability-nightly-summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat output/test-results/reliability-nightly-budget.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reliability test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-nightly-report
+          path: |
+            output/test-results/reliability-nightly-junit.xml
+            output/test-results/reliability-nightly-summary.md
+            output/test-results/reliability-nightly-budget.md
+          if-no-files-found: error

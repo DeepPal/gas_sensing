@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from typing import cast
 
 from src.scientific.lod import (
     calculate_lod_3sigma,
@@ -134,15 +135,15 @@ class TestSensorPerformanceSummary:
 
     def test_r2_near_one_for_linear_data(self):
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
-        assert summary["r_squared"] > 0.99
+        assert cast(float, summary["r_squared"]) > 0.99
 
     def test_lod_positive(self):
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
-        assert summary["lod_ppm"] > 0
+        assert cast(float, summary["lod_ppm"]) > 0
 
     def test_loq_greater_than_lod(self):
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
-        assert summary["loq_ppm"] > summary["lod_ppm"]
+        assert cast(float, summary["loq_ppm"]) > cast(float, summary["lod_ppm"])
 
     def test_custom_gas_name_stored(self):
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES, gas_name="Ethanol")
@@ -152,7 +153,7 @@ class TestSensorPerformanceSummary:
         s1 = sensor_performance_summary(self._CONCS, self._RESPONSES, baseline_noise_std=0.001)
         s2 = sensor_performance_summary(self._CONCS, self._RESPONSES, baseline_noise_std=0.1)
         # Higher noise → higher LOD
-        assert s2["lod_ppm"] > s1["lod_ppm"]
+        assert cast(float, s2["lod_ppm"]) > cast(float, s1["lod_ppm"])
 
     def test_n_calibration_points(self):
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
@@ -191,7 +192,7 @@ class TestMandelLinearityTest:
         """Perfectly linear data should pass the linearity test (p ≥ 0.05)."""
         result = mandel_linearity_test(self._CONCS_LIN, self._RESP_LIN)
         assert result["is_linear"] is True
-        assert result["p_value"] >= 0.05
+        assert cast(float, result["p_value"]) >= 0.05
 
     def test_nonlinear_data_rejected(self):
         """Langmuir data at wide concentration range should fail linearity."""
@@ -199,20 +200,20 @@ class TestMandelLinearityTest:
         r = self._langmuir(c)
         result = mandel_linearity_test(c, r)
         # Langmuir strongly saturates — quadratic should improve fit
-        assert result["delta_r2"] >= 0.0  # quadratic always ≥ linear
+        assert cast(float, result["delta_r2"]) >= 0.0  # quadratic always ≥ linear
 
     def test_r2_linear_leq_r2_quadratic(self):
         """Quadratic can only do as well or better than linear (more params)."""
         result = mandel_linearity_test(self._CONCS_LIN, self._RESP_LIN)
-        assert result["r2_quadratic"] >= result["r2_linear"] - 1e-9
+        assert cast(float, result["r2_quadratic"]) >= cast(float, result["r2_linear"]) - 1e-9
 
     def test_rss_quadratic_leq_rss_linear(self):
         result = mandel_linearity_test(self._CONCS_LIN, self._RESP_LIN)
-        assert result["rss_quadratic"] <= result["rss_linear"] + 1e-9
+        assert cast(float, result["rss_quadratic"]) <= cast(float, result["rss_linear"]) + 1e-9
 
     def test_f_statistic_non_negative(self):
         result = mandel_linearity_test(self._CONCS_LIN, self._RESP_LIN)
-        assert result["f_statistic"] >= 0.0
+        assert cast(float, result["f_statistic"]) >= 0.0
 
     def test_recommendation_is_string(self):
         result = mandel_linearity_test(self._CONCS_LIN, self._RESP_LIN)
@@ -272,29 +273,31 @@ class TestRobustSensitivity:
         r = self._with_outlier(idx=2, scale=5.0)
         result = robust_sensitivity(self._CONCS, r, method="huber")
         # With strong outlier, at least 1 flagged; robust slope closer to -2.0 than OLS
-        assert result["n_outliers"] >= 0  # may or may not flag depending on magnitude
+        assert cast(int, result["n_outliers"]) >= 0  # may or may not flag depending on magnitude
 
     def test_slope_robust_to_outlier(self):
         """Huber slope should be closer to true -2.0 than OLS when outlier present."""
         r = self._with_outlier(idx=2, scale=8.0)
         ols = robust_sensitivity(self._CONCS, r, method="huber")
-        huber_err = abs(ols["slope"] - (-2.0))
-        ols_err = abs(ols["ols_slope"] - (-2.0))
+        huber_err = abs(cast(float, ols["slope"]) - (-2.0))
+        ols_err = abs(cast(float, ols["ols_slope"]) - (-2.0))
         # Huber should be at least as good as OLS (often better with outlier)
         assert huber_err <= ols_err + 0.5  # allow 0.5 tolerance
 
     def test_r_squared_in_zero_one(self):
         result = robust_sensitivity(self._CONCS, self._RESP_CLEAN, method="huber")
-        assert 0.0 <= result["r_squared"] <= 1.0
+        assert 0.0 <= cast(float, result["r_squared"]) <= 1.0
 
     def test_outlier_mask_boolean_array(self):
         result = robust_sensitivity(self._CONCS, self._RESP_CLEAN)
-        assert result["outlier_mask"].dtype == bool
-        assert len(result["outlier_mask"]) == len(self._CONCS)
+        outlier_mask = cast(np.ndarray, result["outlier_mask"])
+        assert outlier_mask.dtype == bool
+        assert len(outlier_mask) == len(self._CONCS)
 
     def test_n_outliers_consistent_with_mask(self):
         result = robust_sensitivity(self._CONCS, self._RESP_CLEAN)
-        assert result["n_outliers"] == int(result["outlier_mask"].sum())
+        outlier_mask = cast(np.ndarray, result["outlier_mask"])
+        assert cast(int, result["n_outliers"]) == int(outlier_mask.sum())
 
     def test_recommendation_is_string(self):
         result = robust_sensitivity(self._CONCS, self._RESP_CLEAN)

@@ -5,6 +5,7 @@ where peak/valley wavelength shifts monotonically with analyte concentration.
 These routines are the first step in automatic calibration curve construction.
 """
 from __future__ import annotations
+
 from typing import Any
 
 import numpy as np

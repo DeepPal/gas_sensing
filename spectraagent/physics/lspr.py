@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from spectraagent.physics.base import AbstractSensorPhysicsPlugin
 from src.features.lspr_features import (
     LSPR_SEARCH_MAX_NM,
     LSPR_SEARCH_MIN_NM,
@@ -24,7 +25,6 @@ from src.features.lspr_features import (
     detect_lspr_peak,
     extract_lspr_features,
 )
-from spectraagent.physics.base import AbstractSensorPhysicsPlugin
 
 
 class LSPRPlugin(AbstractSensorPhysicsPlugin):

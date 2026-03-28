@@ -6,10 +6,10 @@ next step after :func:`~src.signal.roi.find_monotonic_wavelengths` identifies
 candidate wavelength regions.
 """
 from __future__ import annotations
-from typing import Any
 
 import logging
 import math
+from typing import Any
 
 import numpy as np
 from sklearn.linear_model import LinearRegression, Ridge

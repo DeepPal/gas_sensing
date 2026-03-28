@@ -4,11 +4,11 @@ All functions are CONFIG-free: every parameter is passed explicitly.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 import logging
 import math
 import os
 import re
-from collections.abc import Sequence
 
 log = logging.getLogger(__name__)
 

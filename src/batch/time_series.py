@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -73,11 +73,11 @@ def smooth_vector(signal: np.ndarray, window: int = 3) -> np.ndarray:
     from scipy.signal import savgol_filter
 
     if len(signal) < 4:
-        return signal.copy()
+        return cast(np.ndarray, np.asarray(signal.copy(), dtype=float))
     w = min(ensure_odd_window(window), len(signal) if len(signal) % 2 == 1 else len(signal) - 1)
     w = max(3, w)
     p = min(2, w - 1)
-    return np.asarray(savgol_filter(signal.astype(float), w, p))
+    return cast(np.ndarray, np.asarray(savgol_filter(signal.astype(float), w, p)))
 
 
 def pelt_changepoint_detection(
@@ -322,7 +322,7 @@ def _compute_baseline_outputs(
     wl_step = wl_step if np.isfinite(wl_step) and wl_step > 0 else 0.2
     search_radius = int(max(2, math.ceil(1.5 / wl_step)))
 
-    peak_idx = np.full(n_frames, baseline_peak_idx, dtype=int)
+    peak_idx: np.ndarray = np.full(n_frames, baseline_peak_idx, dtype=int)
     for frame_idx, row in enumerate(roi_matrix):
         if not np.any(np.isfinite(row)):
             continue
@@ -674,7 +674,7 @@ def compute_response_time_series(
         responsive_indices = candidate_indices if slope_pass else []
 
     # ── Build output DataFrame ────────────────────────────────────────────
-    segment_ids = np.full(n_frames, -1, dtype=int)
+    segment_ids: np.ndarray = np.full(n_frames, -1, dtype=int)
     if responsive_segments:
         for seg_id, (seg_start, seg_end) in enumerate(responsive_segments, start=1):
             seg_start = int(max(0, seg_start))

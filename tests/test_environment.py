@@ -152,7 +152,7 @@ class TestComputeEnvironmentSummary:
         info = compute_environment_summary(agg)
         assert info["temperature_mean"] == pytest.approx(30.0)
 
-    def test_cT_offset_computed(self):
+    def test_ct_offset_computed(self):
         agg = _make_env_agg([0.5], temp=30.0)
         # offset = 0.002 * (30 - 25) = 0.01
         info = compute_environment_summary(agg, T_ref=25.0, cT=0.002)

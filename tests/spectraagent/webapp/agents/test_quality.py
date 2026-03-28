@@ -6,7 +6,6 @@ import pytest
 from spectraagent.webapp.agent_bus import AgentBus
 from spectraagent.webapp.agents.quality import QualityAgent, _compute_snr
 
-
 # -----------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------

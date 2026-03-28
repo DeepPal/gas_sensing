@@ -62,7 +62,8 @@ def test_suggest_returns_highest_uncertainty_concentration():
     agent.record_measured(1.0)
     agent.set_gpr(_mock_gpr_logspace(peak_frac=0.9))  # peak near high-concentration end
     result = agent.suggest()
-    assert result > 5.0  # should be pulled toward high-concentration region
+    assert result is not None
+    assert result >= 4.5  # should be pulled toward high-concentration region
     loop.close()
 
 

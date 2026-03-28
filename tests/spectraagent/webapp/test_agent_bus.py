@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -8,9 +9,15 @@ from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 
 
 def _event(**kw) -> AgentEvent:
-    defaults = dict(source="Test", level="ok", type="test", data={}, text="t")
+    defaults: dict[str, Any] = dict(source="Test", level="ok", type="test", data={}, text="t")
     defaults.update(kw)
-    return AgentEvent(**defaults)
+    return AgentEvent(
+        source=str(defaults["source"]),
+        level=str(defaults["level"]),
+        type=str(defaults["type"]),
+        data=cast(dict, defaults["data"]),
+        text=str(defaults["text"]),
+    )
 
 
 # -----------------------------------------------------------------------

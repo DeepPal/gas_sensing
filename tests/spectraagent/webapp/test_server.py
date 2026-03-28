@@ -1,10 +1,10 @@
 import asyncio
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
+import pytest
 
-from spectraagent.webapp.server import create_app, Broadcaster
+from spectraagent.webapp.server import Broadcaster, create_app
 from spectraagent.webapp.session_writer import SessionWriter
 
 
@@ -71,7 +71,7 @@ def test_broadcaster_fan_out():
 
 def test_ws_spectrum_endpoint_connects(client):
     """WebSocket /ws/spectrum accepts connections without error."""
-    with client.websocket_connect("/ws/spectrum") as ws:
+    with client.websocket_connect("/ws/spectrum"):
         pass  # connection accepted = success
 
 
@@ -120,7 +120,7 @@ from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 
 def test_ws_agent_events_connects(client):
     """WebSocket /ws/agent-events accepts connections without error."""
-    with client.websocket_connect("/ws/agent-events") as ws:
+    with client.websocket_connect("/ws/agent-events"):
         pass  # connecting and cleanly disconnecting = success
 
 

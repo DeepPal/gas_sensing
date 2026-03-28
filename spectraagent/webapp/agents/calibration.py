@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, List, cast
+from typing import Any, cast
 
 import numpy as np
 
@@ -93,7 +93,7 @@ class CalibrationAgent:
                     "r_squared": round(r_squared, 4),
                     "aic_table": [
                         {"model": row[0], "aic": round(float(row[1]), 3)}
-                        for row in cast(List[Any], result["aic_table"])
+                        for row in cast(list[Any], result["aic_table"])
                     ],
                 },
                 text=(

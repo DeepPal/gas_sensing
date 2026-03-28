@@ -92,7 +92,7 @@ def main() -> None:
         (i for i, l in enumerate(lines) if l.strip().startswith(ANCHOR)), None
     )
     if anchor_idx is None:
-        print(f"ERROR: anchor not found", file=sys.stderr)
+        print("ERROR: anchor not found", file=sys.stderr)
         sys.exit(1)
     close_idx = anchor_idx
     while close_idx < len(lines) and ")" not in lines[close_idx]:

@@ -542,8 +542,11 @@ def extract_lspr_features(
             and feat.delta_lambda is not None
         ):
             feat.snr = float(abs(feat.delta_lambda) / feat.delta_lambda_std)
-        elif feat.delta_intensity_std is not None and feat.delta_intensity_std > 1e-12:
-            if feat.delta_intensity_peak is not None:
-                feat.snr = float(abs(feat.delta_intensity_peak) / feat.delta_intensity_std)
+        elif (
+            feat.delta_intensity_std is not None
+            and feat.delta_intensity_std > 1e-12
+            and feat.delta_intensity_peak is not None
+        ):
+            feat.snr = float(abs(feat.delta_intensity_peak) / feat.delta_intensity_std)
 
     return feat

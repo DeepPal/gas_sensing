@@ -171,6 +171,10 @@ ignore = [
     "N803",   # argument name should be lowercase (numpy convention: X, Y matrices)
     "N806",   # variable in function should be lowercase (numpy convention)
     "SIM108", # ternary operator — sometimes less readable
+    # UP045/UP007: Optional[X] / Union[X, Y] kept for Python 3.9 runtime compatibility
+    # (requires-python = ">=3.9"; X | None syntax requires 3.10+ at runtime)
+    "UP045",
+    "UP007",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -206,7 +210,7 @@ indent-style = "space"
 # Tool: mypy (type checking — advisory, not blocking)
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 warn_unused_ignores = false    # many stubs are incomplete
@@ -257,6 +261,8 @@ log_cli = true
 log_cli_level = "WARNING"
 markers = [
     "smoke: end-to-end pipeline smoke tests covering config → preprocess → calibrate chain",
+    "integration: tests that exercise cross-component or subprocess behavior",
+    "reliability: long-running or lifecycle stability tests separated from fast CI",
 ]
 filterwarnings = [
     "ignore::sklearn.exceptions.ConvergenceWarning",  # GPR on tiny synthetic test data

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from typing import cast
 
 from src.calibration.isotherms import (
     IsothermResult,
@@ -221,7 +222,7 @@ class TestSelectIsotherm:
     def test_aic_table_sorted_ascending(self):
         c, r = _langmuir_data()
         sel = select_isotherm(c, r)
-        aic_values = [row[1] for row in sel["aic_table"]]
+        aic_values = [row[1] for row in cast(list, sel["aic_table"])]
         assert aic_values == sorted(aic_values)
 
     def test_linear_data_selects_linear(self):
@@ -236,7 +237,7 @@ class TestSelectIsotherm:
         c, r = _langmuir_data()
         sel = select_isotherm(c, r, models=["langmuir", "freundlich"])
         assert sel["best_model"] in ("langmuir", "freundlich")
-        assert len(sel["aic_table"]) <= 2
+        assert len(cast(list, sel["aic_table"])) <= 2
 
     def test_recommendation_is_string(self):
         c, r = _langmuir_data()

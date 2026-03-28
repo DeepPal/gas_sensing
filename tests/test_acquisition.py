@@ -134,6 +134,7 @@ class TestSessionWriterSaveRawDefault:
 
     def test_save_raw_defaults_to_true(self, tmp_path):
         import inspect
+
         from src.inference.orchestrator import _SessionWriter
 
         sig = inspect.signature(_SessionWriter.__init__)

@@ -11,17 +11,16 @@ Typical pipeline flow::
     dynamics = summarize_dynamics_metrics(dynamics_df)
 """
 from __future__ import annotations
-from typing import Any
 
 from collections.abc import Sequence
 from dataclasses import asdict
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
 from src.preprocessing.quality import estimate_noise_metrics
-
 
 # ---------------------------------------------------------------------------
 # Signal column helpers

@@ -22,6 +22,7 @@ import contextlib
 from datetime import datetime
 import json
 from pathlib import Path
+from typing import cast
 import traceback
 
 import numpy as np
@@ -52,7 +53,8 @@ try:
     _SP_AVAILABLE = True
 except Exception:
     try:
-        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum
+        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum  # type: ignore[assignment]
+        from src.preprocessing.quality import compute_snr, estimate_noise_metrics
 
         _SP_AVAILABLE = True
     except Exception:
@@ -1125,10 +1127,13 @@ Files written:
                             )
                             if st.button("Fit Isotherms", key="exp_btn_isotherms"):
                                 try:
-                                    from src.calibration.isotherms import select_isotherm as _sel_iso
+                                    from src.calibration.isotherms import (
+                                        IsothermResult,
+                                        select_isotherm as _sel_iso,
+                                    )
 
                                     _iso_sel = _sel_iso(_cal_concs, _cal_shifts)
-                                    _iso_best = _iso_sel["best_result"]
+                                    _iso_best = cast(IsothermResult, _iso_sel["best_result"])
 
                                     _iso_c1, _iso_c2 = st.columns([2, 1])
                                     with _iso_c1:
@@ -1181,7 +1186,7 @@ Files written:
                                             _pe = _iso_best.param_stderrs.get(_pn, float("nan"))
                                             st.caption(f"`{_pn}` = {_pv:.4g} ± {_pe:.2g}")
                                         st.markdown("**AIC table:**")
-                                        for _mn, _ma, _mr2, _mrmse in _iso_sel["aic_table"]:
+                                        for _mn, _ma, _mr2, _mrmse in cast(list, _iso_sel["aic_table"]):
                                             st.caption(
                                                 f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}"
                                             )

@@ -22,7 +22,6 @@ from spectraagent.webapp.agents.claude_agents import (
     ReportWriter,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -184,7 +183,7 @@ def test_anomaly_explainer_fires_when_enabled():
 def test_anomaly_explainer_respects_cooldown():
     """Second drift_warn within cooldown window must not trigger a second call."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
+    _q = bus.subscribe()
 
     agent = AnomalyExplainer(bus, auto_explain=True, cooldown_s=9999.0)
     mock_client = _mock_claude_client()
@@ -237,7 +236,7 @@ def test_anomaly_explainer_ignores_wrong_event_type():
 def test_experiment_narrator_fires_once_per_point():
     """ExperimentNarrator fires on n_points=4, must NOT fire again for same n_points=4."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
+    _q = bus.subscribe()
 
     agent = ExperimentNarrator(bus, auto_explain=True)
     mock_client = _mock_claude_client("Langmuir model selected. Good fit.")
@@ -302,7 +301,7 @@ def test_diagnostics_fires_on_hardware_error():
 def test_diagnostics_respects_per_code_cooldown():
     """Same error code within cooldown window triggers only one call."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
+    _q = bus.subscribe()
 
     agent = DiagnosticsAgent(bus, cooldown_s=9999.0)
     mock_client = _mock_claude_client()
@@ -380,7 +379,7 @@ def test_diagnostics_ignores_non_error_events():
 def test_runner_dispatches_drift_warn_to_anomaly_explainer():
     """ClaudeAgentRunner must route drift_warn events to AnomalyExplainer."""
     bus, loop = _make_bus()
-    q = bus.subscribe()
+    _q = bus.subscribe()
 
     anomaly = AnomalyExplainer(bus, auto_explain=True, cooldown_s=0.0)
     narrator = ExperimentNarrator(bus, auto_explain=True)

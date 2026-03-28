@@ -10,6 +10,7 @@ matplotlib versions.  Functional correctness is covered by the src/ module's
 design and the underlying pipeline integration tests.
 """
 import os
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,7 +28,6 @@ from src.reporting.plots import (
     save_spectral_response_diagnostic,
     save_wavelength_shift_visualization,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -288,4 +288,4 @@ class TestSaveCalibrationOutputs:
         }
         save_calibration_outputs(calib, out_root)
         assert "plots" in calib
-        assert "calibration" in calib["plots"]
+        assert "calibration" in cast(dict[str, object], calib["plots"])

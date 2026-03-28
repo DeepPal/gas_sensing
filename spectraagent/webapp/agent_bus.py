@@ -13,10 +13,11 @@ Architecture (spec Section 4.1):
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
+import contextlib
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import json
+import logging
 from pathlib import Path
 from typing import IO, Optional
 
@@ -87,14 +88,12 @@ class AgentBus:
     def set_jsonl_path(self, path: Path) -> None:
         """Change the JSONL output path (e.g. at session start)."""
         if self._jsonl_file is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._jsonl_file.close()
-            except Exception:
-                pass
             self._jsonl_file = None
         self._jsonl_path = path
 
-    def emit(self, event: AgentEvent) -> Optional["asyncio.Handle"]:
+    def emit(self, event: AgentEvent) -> Optional[asyncio.Handle]:
         """Emit an event from any thread. No-op if setup_loop() not yet called.
 
         Returns the asyncio Handle for the scheduled fanout callback, or None
@@ -113,10 +112,8 @@ class AgentBus:
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         """Remove a client's queue when they disconnect."""
-        try:
+        with contextlib.suppress(ValueError):
             self._subscribers.remove(q)
-        except ValueError:
-            pass
 
     # ------------------------------------------------------------------
     # Internal — always called from the event loop thread

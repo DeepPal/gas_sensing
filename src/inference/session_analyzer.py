@@ -124,18 +124,41 @@ class SessionAnalyzer:
             except Exception as exc:
                 log.debug("Calibration R² computation failed: %s", exc)
 
-        # ── LOD / LOQ (IUPAC 3σ / 10σ criterion) ────────────────────────
-        if result.calibration_rmse_ppm is not None and result.calibration_rmse_ppm > 0:
-            sigma = result.calibration_rmse_ppm
-            result.lod_ppm = 3.0 * sigma
-            result.loq_ppm = 10.0 * sigma
+        # ── LOD / LOQ (IUPAC 2012 / Eurachem Guide) ─────────────────────
+        # LOD = 3 · σ_blank_nm / |m|   LOQ = 10 · σ_blank_nm / |m|
+        # σ_blank_nm = noise in signal space (nm shift residuals from linear fit)
+        # m          = sensitivity at low concentration (nm / ppm), estimated
+        #              from the Henry's-law (low-conc) portion of the curve.
+        # This properly accounts for sensor sensitivity: a flatter calibration
+        # curve (low m) correctly yields a higher (worse) LOD.
+        if result.calibration_n_points >= 3:
+            # Residual noise in signal (nm) from a global linear fit
+            signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)  # nm per ppm
+            signal_residuals_nm = cal_shifts - np.polyval(signal_coeffs, cal_concs)
+            sigma_blank_nm = float(np.std(signal_residuals_nm, ddof=1))
+
+            # Sensitivity m from the low-concentration Henry's-law regime
+            n_low = max(2, result.calibration_n_points // 3)
+            sorted_idx = np.argsort(cal_concs)
+            low_concs = cal_concs[sorted_idx[:n_low]]
+            low_shifts = cal_shifts[sorted_idx[:n_low]]
+            if np.ptp(low_concs) > 1e-9:
+                m_nm_per_ppm = float(np.polyfit(low_concs, low_shifts, 1)[0])
+            else:
+                m_nm_per_ppm = float(signal_coeffs[0])  # fallback: global slope
+
+            if abs(m_nm_per_ppm) > 1e-9:
+                result.lod_ppm = max(3.0 * sigma_blank_nm / abs(m_nm_per_ppm), 1e-6)
+                result.loq_ppm = max(10.0 * sigma_blank_nm / abs(m_nm_per_ppm), 3e-6)
+
         elif meas_events:
+            # Rough estimate when no calibration data: 3σ of concentration spread
             concs = np.array(
                 [e["concentration_ppm"] for e in meas_events
                  if e.get("concentration_ppm") is not None]
             )
             if len(concs) >= 3:
-                sigma = float(np.std(concs))
+                sigma = float(np.std(concs, ddof=1))
                 result.lod_ppm = max(3.0 * sigma, 1e-4)
                 result.loq_ppm = max(10.0 * sigma, 3e-4)
 
@@ -160,15 +183,31 @@ class SessionAnalyzer:
         if all_snr:
             result.mean_snr = float(np.mean(all_snr))
 
-        # ── Drift (linear trend in peak wavelength over frames) ──────────
-        peak_wls = [
+        # ── Drift (linear trend separating instrumental from analyte signal) ──
+        # Preferred: use wavelength_shift residuals from per-frame mean shift,
+        # which decouples thermal/mechanical drift from real analyte binding.
+        # Fallback: raw peak_wavelength when shift data are absent.
+        shift_series = [
+            (i, e["wavelength_shift"])
+            for i, e in enumerate(meas_events)
+            if e.get("wavelength_shift") is not None
+        ]
+        peak_wl_series = [
             (i, e["peak_wavelength"])
             for i, e in enumerate(meas_events)
             if e.get("peak_wavelength") is not None
         ]
-        if len(peak_wls) >= 3:
-            frames_arr = np.array([p[0] for p in peak_wls], dtype=float)
-            wls_arr = np.array([p[1] for p in peak_wls])
+        if len(shift_series) >= 3:
+            frames_arr = np.array([p[0] for p in shift_series], dtype=float)
+            shifts_arr = np.array([p[1] for p in shift_series])
+            # Remove analyte trend: residuals around the mean shift capture drift
+            shift_residuals = shifts_arr - float(np.mean(shifts_arr))
+            coeffs = np.polyfit(frames_arr, shift_residuals, 1)
+            result.drift_rate_nm_per_frame = float(coeffs[0])
+            result.total_drift_nm = float(shift_residuals[-1] - shift_residuals[0])
+        elif len(peak_wl_series) >= 3:
+            frames_arr = np.array([p[0] for p in peak_wl_series], dtype=float)
+            wls_arr = np.array([p[1] for p in peak_wl_series])
             coeffs = np.polyfit(frames_arr, wls_arr, 1)
             result.drift_rate_nm_per_frame = float(coeffs[0])
             result.total_drift_nm = float(wls_arr[-1] - wls_arr[0])

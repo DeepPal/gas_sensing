@@ -21,11 +21,12 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 from pathlib import Path
-from typing import Any,  Optional, Union
+import re
+from typing import Any, Optional, Union
 
 import matplotlib
+
 matplotlib.use("Agg")  # noqa: E402 — must precede pyplot import
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,7 +34,6 @@ import pandas as pd
 from scipy.stats import linregress, probplot
 
 from src.reporting.metrics import select_signal_column
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -238,10 +238,9 @@ def save_concentration_response_plot(
     ax2.set_title("Concentration Response Gradient")
     ax2.grid(True, alpha=0.3)
 
-    if clamp_to_roi and x_min is not None and x_max is not None:
-        if float(x_min) < float(x_max):
-            ax1.set_xlim(float(x_min), float(x_max))
-            ax2.set_xlim(float(x_min), float(x_max))
+    if clamp_to_roi and x_min is not None and x_max is not None and float(x_min) < float(x_max):
+        ax1.set_xlim(float(x_min), float(x_max))
+        ax2.set_xlim(float(x_min), float(x_max))
 
     fig.tight_layout()
     tmp_path = out_path + ".tmp"
@@ -1035,7 +1034,7 @@ def save_roi_repeatability_plot(
     xs = []
     ys = []
     for conc, trials in sorted(stable_by_conc.items(), key=lambda kv: kv[0]):
-        for trial, df in trials.items():
+        for _trial, df in trials.items():
             col = select_signal_column(df)
             wl = df["wavelength"].values
             y = df[col].values

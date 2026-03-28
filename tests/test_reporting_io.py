@@ -1,6 +1,7 @@
 """Tests for src.reporting.io — pure JSON/CSV serialisers."""
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,7 +19,6 @@ from src.reporting.io import (
     save_quality_summary,
     save_roi_performance_metrics,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -95,13 +95,13 @@ class TestSaveNoiseMetrics:
         metrics = {0.5: {"trial_0": {"rms": 0.01, "snr": 20.0}}}
         path = save_noise_metrics(metrics, out_root)
         assert os.path.isfile(path)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert "0.5" in data
 
     def test_numpy_scalars_serialised(self, out_root):
         metrics = {1.0: {"t": {"rms": np.float64(0.02)}}}
         path = save_noise_metrics(metrics, out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert isinstance(data["1.0"]["t"]["rms"], float)
 
 
@@ -115,7 +115,7 @@ class TestSaveQualitySummary:
         qc = {"pass_rate": 0.95, "total": 20, "passed": 19}
         path = save_quality_summary(qc, out_root)
         assert os.path.isfile(path)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert data["pass_rate"] == 0.95
 
 
@@ -147,8 +147,9 @@ class TestSaveRoiPerformanceMetrics:
     def test_creates_json_when_nonempty(self, out_root):
         perf = {"lod": 0.1, "loq": 0.3, "r2": 0.99}
         path = save_roi_performance_metrics(perf, out_root)
+        assert path is not None
         assert os.path.isfile(path)
-        assert json.loads(open(path).read())["lod"] == 0.1
+        assert json.loads(Path(path).read_text(encoding="utf-8"))["lod"] == 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -160,12 +161,12 @@ class TestSaveDynamics:
     def test_summary_creates_json(self, out_root):
         summary = {"t90_response": 4.2, "t90_recovery": 8.1}
         path = save_dynamics_summary(summary, out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert data["t90_response"] == 4.2
 
     def test_error_creates_error_key(self, out_root):
         path = save_dynamics_error("not enough data", out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert data["error"] == "not enough data"
 
 
@@ -179,7 +180,7 @@ class TestSaveConcentrationResponseMetrics:
         response = {"roi_start_wavelength": 650.0, "roi_end_wavelength": 700.0}
         repeatability = {"global": {"std_transmittance": 0.003}}
         path = save_concentration_response_metrics(response, repeatability, out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert "roi_repeatability" in data
         assert data["roi_start_wavelength"] == 650.0
 
@@ -197,11 +198,11 @@ class TestSaveEnvironmentCompensationSummary:
     def test_creates_json(self, out_root):
         info = {"temperature_coefficient": -0.002, "humidity_coefficient": 0.001}
         path = save_environment_compensation_summary(info, out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert data["temperature_coefficient"] == pytest.approx(-0.002)
 
     def test_nan_serialised_as_null(self, out_root):
         info = {"value": float("nan")}
         path = save_environment_compensation_summary(info, out_root)
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         assert data["value"] is None

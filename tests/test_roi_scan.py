@@ -1,4 +1,6 @@
 """Tests for src.calibration.roi_scan — CONFIG-free ROI discovery."""
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,7 +10,6 @@ from src.calibration.roi_scan import (
     compute_concentration_response,
     stack_trials_for_response,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -118,23 +119,25 @@ class TestComputeConcentrationResponse:
     def test_roi_within_spectrum_range(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
         response, _ = compute_concentration_response(agg)
-        wl_all = response["wavelengths"]
-        assert response["roi_start_wavelength"] >= wl_all[0]
-        assert response["roi_end_wavelength"] <= wl_all[-1]
-        assert response["roi_start_wavelength"] <= response["roi_end_wavelength"]
+        wl_all = np.asarray(response["wavelengths"], dtype=float)
+        roi_start = cast(float, response["roi_start_wavelength"])
+        roi_end = cast(float, response["roi_end_wavelength"])
+        assert roi_start >= wl_all[0]
+        assert roi_end <= wl_all[-1]
+        assert roi_start <= roi_end
 
     def test_decreasing_trend_gives_negative_slope(self):
         # Dip signal → negative correlation with concentration
         agg = _make_stable_by_conc([0.5, 1.0, 2.0], dip_at=30)
         cfg = RoiScanConfig(expected_trend="decreasing")
         response, _ = compute_concentration_response(agg, cfg)
-        assert float(response["max_slope"]) < 0
+        assert cast(float, response["max_slope"]) < 0
 
     def test_wavelength_range_filter_applied(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0], n_wl=60)
         cfg = RoiScanConfig(min_wavelength=700.0, max_wavelength=740.0)
         response, _ = compute_concentration_response(agg, cfg)
-        for wl in response["wavelengths"]:
+        for wl in np.asarray(response["wavelengths"], dtype=float):
             assert 700.0 <= wl <= 740.0
 
     def test_wavelength_filter_removes_all_raises(self):
@@ -147,14 +150,17 @@ class TestComputeConcentrationResponse:
         agg = _make_stable_by_conc([0.5, 1.0, 2.0], n_wl=60)
         cfg = RoiScanConfig(band_half_width=3)
         response, _ = compute_concentration_response(agg, cfg)
-        center = response["max_slope_wavelength"]
-        assert response["roi_start_wavelength"] <= center <= response["roi_end_wavelength"]
+        center = cast(float, response["max_slope_wavelength"])
+        roi_start = cast(float, response["roi_start_wavelength"])
+        roi_end = cast(float, response["roi_end_wavelength"])
+        assert roi_start <= center <= roi_end
 
     def test_top_k_candidates_count(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
         response, _ = compute_concentration_response(agg, top_k_candidates=3)
-        assert len(response["candidates"]) <= 3
-        assert len(response["candidates"]) > 0
+        candidates = cast(list[Any], response["candidates"])
+        assert len(candidates) <= 3
+        assert len(candidates) > 0
 
     def test_zero_candidates_by_default(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
@@ -164,16 +170,18 @@ class TestComputeConcentrationResponse:
     def test_validation_within_tolerance(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
         r0, _ = compute_concentration_response(agg)
-        center = r0["max_slope_wavelength"]
+        center = cast(float, r0["max_slope_wavelength"])
         cfg = RoiScanConfig(expected_center=center, center_tolerance=10.0)
         response, _ = compute_concentration_response(agg, cfg)
-        assert response["validation"]["within_tolerance"] is True
+        validation = cast(dict[str, object], response["validation"])
+        assert validation["within_tolerance"] is True
 
     def test_validation_outside_tolerance(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
         cfg = RoiScanConfig(expected_center=400.0, center_tolerance=1.0)
         response, _ = compute_concentration_response(agg, cfg)
-        assert response["validation"]["within_tolerance"] is False
+        validation = cast(dict[str, object], response["validation"])
+        assert validation["within_tolerance"] is False
 
     def test_poly_r_squared_none_when_disabled(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
@@ -183,8 +191,8 @@ class TestComputeConcentrationResponse:
     def test_r_squared_in_unit_interval(self):
         agg = _make_stable_by_conc([0.5, 1.0, 2.0])
         response, _ = compute_concentration_response(agg)
-        r2 = response["max_r_squared"]
-        assert 0.0 <= float(r2) <= 1.0
+        r2 = cast(float, response["max_r_squared"])
+        assert 0.0 <= r2 <= 1.0
 
     def test_avg_by_conc_correct_keys(self):
         concs = [0.5, 1.0, 2.0]

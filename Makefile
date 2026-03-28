@@ -25,7 +25,12 @@ help:
 	@echo "    make lint           Run ruff linter"
 	@echo "    make format         Auto-format with ruff"
 	@echo "    make test           Run full test suite"
-	@echo "    make test-fast      Run tests, stop on first failure"
+	@echo "    make test-fast      Run fast lane tests (excludes reliability)"
+	@echo "    make test-reliability Run reliability/integration lifecycle tests"
+	@echo "    make test-reliability-report Run reliability tests with JUnit report"
+	@echo "    make test-reliability-summary Run reliability tests + markdown summary"
+	@echo "    make test-reliability-budget Run reliability tests + budget check"
+	@echo "    make quality-gate   Run local fast + reliability lanes with reports"
 	@echo "    make coverage       Run tests with coverage report"
 	@echo "    make check          lint + test (CI equivalent)"
 	@echo ""
@@ -74,12 +79,36 @@ test:
 
 .PHONY: test-fast
 test-fast:
-	$(PYTEST) tests/ -q -x --tb=short
+	$(PYTEST) tests/ -q -x --tb=short -m "not reliability"
+
+.PHONY: test-reliability
+test-reliability:
+	$(PYTEST) tests/ -q --tb=short -m "reliability"
+
+.PHONY: test-reliability-report
+test-reliability-report:
+	mkdir -p output/test-results
+	$(PYTEST) tests/ -q --tb=short -m "reliability" --durations=20 --junitxml=output/test-results/reliability-junit.xml
+	@echo "JUnit report: output/test-results/reliability-junit.xml"
+
+.PHONY: test-reliability-summary
+test-reliability-summary: test-reliability-report
+	$(PYTHON) scripts/summarize_junit.py --junit output/test-results/reliability-junit.xml --output output/test-results/reliability-summary.md --title "Reliability Local Summary" --top-n 10
+	@echo "Markdown summary: output/test-results/reliability-summary.md"
+
+.PHONY: test-reliability-budget
+test-reliability-budget: test-reliability-summary
+	$(PYTHON) scripts/check_junit_budget.py --junit output/test-results/reliability-junit.xml --output output/test-results/reliability-budget.md --title "Reliability Local Budget" --max-total-seconds 45 --max-case-seconds 12
+	@echo "Budget summary: output/test-results/reliability-budget.md"
 
 .PHONY: coverage
 coverage:
 	$(PYTEST) tests/ --cov=src --cov-report=term-missing --cov-report=html:output/coverage -q
 	@echo "HTML report: output/coverage/index.html"
+
+.PHONY: quality-gate
+quality-gate:
+	$(PYTHON) scripts/quality_gate.py --lane all --reliability-report --enforce-reliability-budget
 
 .PHONY: check
 check: lint test

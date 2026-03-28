@@ -6,14 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.signal.peak import estimate_shift_crosscorr, gaussian_peak_center
 from src.signal.transforms import (
     append_absorbance_column,
     compute_transmittance,
     ensure_odd_window,
     smooth,
 )
-from src.signal.peak import estimate_shift_crosscorr, gaussian_peak_center
-
 
 # ---------------------------------------------------------------------------
 # compute_transmittance
@@ -193,8 +192,6 @@ class TestEstimateShiftCrosscorr:
         wl = np.linspace(700, 750, n)
         ref = np.exp(-0.5 * ((wl - 720.0) / 3.0) ** 2)
         # shift target by rolling — approximate for uniform grid
-        dw = float(wl[1] - wl[0])
-        shift_pixels = shift_nm / dw
         tgt = np.interp(wl, wl + shift_nm, ref, left=ref[0], right=ref[-1])
         return wl, ref, tgt
 

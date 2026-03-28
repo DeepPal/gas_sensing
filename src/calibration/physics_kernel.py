@@ -16,6 +16,8 @@ Public API
 """
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -52,7 +54,7 @@ class LangmuirMeanFunction:
         c = X.ravel()
         c = np.maximum(c, 0.0)  # concentrations are non-negative
         result = self.delta_lambda_max * c / (self.k_d + c)
-        return result.reshape(-1, 1)
+        return cast(np.ndarray, np.asarray(result.reshape(-1, 1), dtype=float))
 
 
 def fit_langmuir_params(
@@ -72,7 +74,7 @@ def fit_langmuir_params(
     """
 
     def _langmuir(c: np.ndarray, delta_max: float, k_d: float) -> np.ndarray:
-        return delta_max * c / (k_d + c)
+        return cast(np.ndarray, np.asarray(delta_max * c / (k_d + c), dtype=float))
 
     # Initial guess: max shift from data, K_D = median concentration
     p0 = [float(np.min(shifts)), float(np.median(concentrations))]
@@ -120,15 +122,32 @@ class PhysicsInformedGPR:
         self,
         random_state: int = 42,
         n_restarts_optimizer: int = 10,
+        mode: str = "auto",
     ) -> None:
+        """
+        Parameters
+        ----------
+        mode : "auto" | "shift_to_conc" | "conc_to_shift"
+            Controls how X/y are interpreted:
+
+            * ``"auto"``          — infer from sign of median(X): negative → shift_to_conc.
+            * ``"shift_to_conc"`` — X = wavelength shifts (nm, typically negative),
+                                    y = concentrations (ppm).  Plain GP, no residual.
+            * ``"conc_to_shift"`` — X = concentrations (ppm), y = wavelength shifts (nm).
+                                    GP trained on Langmuir residuals.
+        """
+        if mode not in ("auto", "shift_to_conc", "conc_to_shift"):
+            raise ValueError(
+                f"mode must be 'auto', 'shift_to_conc', or 'conc_to_shift', got {mode!r}"
+            )
         self.random_state = random_state
         self.n_restarts_optimizer = n_restarts_optimizer
+        self._mode = mode
         self._langmuir: LangmuirMeanFunction | None = None
         self._gpr: GaussianProcessRegressor | None = None
         self._scaler_X = StandardScaler()
         self._fitted = False
-        # Track input mode: fit on (shifts → ppm) or (ppm → shifts)
-        self._fit_on_shifts: bool = True
+        self._fit_on_shifts: bool = True  # resolved in fit()
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> dict[str, object]:
         """Fit the physics-informed GPR.
@@ -146,8 +165,13 @@ class PhysicsInformedGPR:
         X_2d = np.atleast_2d(X)
         y_1d = np.ravel(y)
 
-        # Detect if X is shifts (median <= 0) or concentrations (median > 0)
-        self._fit_on_shifts = bool(np.median(X_2d.ravel()) <= 0)
+        # Resolve operating mode
+        if self._mode == "auto":
+            # Heuristic: shifts are typically negative for LSPR adsorption.
+            # Use explicit mode="shift_to_conc" or "conc_to_shift" to avoid ambiguity.
+            self._fit_on_shifts = bool(np.median(X_2d.ravel()) <= 0)
+        else:
+            self._fit_on_shifts = self._mode == "shift_to_conc"
 
         # Always fit Langmuir for diagnostics / forward-direction use
         if self._fit_on_shifts:

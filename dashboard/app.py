@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 import sys
 
 import matplotlib.pyplot as plt
@@ -39,6 +40,7 @@ if str(REPO_ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 try:
     import os as _os
+
     from gas_analysis.logging_setup import configure_logging  # noqa: E402
 
     _log_dir = Path(_os.environ.get("LOG_DIR", str(REPO_ROOT / "logs")))
@@ -80,16 +82,16 @@ except Exception as _exc:
 
 # Core signal-processing imports — prefer src.preprocessing (new canonical location)
 try:
+    from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
     from src.preprocessing.baseline import airpls_baseline, als_baseline
     from src.preprocessing.baseline import correct_baseline as baseline_correction
     from src.preprocessing.denoising import smooth_spectrum, wavelet_denoise
-    from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
 
     SIGNAL_PROC_AVAILABLE = True
 except Exception as _exc:
     # Fallback to legacy location during transition
     try:
-        from gas_analysis.core.signal_proc import (
+        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
             als_baseline,
             baseline_correction,
             smooth_spectrum,
@@ -319,9 +321,7 @@ def _render_batch() -> None:
             wavelet = st.sidebar.selectbox(
                 "Wavelet", ["db4", "db8", "sym4", "sym8", "coif4"], index=0
             )
-            mode = st.sidebar.selectbox("Threshold Mode", ["soft", "hard"], index=0)
-            sigma_est = st.sidebar.selectbox("Noise Estimate", ["mad", "std"], index=0)
-            processed = wavelet_denoise(processed, wavelet=wavelet, mode=mode, sigma_est=sigma_est)
+            processed = wavelet_denoise(processed, wavelet=wavelet)
             ax.plot(wl, processed, label="DWT Denoised", color="purple", linewidth=1.5)
 
         st.sidebar.markdown("---")
@@ -736,11 +736,10 @@ def _render_batch() -> None:
                     try:
                         from src.scientific.lod import (
                             calculate_lod_3sigma,
+                            calculate_loq_10sigma,
                             lod_bootstrap_ci,
                             mandel_linearity_test,
                         )
-
-                        from src.scientific.lod import calculate_loq_10sigma
 
                         lod = calculate_lod_3sigma(baseline_noise, slope)
                         lod_str = f"{lod:.3f} ppm"
@@ -799,10 +798,10 @@ def _render_batch() -> None:
                     )
                     if st.button("Fit Isotherms (AIC selection)", key="btn_isotherms"):
                         try:
-                            from src.calibration.isotherms import select_isotherm
+                            from src.calibration.isotherms import IsothermResult, select_isotherm
 
                             iso_sel = select_isotherm(concs, responses)
-                            iso = iso_sel["best_result"]
+                            iso = cast(IsothermResult, iso_sel["best_result"])
 
                             i_c1, i_c2 = st.columns([2, 1])
                             with i_c1:
@@ -850,7 +849,7 @@ def _render_batch() -> None:
                                     perr = iso.param_stderrs.get(pname, float("nan"))
                                     st.caption(f"`{pname}` = {pval:.4g} ± {perr:.2g}")
                                 st.markdown("**AIC table:**")
-                                for _mn, _ma, _mr2, _mrmse in iso_sel["aic_table"]:
+                                for _mn, _ma, _mr2, _mrmse in cast(list, iso_sel["aic_table"]):
                                     st.caption(f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}")
 
                         except Exception as exc:
@@ -905,6 +904,7 @@ def _render_batch() -> None:
                                         if batch_specs:
                                             m = np.mean(batch_specs, axis=0)
                                             g_concs.append(cv)
+                                            assert g_wl_ref is not None
                                             # Use peak wavelength (nm) — sensitivity
                                             # in nm/ppm makes K ratios dimensionless
                                             # and physically correct for LSPR sensors.
@@ -1107,7 +1107,7 @@ def _render_batch() -> None:
                             else:
                                 _clf = CNNGasClassifier.load(str(_cnn_pt))
                                 _out = export_cnn_to_onnx(_clf, str(_cnn_onnx))
-                                _ok, _delta = validate_onnx_export(_clf, _out)
+                                _ok, _delta = validate_onnx_export(_clf, str(_out))
                                 if _ok:
                                     st.success(
                                         f"ONNX export validated — max output Δ = {_delta:.2e}. "
