@@ -367,6 +367,16 @@ def create_app(simulate: bool = False) -> FastAPI:
             )
         app.state.reference = intensities
         app.state.cached_ref = None
+
+        # Propagate to RealTimePipeline (feature extraction + calibration stages)
+        pipeline = getattr(app.state, "pipeline", None)
+        if pipeline is not None and hasattr(pipeline, "set_reference"):
+            try:
+                import numpy as _np
+                pipeline.set_reference(_np.asarray(intensities))
+            except Exception as exc:
+                log.warning("Pipeline reference set failed: %s", exc)
+
         return JSONResponse({"status": "reference_captured", "peak_wavelength": None})
 
     # ------------------------------------------------------------------
