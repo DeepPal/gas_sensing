@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 
 log = logging.getLogger(__name__)
 
@@ -187,13 +187,23 @@ class AnomalyExplainer(_BaseClaude):
         self._last_called = now
 
         data = event.data
+        meas_lines = ""
+        if data.get("concentration_ppm") is not None:
+            meas_lines += f"  Concentration estimate: {data['concentration_ppm']:.4f} ppm\n"
+        if data.get("ci_low") is not None and data.get("ci_high") is not None:
+            meas_lines += f"  90% CI: [{data['ci_low']:.4f}, {data['ci_high']:.4f}] ppm\n"
+        if data.get("peak_shift_nm") is not None:
+            meas_lines += f"  Peak wavelength shift (Δλ): {data['peak_shift_nm']:.4f} nm\n"
+        if data.get("snr") is not None:
+            meas_lines += f"  Signal-to-noise ratio: {data['snr']:.1f}\n"
         prompt = (
             "You are a spectroscopy expert advising on an LSPR biosensor experiment.\n"
             f"The sensor shows wavelength drift.\n"
             f"  Drift rate: {data.get('drift_rate_nm_per_min', '?')} nm/min\n"
             f"  Peak wavelength: {data.get('peak_wavelength', '?')} nm\n"
             f"  Window: {data.get('window_frames', '?')} frames\n"
-            "In exactly 2–3 sentences: (1) most likely cause of this drift rate "
+            + meas_lines
+            + "In exactly 2–3 sentences: (1) most likely cause of this drift rate "
             "and (2) recommended corrective action. Be specific and actionable."
         )
         text = await self._call(prompt)
@@ -262,13 +272,21 @@ class ExperimentNarrator(_BaseClaude):
         best_model = data.get("best_model", "unknown")
         best_aic = data.get("best_aic", "?")
         r_squared = float(data.get("r_squared", 0.0))
+        stat_lines = ""
+        if data.get("lod_ppm") is not None:
+            stat_lines += f"  LOD: {data['lod_ppm']:.4f} ppm\n"
+        if data.get("loq_ppm") is not None:
+            stat_lines += f"  LOQ: {data['loq_ppm']:.4f} ppm\n"
+        if data.get("rmse_ppm") is not None:
+            stat_lines += f"  Calibration RMSE: {data['rmse_ppm']:.4f} ppm\n"
         prompt = (
             "You are a scientific instrument advisor for an LSPR calibration experiment.\n"
             f"The calibration system just fitted {n} data points.\n"
             f"  Best model: {best_model}\n"
             f"  AICc: {best_aic}\n"
             f"  R²: {r_squared:.4f}\n"
-            "In exactly 2–3 sentences: (1) what this model selection tells you about "
+            + stat_lines
+            + "In exactly 2–3 sentences: (1) what this model selection tells you about "
             "the sensor response mechanism and (2) what the experimenter should do next. "
             "Use scientific language appropriate for a journal methods section."
         )
@@ -306,7 +324,7 @@ class ReportWriter(_BaseClaude):
 
     source = "ReportWriter"
 
-    async def write(self, context: Dict[str, Any]) -> Optional[str]:
+    async def write(self, context: dict[str, Any]) -> Optional[str]:
         """Generate Methods + Results prose for the given session context.
 
         Parameters
@@ -369,7 +387,7 @@ class DiagnosticsAgent(_BaseClaude):
     ) -> None:
         super().__init__(bus, model, timeout_s)
         self._cooldown_s = cooldown_s
-        self._last_called: Dict[str, float] = {}
+        self._last_called: dict[str, float] = {}
 
     async def on_event(self, event: Any) -> None:
         """Handle an AgentBus event. Only reacts to level='error', type='hardware_error'."""
@@ -383,6 +401,13 @@ class DiagnosticsAgent(_BaseClaude):
         self._last_called[code] = now
 
         data = event.data
+        meas_lines = ""
+        if data.get("concentration_ppm") is not None:
+            meas_lines += f"  Last concentration estimate: {data['concentration_ppm']:.4f} ppm\n"
+        if data.get("snr") is not None:
+            meas_lines += f"  Last SNR: {data['snr']:.1f}\n"
+        if data.get("peak_shift_nm") is not None:
+            meas_lines += f"  Last peak shift (Δλ): {data['peak_shift_nm']:.4f} nm\n"
         prompt = (
             "You are an expert spectrometer hardware technician.\n"
             f"A hardware error occurred on the instrument.\n"
@@ -390,7 +415,8 @@ class DiagnosticsAgent(_BaseClaude):
             f"  Error message: {data.get('error_message', '?')}\n"
             f"  Hardware:      {data.get('hardware_model', '?')}\n"
             f"  Last success:  {data.get('last_successful_frame_ago_s', '?')}s ago\n"
-            "Respond in under 80 words:\n"
+            + meas_lines
+            + "Respond in under 80 words:\n"
             "(1) Most likely root cause of this specific error code.\n"
             "(2) Step-by-step troubleshooting procedure (numbered list, max 3 steps).\n"
             "Be precise. Do not repeat the error message."
