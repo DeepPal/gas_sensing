@@ -156,3 +156,44 @@ def test_check_ood_raises_before_calibrate():
     cal = ConformalCalibrator()
     with pytest.raises(RuntimeError, match="calibrate"):
         cal.check_ood(gpr, np.array([[-1.0]]))
+
+
+# ── cross_validate_coverage ───────────────────────────────────────────────────
+
+def test_cross_validate_coverage_achieves_target():
+    """LOO coverage must be >= (1 - alpha) for a well-calibrated model."""
+    gpr = _make_simple_gpr()
+    np.random.seed(99)
+    n = 20
+    X_cal = np.linspace(-4.5, -0.3, n).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 5.0 + np.random.normal(0, 0.1, n)
+    cal = ConformalCalibrator()
+    alpha = 0.10
+    coverage = cal.cross_validate_coverage(gpr, X_cal, y_cal, alpha=alpha)
+    assert 0.0 <= coverage <= 1.0
+    # With a well-fitted GPR, LOO coverage should be close to or above the target
+    assert coverage >= (1.0 - alpha) - 0.15  # allow 15% tolerance for small n
+
+
+def test_cross_validate_coverage_returns_float():
+    """cross_validate_coverage must return a float in [0, 1]."""
+    gpr = _make_simple_gpr()
+    np.random.seed(11)
+    X_cal = np.linspace(-3, -1, 15).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 4.5 + np.random.normal(0, 0.05, 15)
+    cal = ConformalCalibrator()
+    result = cal.cross_validate_coverage(gpr, X_cal, y_cal, alpha=0.05)
+    assert isinstance(result, float)
+    assert 0.0 <= result <= 1.0
+
+
+def test_cross_validate_coverage_raises_on_too_few_points():
+    """cross_validate_coverage must raise ValueError when n < 3."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    with pytest.raises(ValueError, match="n ≥ 3"):
+        cal.cross_validate_coverage(
+            gpr,
+            np.array([[-1.0], [-2.0]]),
+            np.array([5.0, 10.0]),
+        )

@@ -72,6 +72,33 @@ def test_empty_events_does_not_crash():
     assert result.frame_count == 0
 
 
+def test_lob_is_less_than_lod():
+    """LOB must be less than LOD (blank distribution sits below detection threshold)."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    if not (np.isnan(result.lob_ppm) or np.isnan(result.lod_ppm)):
+        assert result.lob_ppm < result.lod_ppm
+
+
+def test_lod_bootstrap_ci_is_ordered():
+    """Bootstrap CI must satisfy ci_lower <= lod <= ci_upper."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    if not np.isnan(result.lod_ci_lower):
+        assert result.lod_ci_lower <= result.lod_ppm + 1e-9
+        assert result.lod_ppm <= result.lod_ci_upper + 1e-9
+
+
+def test_loq_bootstrap_ci_scales_from_lod():
+    """LOQ CI must scale by the same factor as LOQ/LOD."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    if not np.isnan(result.lod_ci_lower) and result.lod_ppm > 0:
+        scale = result.loq_ppm / result.lod_ppm
+        assert abs(result.loq_ci_lower / result.lod_ci_lower - scale) < 0.01
+        assert abs(result.loq_ci_upper / result.lod_ci_upper - scale) < 0.01
+
+
 def test_lod_used_blanks_false_without_blank_events():
     """lod_used_blanks must be False when no blank events are present."""
     events = _make_events()

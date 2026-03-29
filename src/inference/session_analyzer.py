@@ -38,6 +38,8 @@ import logging
 
 import numpy as np
 
+from src.scientific.lod import lod_bootstrap_ci
+
 log = logging.getLogger(__name__)
 
 
@@ -52,10 +54,18 @@ class SessionAnalysis:
     calibration_rmse_ppm: float | None = None
     calibration_n_points: int = 0
 
-    # IUPAC detection limits (3σ / 10σ criterion)
+    # IUPAC detection limits (IUPAC 2012 / Eurachem Guide triad)
+    # LOB = μ_blank + 1.645·σ_blank  (95th percentile of blank distribution)
+    # LOD = 3·σ_blank / m            (smallest detectable signal)
+    # LOQ = 10·σ_blank / m           (smallest quantifiable signal)
+    lob_ppm: float = float("nan")       # Limit of Blank (mandatory for publication)
     lod_ppm: float = float("nan")
+    lod_ci_lower: float = float("nan")  # 95% bootstrap CI lower bound on LOD
+    lod_ci_upper: float = float("nan")  # 95% bootstrap CI upper bound on LOD
     loq_ppm: float = float("nan")
-    lod_used_blanks: bool = False  # True when σ_blank_nm was computed from blank events
+    loq_ci_lower: float = float("nan")  # 95% bootstrap CI lower bound on LOQ
+    loq_ci_upper: float = float("nan")  # 95% bootstrap CI upper bound on LOQ
+    lod_used_blanks: bool = False        # True when σ_blank_nm was from blank events
 
     # Measurement statistics
     mean_concentration_ppm: float | None = None
@@ -177,8 +187,37 @@ class SessionAnalyzer:
                 m_nm_per_ppm = float(signal_coeffs[0])  # fallback: global slope
 
             if abs(m_nm_per_ppm) > 1e-9:
-                result.lod_ppm = max(3.0 * sigma_blank_nm / abs(m_nm_per_ppm), 1e-6)
-                result.loq_ppm = max(10.0 * sigma_blank_nm / abs(m_nm_per_ppm), 3e-6)
+                abs_m = abs(m_nm_per_ppm)
+
+                # LOB = μ_blank + 1.645·σ_blank (one-sided 95th percentile of blank)
+                # In concentration space: blank_mean_nm / |m| + 1.645·σ_blank_nm / |m|
+                blank_mean_nm = float(np.mean(blank_shifts)) if len(blank_shifts) >= 2 else 0.0
+                result.lob_ppm = max(
+                    (abs(blank_mean_nm) + 1.645 * sigma_blank_nm) / abs_m, 1e-7
+                )
+
+                # LOD and LOQ point estimates
+                result.lod_ppm = max(3.0 * sigma_blank_nm / abs_m, 1e-6)
+                result.loq_ppm = max(10.0 * sigma_blank_nm / abs_m, 3e-6)
+
+                # Bootstrap 95% CI on LOD/LOQ using low-concentration data
+                # (Henry's law region gives the relevant sensitivity estimate)
+                try:
+                    _, ci_lo, ci_hi = lod_bootstrap_ci(
+                        low_concs,
+                        low_shifts,
+                        baseline_noise_std=sigma_blank_nm,
+                        n_bootstrap=500,
+                        confidence=0.95,
+                    )
+                    result.lod_ci_lower = max(ci_lo, 1e-7)
+                    result.lod_ci_upper = max(ci_hi, result.lod_ci_lower)
+                    # LOQ CI scales by the same 10/3 factor as the point estimate
+                    scale = result.loq_ppm / result.lod_ppm
+                    result.loq_ci_lower = result.lod_ci_lower * scale
+                    result.loq_ci_upper = result.lod_ci_upper * scale
+                except Exception as exc:
+                    log.debug("LOD bootstrap CI failed: %s", exc)
 
         elif meas_events:
             # Rough estimate when no calibration data: 3σ of concentration spread
@@ -246,8 +285,16 @@ class SessionAnalyzer:
         lines.append(f"Calibration: {result.calibration_n_points} points")
         if result.calibration_r2 is not None:
             lines.append(f"  R\u00b2 = {result.calibration_r2:.4f}")
+        if not np.isnan(result.lob_ppm):
+            lines.append(f"  LOB = {result.lob_ppm:.4f} ppm")
         if not np.isnan(result.lod_ppm):
-            lines.append(f"  LOD = {result.lod_ppm:.4f} ppm")
+            if not np.isnan(result.lod_ci_lower):
+                lines.append(
+                    f"  LOD = {result.lod_ppm:.4f} ppm "
+                    f"[95% CI {result.lod_ci_lower:.4f}–{result.lod_ci_upper:.4f}]"
+                )
+            else:
+                lines.append(f"  LOD = {result.lod_ppm:.4f} ppm")
             lines.append(f"  LOQ = {result.loq_ppm:.4f} ppm")
         if result.drift_rate_nm_per_frame is not None:
             lines.append(

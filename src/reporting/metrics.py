@@ -304,9 +304,21 @@ def compute_roi_performance(
         global_stats = repeatability.get("global", {})
         noise_std = float((global_stats or {}).get("std_transmittance", float("nan")) or 0.0)
     if slope == 0.0:
+        lob = float("inf")
         lod = float("inf")
         loq = float("inf")
     else:
+        # LOB = μ_blank + 1.645·σ_blank, where μ_blank ≈ intercept (lowest-conc mean)
+        # and σ_blank = noise_std (std at lowest measured concentration).
+        # In concentration units: divide by |slope|.
+        blank_mean_signal = float(
+            (per_conc.get(min(per_conc.keys(), key=lambda k: float(k))) or {}).get(
+                "mean_transmittance", intercept
+            )
+            if per_conc
+            else intercept
+        )
+        lob = float((abs(blank_mean_signal) + 1.645 * noise_std) / abs(slope))
         lod = float(lod_sigma * noise_std / abs(slope))
         loq = float(loq_sigma * noise_std / abs(slope))
 
@@ -320,6 +332,7 @@ def compute_roi_performance(
         "mean_cv": float(np.nanmean(cvs_arr)),
         "max_cv": float(np.nanmax(cvs_arr)),
         "min_cv": float(np.nanmin(cvs_arr)),
+        "lob_ppm": lob,
         "lod_ppm": lod,
         "loq_ppm": loq,
         "ppm_span": ppm_span,

@@ -138,6 +138,63 @@ class ConformalCalibrator:
         upper = mean + q_hat * std
         return lower, upper
 
+    def cross_validate_coverage(
+        self,
+        model: _PredictsMeanStd,
+        X_cal: np.ndarray,
+        y_cal: np.ndarray,
+        alpha: float = 0.10,
+    ) -> float:
+        """Leave-one-out empirical coverage check.
+
+        For each calibration point *i*, calibrates the conformal predictor on
+        the remaining *n−1* points, then predicts an interval for point *i*.
+        Returns the fraction of held-out points whose true value falls inside
+        the predicted interval.
+
+        A well-calibrated conformal predictor achieves ≥ (1−α) empirical
+        coverage.  Substantially lower coverage indicates that model
+        uncertainty ``σ(x)`` is over-estimated, or that the nonconformity
+        scores are ill-distributed.
+
+        Parameters
+        ----------
+        model :
+            Fitted model with ``predict(X, return_std=True) -> (mean, std)``.
+        X_cal : shape (n, d) -- calibration features
+        y_cal : shape (n,)   -- calibration targets
+        alpha : miscoverage level (e.g. 0.10 for 90% target coverage)
+
+        Returns
+        -------
+        float — empirical coverage fraction in [0, 1].
+
+        Raises
+        ------
+        ValueError if ``n < 3`` (LOO requires at least 3 calibration points).
+        """
+        X_cal = np.atleast_2d(X_cal)
+        y_cal = np.asarray(y_cal).ravel()
+        n = len(y_cal)
+        if n < 3:
+            raise ValueError(
+                f"cross_validate_coverage requires n ≥ 3 calibration points; got {n}."
+            )
+
+        covered = 0
+        tmp = ConformalCalibrator()
+        for i in range(n):
+            mask = np.ones(n, dtype=bool)
+            mask[i] = False
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)  # suppress small-n warning
+                tmp.calibrate(model, X_cal[mask], y_cal[mask])
+            lo, hi = tmp.predict_interval(model, X_cal[[i]], alpha=alpha)
+            if float(lo[0]) <= float(y_cal[i]) <= float(hi[0]):
+                covered += 1
+
+        return covered / n
+
     def check_ood(
         self,
         model: _PredictsMeanStd,
