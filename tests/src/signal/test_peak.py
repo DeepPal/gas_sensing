@@ -84,17 +84,23 @@ def test_lorentzian_more_precise_than_gaussian_on_lspr_data():
 
 # ── gaussian_peak_center ──────────────────────────────────────────────────────
 
-def test_gaussian_recovers_known_valley_center():
-    """gaussian_peak_center handles absorption minima (valleys) as designed.
+def test_gaussian_recovers_known_peak_center():
+    """gaussian_peak_center must correctly localise a positive Gaussian peak.
 
-    In LSPR transmittance spectra the resonance appears as a dip (valley), not
-    a peak.  gaussian_peak_center detects the feature polarity via the is_min
-    criterion; this test verifies it correctly localises an inverted Gaussian
-    (transmittance minimum) to within 0.05 nm.
-
-    Note: for LSPR emission-type peaks (maxima), prefer lorentzian_peak_center
-    which uses the Lorentzian model and is robust to both feature polarities.
+    After the is_min polarity fix (mean-deviation criterion), the function
+    should correctly identify a positive peak (maximum) without confusing it
+    for a valley, as the old median-based heuristic did.
     """
+    wl = np.linspace(713, 723, 201)   # 0.05 nm/pixel
+    true_center = 718.0
+    background = 200.0
+    signal = _gaussian_spectrum(wl, center=true_center, sigma=1.0) + background
+    center = gaussian_peak_center(wl, signal, half_width=50)
+    assert abs(center - true_center) < 0.05
+
+
+def test_gaussian_recovers_known_valley_center():
+    """gaussian_peak_center also handles absorption valleys (negative Gaussian)."""
     wl = np.linspace(713, 723, 201)   # 0.05 nm/pixel
     true_center = 718.0
     background = 1000.0

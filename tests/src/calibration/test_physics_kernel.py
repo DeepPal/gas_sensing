@@ -69,6 +69,46 @@ def test_physics_informed_gpr_invalid_mode():
         PhysicsInformedGPR(mode="bad_mode")
 
 
+def test_mandel_gate_suppresses_langmuir_on_linear_data():
+    """On perfectly linear data, Mandel's test should suppress the Langmuir prior."""
+    np.random.seed(3)
+    concs = np.linspace(0.5, 4.0, 8)
+    # Perfectly linear response — no curvature, Mandel should detect linearity
+    shifts = -3.5 * concs + np.random.normal(0, 0.01, 8)
+    model = PhysicsInformedGPR(mode="conc_to_shift")
+    result = model.fit(concs.reshape(-1, 1), shifts)
+    # On linear data, Langmuir prior should be suppressed
+    assert result["langmuir_applied"] is False
+    assert "mandel_linearity" in result
+    assert result["mandel_linearity"]["is_linear"] is True
+
+
+def test_mandel_gate_applies_langmuir_on_nonlinear_data():
+    """On strongly nonlinear Langmuir data, Mandel's test should permit Langmuir prior."""
+    np.random.seed(4)
+    concs = np.linspace(0.1, 5.0, 10)
+    # Strongly nonlinear Langmuir response
+    shifts = -8.0 * concs / (0.3 + concs) + np.random.normal(0, 0.01, 10)
+    model = PhysicsInformedGPR(mode="conc_to_shift")
+    result = model.fit(concs.reshape(-1, 1), shifts)
+    assert "mandel_linearity" in result
+    # Nonlinear data → Langmuir should be applied
+    assert result["langmuir_applied"] is True
+
+
+def test_fit_returns_mandel_result_dict():
+    """fit() must return 'mandel_linearity' dict with expected keys."""
+    np.random.seed(5)
+    concs = np.linspace(0.5, 3.0, 6)
+    shifts = -5.0 * concs / (1.0 + concs)
+    model = PhysicsInformedGPR(mode="conc_to_shift")
+    result = model.fit(concs.reshape(-1, 1), shifts)
+    if "mandel_linearity" in result:
+        ml = result["mandel_linearity"]
+        for key in ("is_linear", "p_value", "f_statistic", "r2_linear"):
+            assert key in ml, f"Missing mandel key: {key}"
+
+
 def test_physics_informed_gpr_drop_in_for_gpr_calibration():
     """PhysicsInformedGPR.predict() must return (mean, std) matching GPRCalibration contract."""
     from src.calibration.gpr import GPRCalibration

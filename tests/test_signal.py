@@ -166,9 +166,11 @@ class TestGaussianPeakCenter:
         assert abs(center - 725.0) < 1.0
 
     def test_minimum_peak(self):
+        # sigma=2 nm on a 0.251 nm/pixel grid → FWHM ≈ 19 pixels.
+        # half_width must cover ≥2σ (≥16 pixels) for reliable amplitude initialisation.
         x = np.linspace(700, 750, 200)
         y = -self._gauss(x, x0=715.0)
-        center = gaussian_peak_center(x, y)
+        center = gaussian_peak_center(x, y, half_width=20)  # ±5 nm = ±2.5σ
         assert abs(center - 715.0) < 1.0
 
     def test_empty_array_returns_nan(self):

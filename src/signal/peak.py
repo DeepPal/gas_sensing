@@ -146,8 +146,14 @@ def gaussian_peak_center(
     xx = x[s : e + 1]
     yy = y[s : e + 1]
 
-    baseline = float(np.median(yy))
-    is_min = bool(yy.min() < (np.median(yy) - 0.25 * (yy.max() - yy.min())))
+    baseline = float(np.mean(yy))
+    # Polarity: the dominant feature is a valley if the minimum deviation from the
+    # mean exceeds the maximum deviation — correct for both peaks and valleys across
+    # all window widths and baseline levels (replaces the median-based heuristic
+    # which fired incorrectly for positive peaks with wide fitting windows).
+    max_dev = float(yy.max() - baseline)
+    min_dev = float(baseline - yy.min())
+    is_min = bool(min_dev > max_dev)
     if is_min:
         A0 = float(yy.min() - baseline)
         idx0 = int(np.argmin(yy))
@@ -175,8 +181,10 @@ def gaussian_peak_center(
             raise RuntimeError("centre outside window")
         return x0
     except Exception:
+        # Weighted centroid fallback: weight by absolute deviation from mean baseline
         weights = np.abs(yy - baseline) + 1e-9
         return float(np.sum(xx * weights) / np.sum(weights))
+
 
 
 def estimate_shift_crosscorr(

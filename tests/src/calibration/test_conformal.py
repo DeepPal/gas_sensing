@@ -197,3 +197,46 @@ def test_cross_validate_coverage_raises_on_too_few_points():
             np.array([[-1.0], [-2.0]]),
             np.array([5.0, 10.0]),
         )
+
+
+# ── stratified_coverage ───────────────────────────────────────────────────────
+
+def test_stratified_coverage_returns_dict_with_overall():
+    """stratified_coverage must return a dict with an 'overall' key."""
+    gpr = _make_simple_gpr()
+    np.random.seed(77)
+    n = 18
+    X_cal = np.linspace(-4.5, -0.3, n).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 5.0 + np.random.normal(0, 0.1, n)
+    cal = ConformalCalibrator()
+    result = cal.stratified_coverage(gpr, X_cal, y_cal, alpha=0.10, n_bands=3)
+    assert isinstance(result, dict)
+    assert "overall" in result
+    assert "band_0_low" in result
+    assert "band_2_high" in result
+
+
+def test_stratified_coverage_values_in_unit_interval():
+    """All coverage fractions must be in [0, 1]."""
+    gpr = _make_simple_gpr()
+    np.random.seed(55)
+    n = 15
+    X_cal = np.linspace(-4.0, -0.5, n).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 4.0 + np.random.normal(0, 0.05, n)
+    cal = ConformalCalibrator()
+    result = cal.stratified_coverage(gpr, X_cal, y_cal, n_bands=3)
+    for k, v in result.items():
+        assert 0.0 <= v <= 1.0, f"Coverage {k}={v} outside [0, 1]"
+
+
+def test_stratified_coverage_raises_on_too_few_points():
+    """stratified_coverage must raise ValueError when n < n_bands * 2."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    with pytest.raises(ValueError, match="n ≥"):
+        cal.stratified_coverage(
+            gpr,
+            np.array([[-1.0], [-2.0], [-3.0]]),
+            np.array([5.0, 10.0, 15.0]),
+            n_bands=3,
+        )

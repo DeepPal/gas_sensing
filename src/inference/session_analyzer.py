@@ -38,9 +38,13 @@ import logging
 
 import numpy as np
 
+import datetime
+
 from src.scientific.lod import lod_bootstrap_ci
 
 log = logging.getLogger(__name__)
+
+_FRAMEWORK_VERSION = "1.0.0"  # bump on breaking API changes
 
 
 @dataclass
@@ -83,6 +87,18 @@ class SessionAnalysis:
     # Raw calibration series (forwarded to ReportWriter for plots)
     calibration_concentrations: list[float] = field(default_factory=list)
     calibration_shifts: list[float] = field(default_factory=list)
+
+    # Regulatory / audit metadata (ICH Q2(R1), ISO 11843, IUPAC 2012)
+    audit: dict[str, Any] = field(default_factory=dict)
+    """Immutable record of the analysis method, version, and key parameters.
+
+    Keys always present:
+      ``method``        — "IUPAC_2012_Eurachem"
+      ``lod_formula``   — "3·σ_blank_nm / m"
+      ``sigma_source``  — "blank_events" | "calibration_residuals"
+      ``n_bootstrap``   — bootstrap resamples used for LOD CI
+      ``framework_version`` — package version string (semver)
+    """
 
     # Human-readable summary for event bus / log
     summary_text: str = ""
@@ -303,5 +319,26 @@ class SessionAnalyzer:
         if not np.isnan(result.mean_snr):
             lines.append(f"Mean SNR: {result.mean_snr:.1f}")
         result.summary_text = "\n".join(lines)
+
+        # ── Audit trail ──────────────────────────────────────────────────
+        result.audit = {
+            "method": "IUPAC_2012_Eurachem",
+            "lod_formula": "3·σ_blank_nm / m",
+            "loq_formula": "10·σ_blank_nm / m",
+            "lob_formula": "(|μ_blank_nm| + 1.645·σ_blank_nm) / m",
+            "sigma_source": "blank_events" if result.lod_used_blanks else "calibration_residuals",
+            "sensitivity_region": "henry_law_low_third",
+            "n_bootstrap": 500,
+            "bootstrap_confidence": 0.95,
+            "calibration_n_points": result.calibration_n_points,
+            "frame_count": frame_count,
+            "framework_version": _FRAMEWORK_VERSION,
+            "analysis_timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "references": [
+                "IUPAC 2012 / Eurachem Guide",
+                "ICH Q2(R1) 2005",
+                "ICH Q2(R2) Appendix B 2022",
+            ],
+        }
 
         return result

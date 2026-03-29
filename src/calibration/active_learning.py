@@ -104,6 +104,70 @@ class BayesianExperimentDesigner:
             log.warning("BayesianExperimentDesigner GPR query failed: %s", exc)
             return float(self._space_filling(filtered, measured))
 
+    def has_converged(
+        self,
+        suggestion_history: list[float],
+        tol_log: float = 0.05,
+        n_window: int = 3,
+    ) -> bool:
+        """Return True when calibration has converged and further points are unlikely to help.
+
+        Convergence is declared when the last ``n_window`` BED suggestions span
+        less than ``tol_log`` decades in log-space — meaning the acquisition
+        function is no longer identifying meaningfully different concentrations.
+
+        This is the practical stopping criterion: once the GPR posterior variance
+        has been reduced everywhere on the log-concentration grid, the BED
+        recommendations stop changing.
+
+        Parameters
+        ----------
+        suggestion_history :
+            Ordered list of concentrations suggested by ``suggest_next()`` in
+            previous rounds (not including already-measured points).
+        tol_log :
+            Maximum log₁₀ span of the last ``n_window`` suggestions to declare
+            convergence (default 0.05 ≈ 12% relative range).
+        n_window :
+            Number of recent suggestions to inspect (default 3).
+
+        Returns
+        -------
+        bool — True if converged (safe to stop calibration).
+        """
+        if len(suggestion_history) < n_window:
+            return False
+        recent = np.log10(np.maximum(suggestion_history[-n_window:], 1e-12))
+        return float(np.ptp(recent)) < tol_log
+
+    def expected_information_gain(
+        self,
+        gpr: Any,
+        measured: list[float],
+    ) -> float:
+        """Estimate the expected information gain of the next measurement (nats).
+
+        Approximates the differential entropy reduction as the log of the maximum
+        GPR posterior standard deviation over the candidate grid.  Converges to
+        zero as the GPR posterior collapses.
+
+        Returns ``float('nan')`` if GPR is unavailable.
+        """
+        if gpr is None or len(measured) < 3:
+            return float("nan")
+
+        candidates = np.logspace(
+            np.log10(self._min_conc),
+            np.log10(self._max_conc),
+            self._n_candidates,
+        )
+        try:
+            _, std_arr = gpr.predict(candidates.reshape(-1, 1), return_std=True)
+            max_std = float(np.max(std_arr))
+            return float(np.log(max_std + 1e-12))
+        except Exception:
+            return float("nan")
+
     def _space_filling(
         self,
         candidates: np.ndarray,

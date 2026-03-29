@@ -16,13 +16,17 @@ Public API
 """
 from __future__ import annotations
 
-from typing import cast
+import logging
+import warnings
+from typing import Any, cast
 
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
+
+log = logging.getLogger(__name__)
 
 
 class LangmuirMeanFunction:
@@ -148,6 +152,7 @@ class PhysicsInformedGPR:
         self._scaler_X = StandardScaler()
         self._fitted = False
         self._fit_on_shifts: bool = True  # resolved in fit()
+        self._linearity_result: dict[str, Any] | None = None  # Mandel test result
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> dict[str, object]:
         """Fit the physics-informed GPR.
@@ -182,9 +187,46 @@ class PhysicsInformedGPR:
             concs = X_2d.ravel()
             shifts = y_1d
 
-        if len(concs) >= 3:
+        # Gate Langmuir prior on Mandel's F-test (ICH Q2(R1) §4.2):
+        # only apply nonlinear prior when calibration data show statistically
+        # significant curvature (p < 0.05).  On linear data the Langmuir prior
+        # biases GP residuals and degrades low-concentration extrapolation.
+        apply_langmuir = False
+        if len(concs) >= 4:
+            try:
+                from src.scientific.lod import mandel_linearity_test
+                linearity = mandel_linearity_test(concs, shifts)
+                self._linearity_result = linearity  # type: ignore[assignment]
+                is_linear = bool(linearity.get("is_linear", True))
+                if is_linear:
+                    log.info(
+                        "Mandel's test: linear model sufficient (p=%.3f); "
+                        "Langmuir prior not applied.",
+                        float(linearity.get("p_value", 1.0)),
+                    )
+                else:
+                    apply_langmuir = True
+                    log.info(
+                        "Mandel's test: significant nonlinearity (p=%.3f); "
+                        "Langmuir prior applied.",
+                        float(linearity.get("p_value", 0.0)),
+                    )
+            except Exception as exc:
+                warnings.warn(
+                    f"Mandel linearity test failed ({exc}); Langmuir prior applied by default.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                apply_langmuir = True
+        elif len(concs) >= 3:
+            # Too few points for F-test — apply Langmuir conservatively
+            apply_langmuir = True
+
+        if apply_langmuir:
             params = fit_langmuir_params(concs, shifts)
             self._langmuir = LangmuirMeanFunction(**params)
+        else:
+            self._langmuir = None
 
         # Build GP training arrays
         if self._fit_on_shifts:
@@ -215,7 +257,7 @@ class PhysicsInformedGPR:
         self._gpr.fit(X_scaled, y_fit)
         self._fitted = True
 
-        return {
+        out: dict[str, Any] = {
             "log_marginal_likelihood": float(
                 self._gpr.log_marginal_likelihood(self._gpr.kernel_.theta)
             ),
@@ -225,7 +267,11 @@ class PhysicsInformedGPR:
                 if isinstance(v, (int, float))
             },
             "n_samples": len(y_fit),
+            "langmuir_applied": self._langmuir is not None,
         }
+        if self._linearity_result is not None:
+            out["mandel_linearity"] = self._linearity_result
+        return out
 
     def predict(
         self,

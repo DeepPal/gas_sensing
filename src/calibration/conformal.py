@@ -138,6 +138,82 @@ class ConformalCalibrator:
         upper = mean + q_hat * std
         return lower, upper
 
+    def stratified_coverage(
+        self,
+        model: _PredictsMeanStd,
+        X_cal: np.ndarray,
+        y_cal: np.ndarray,
+        alpha: float = 0.10,
+        n_bands: int = 3,
+    ) -> dict[str, float]:
+        """Per-band LOO coverage check — validates conditional (not just marginal) coverage.
+
+        Splits the calibration set into ``n_bands`` equal-size quantile bands by
+        target value, then computes leave-one-out coverage within each band.
+        A well-calibrated conformal predictor achieves ≥ (1−α) coverage in every
+        band, not just on average.  Coverage below target in the low-concentration
+        band is particularly important for LOD claims.
+
+        Parameters
+        ----------
+        model :
+            Fitted model with ``predict(X, return_std=True) -> (mean, std)``.
+        X_cal : shape (n, d) -- calibration features
+        y_cal : shape (n,)   -- calibration targets
+        alpha : miscoverage level (e.g. 0.10 for 90% target coverage)
+        n_bands : number of quantile bands (default 3 = low/mid/high)
+
+        Returns
+        -------
+        dict mapping band label → empirical coverage fraction.
+        Includes ``"overall"`` key for the marginal coverage (same as
+        ``cross_validate_coverage``).
+
+        Raises
+        ------
+        ValueError if n < n_bands * 2 (too few points to stratify).
+        """
+        X_cal = np.atleast_2d(X_cal)
+        y_cal = np.asarray(y_cal).ravel()
+        n = len(y_cal)
+        if n < n_bands * 2:
+            raise ValueError(
+                f"stratified_coverage requires n ≥ {n_bands * 2} calibration points "
+                f"for {n_bands} bands; got {n}."
+            )
+
+        # Assign bands by quantile of y_cal
+        quantile_boundaries = np.quantile(y_cal, np.linspace(0.0, 1.0, n_bands + 1))
+        band_labels = np.digitize(y_cal, quantile_boundaries[1:-1])  # 0 … n_bands-1
+
+        results: dict[str, float] = {}
+        overall_covered = 0
+
+        for band_idx in range(n_bands):
+            band_mask = band_labels == band_idx
+            band_size = int(band_mask.sum())
+            if band_size == 0:
+                continue
+
+            covered_in_band = 0
+            tmp = ConformalCalibrator()
+            for i in np.where(band_mask)[0]:
+                loo_mask = np.ones(n, dtype=bool)
+                loo_mask[i] = False
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    tmp.calibrate(model, X_cal[loo_mask], y_cal[loo_mask])
+                lo, hi = tmp.predict_interval(model, X_cal[[i]], alpha=alpha)
+                if float(lo[0]) <= float(y_cal[i]) <= float(hi[0]):
+                    covered_in_band += 1
+                    overall_covered += 1
+
+            band_label = f"band_{band_idx}_{'low' if band_idx == 0 else 'high' if band_idx == n_bands - 1 else 'mid'}"
+            results[band_label] = covered_in_band / band_size
+
+        results["overall"] = overall_covered / n
+        return results
+
     def cross_validate_coverage(
         self,
         model: _PredictsMeanStd,

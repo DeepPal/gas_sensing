@@ -72,6 +72,33 @@ def test_empty_events_does_not_crash():
     assert result.frame_count == 0
 
 
+def test_audit_trail_populated():
+    """analyze() must populate the audit dict with required regulatory metadata."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert isinstance(result.audit, dict)
+    for key in ("method", "lod_formula", "sigma_source", "framework_version", "analysis_timestamp_utc"):
+        assert key in result.audit, f"Missing audit key: {key}"
+    assert result.audit["method"] == "IUPAC_2012_Eurachem"
+
+
+def test_audit_sigma_source_is_calibration_residuals_by_default():
+    """Without blank events, sigma_source must be 'calibration_residuals'."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.audit.get("sigma_source") == "calibration_residuals"
+
+
+def test_audit_sigma_source_is_blank_events_when_blanks_present():
+    """With blank events, sigma_source must be 'blank_events'."""
+    events = _make_events() + [
+        {"type": "blank", "wavelength_shift": 0.005 * i, "snr": 12.0}
+        for i in range(3)
+    ]
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.audit.get("sigma_source") == "blank_events"
+
+
 def test_lob_is_less_than_lod():
     """LOB must be less than LOD (blank distribution sits below detection threshold)."""
     events = _make_events()
