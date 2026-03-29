@@ -9,11 +9,21 @@ and its output is passed to the event bus / ReportWriter.
 
 LOD/LOQ derivation
 ------------------
-Limit of Detection  (LOD) = 3σ  where σ = calibration RMSE (ppm)
-Limit of Quantification (LOQ) = 10σ
+Follows IUPAC 2012 / Eurachem Guide:
 
-These follow IUPAC recommendations (3σ/10σ criterion) using the calibration
-residual as the proxy for measurement noise in the linear response region.
+    LOD = 3 · σ_blank_nm / m
+    LOQ = 10 · σ_blank_nm / m
+
+where σ_blank_nm is the standard deviation of calibration shift residuals
+(nm) from a linear fit, and m (nm/ppm) is the low-concentration sensitivity
+estimated from the Henry's-law (bottom third) region of the calibration curve.
+
+This correctly accounts for sensor sensitivity: a less sensitive sensor
+(smaller |m|) yields a higher (worse) LOD even with the same noise floor.
+
+If dedicated blank measurements (type="blank", concentration_ppm=0) are
+present in the event stream, σ_blank_nm is computed from those instead,
+and ``SessionAnalysis.lod_used_blanks`` is set to True.
 
 Public API
 ----------
@@ -45,6 +55,7 @@ class SessionAnalysis:
     # IUPAC detection limits (3σ / 10σ criterion)
     lod_ppm: float = float("nan")
     loq_ppm: float = float("nan")
+    lod_used_blanks: bool = False  # True when σ_blank_nm was computed from blank events
 
     # Measurement statistics
     mean_concentration_ppm: float | None = None
@@ -126,16 +137,33 @@ class SessionAnalyzer:
 
         # ── LOD / LOQ (IUPAC 2012 / Eurachem Guide) ─────────────────────
         # LOD = 3 · σ_blank_nm / |m|   LOQ = 10 · σ_blank_nm / |m|
-        # σ_blank_nm = noise in signal space (nm shift residuals from linear fit)
-        # m          = sensitivity at low concentration (nm / ppm), estimated
-        #              from the Henry's-law (low-conc) portion of the curve.
+        # σ_blank_nm = noise in signal space (nm shift residuals):
+        #   - preferred: std of blank event shifts (type="blank" or conc=0)
+        #   - fallback:  std of residuals from a linear fit to calibration data
+        # m = sensitivity at low concentration (nm / ppm), estimated
+        #     from the Henry's-law (low-conc) portion of the curve.
         # This properly accounts for sensor sensitivity: a flatter calibration
         # curve (low m) correctly yields a higher (worse) LOD.
         if result.calibration_n_points >= 3:
-            # Residual noise in signal (nm) from a global linear fit
-            signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)  # nm per ppm
-            signal_residuals_nm = cal_shifts - np.polyval(signal_coeffs, cal_concs)
-            sigma_blank_nm = float(np.std(signal_residuals_nm, ddof=1))
+            # Preferred: use dedicated blank measurements for σ_blank_nm
+            blank_events = [
+                e for e in events
+                if e.get("type") == "blank"
+                or (e.get("type") == "calibration_point" and float(e.get("concentration_ppm", -1)) == 0.0)
+            ]
+            blank_shifts = np.array([
+                e["wavelength_shift"] for e in blank_events
+                if e.get("wavelength_shift") is not None
+            ])
+
+            if len(blank_shifts) >= 2:
+                sigma_blank_nm = float(np.std(blank_shifts, ddof=1))
+                result.lod_used_blanks = True
+            else:
+                # Fallback: residual noise from a global linear fit to calibration data
+                signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)  # nm per ppm
+                signal_residuals_nm = cal_shifts - np.polyval(signal_coeffs, cal_concs)
+                sigma_blank_nm = float(np.std(signal_residuals_nm, ddof=1))
 
             # Sensitivity m from the low-concentration Henry's-law regime
             n_low = max(2, result.calibration_n_points // 3)
@@ -145,6 +173,7 @@ class SessionAnalyzer:
             if np.ptp(low_concs) > 1e-9:
                 m_nm_per_ppm = float(np.polyfit(low_concs, low_shifts, 1)[0])
             else:
+                signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)
                 m_nm_per_ppm = float(signal_coeffs[0])  # fallback: global slope
 
             if abs(m_nm_per_ppm) > 1e-9:

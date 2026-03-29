@@ -70,3 +70,58 @@ def test_empty_events_does_not_crash():
     result = SessionAnalyzer().analyze([], frame_count=0)
     assert isinstance(result, SessionAnalysis)
     assert result.frame_count == 0
+
+
+def test_lod_used_blanks_false_without_blank_events():
+    """lod_used_blanks must be False when no blank events are present."""
+    events = _make_events()
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.lod_used_blanks is False
+
+
+def test_lod_used_blanks_true_with_blank_type_events():
+    """lod_used_blanks must be True when type='blank' events are present."""
+    events = _make_events()
+    # Append 3 dedicated blank measurements (zero-concentration)
+    for i in range(3):
+        events.append({
+            "type": "blank",
+            "wavelength_shift": 0.0 + i * 0.005,
+            "snr": 10.0,
+        })
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.lod_used_blanks is True
+    assert result.lod_ppm > 0
+
+
+def test_lod_used_blanks_true_with_zero_conc_calibration():
+    """lod_used_blanks must be True when calibration points with concentration_ppm=0 are present."""
+    events = _make_events()
+    # Add two zero-concentration calibration points
+    for i in range(2):
+        events.append({
+            "type": "calibration_point",
+            "concentration_ppm": 0.0,
+            "wavelength_shift": 0.01 * i,
+            "snr": 12.0,
+        })
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.lod_used_blanks is True
+
+
+def test_blank_lod_lower_than_residual_lod_with_low_noise_blanks():
+    """Blank-based LOD with very low noise blanks must yield lower LOD than residual-based."""
+    base_events = _make_events()
+
+    # Without blanks: LOD uses calibration residuals
+    result_no_blanks = SessionAnalyzer().analyze(base_events, frame_count=len(base_events))
+
+    # With near-zero-noise blanks: LOD should be equal or lower
+    events_with_blanks = base_events + [
+        {"type": "blank", "wavelength_shift": 0.0001 * i, "snr": 30.0}
+        for i in range(5)
+    ]
+    result_with_blanks = SessionAnalyzer().analyze(events_with_blanks, frame_count=len(events_with_blanks))
+
+    assert result_with_blanks.lod_used_blanks is True
+    assert result_with_blanks.lod_ppm <= result_no_blanks.lod_ppm + 1e-6  # tighter or equal

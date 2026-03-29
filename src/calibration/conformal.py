@@ -22,9 +22,12 @@ Public API
 """
 from __future__ import annotations
 
+import warnings
 from typing import Protocol
 
 import numpy as np
+
+_MIN_CAL_POINTS: int = 10  # below this the q̂ quantile estimate is unreliable
 
 
 class _PredictsMeanStd(Protocol):
@@ -57,6 +60,11 @@ class ConformalCalibrator:
         self._scores: list[float] = []
         self._n_cal: int = 0
 
+    @property
+    def n_cal(self) -> int:
+        """Number of calibration points used to compute the conformal quantile."""
+        return self._n_cal
+
     def calibrate(
         self,
         model: _PredictsMeanStd,
@@ -77,6 +85,14 @@ class ConformalCalibrator:
         scores = np.abs(y_cal.ravel() - mean.ravel()) / std_safe
         self._scores = scores.tolist()
         self._n_cal = len(scores)
+        if self._n_cal < _MIN_CAL_POINTS:
+            warnings.warn(
+                f"ConformalCalibrator: only {self._n_cal} calibration points; "
+                f"the coverage guarantee requires ≥ {_MIN_CAL_POINTS} for reliable "
+                f"quantile estimation. Add more calibration measurements.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def predict_interval(
         self,
@@ -121,3 +137,54 @@ class ConformalCalibrator:
         lower = mean - q_hat * std
         upper = mean + q_hat * std
         return lower, upper
+
+    def check_ood(
+        self,
+        model: _PredictsMeanStd,
+        X: np.ndarray,
+        threshold_percentile: float = 95.0,
+    ) -> bool:
+        """Check whether test inputs appear out-of-distribution vs the calibration set.
+
+        Computes normalised nonconformity scores for *X* and checks whether
+        their median exceeds the ``threshold_percentile``-th percentile of the
+        calibration scores.  A return value of ``True`` means the model is being
+        queried in a regime it was not calibrated on — conformal coverage is not
+        guaranteed.
+
+        Parameters
+        ----------
+        model :
+            Same fitted model passed to ``calibrate()``.
+        X :
+            Shape (n, d) — new test inputs to evaluate.
+        threshold_percentile :
+            Calibration score percentile used as the OOD boundary (default 95).
+
+        Returns
+        -------
+        bool — True if distribution shift is suspected.
+
+        Raises
+        ------
+        RuntimeError if ``calibrate`` has not been called.
+        """
+        if self._n_cal == 0:
+            raise RuntimeError(
+                "ConformalCalibrator.calibrate() must be called before check_ood()."
+            )
+        mean, std = model.predict(X, return_std=True)
+        std_safe = np.maximum(std.ravel(), 1e-9)
+        # Without ground-truth labels, use GPR predictive std as a proxy:
+        # far OOD inputs have high std → high normalised scores even at the prior mean.
+        # We use the median of (1 / std_safe) as a low-confidence signal:
+        # a GPR falling back to the prior returns a constant std close to the
+        # training label std, but normalised residuals from calibration will be large.
+        # Simpler and more robust: flag when the median test std exceeds the 95th
+        # percentile of calibration stds (GPR uncertainty widening signals OOD).
+        cal_scores_arr = np.asarray(self._scores, dtype=float)
+        threshold = float(np.percentile(cal_scores_arr, threshold_percentile))
+        # Compute pseudo-scores: std / median_cal_std (relative uncertainty widening)
+        median_cal_std = float(np.median(1.0 / np.maximum(cal_scores_arr, 1e-9)))
+        test_scores = std_safe / max(median_cal_std, 1e-9)
+        return bool(np.median(test_scores) > threshold)

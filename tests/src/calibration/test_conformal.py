@@ -101,3 +101,58 @@ def test_predict_interval_requires_calibrate():
     cal = ConformalCalibrator()
     with pytest.raises(RuntimeError, match="calibrate"):
         cal.predict_interval(gpr, np.array([[-1.0]]), alpha=0.10)
+
+
+def test_small_calibration_set_emits_warning():
+    """calibrate() with n < MIN_CAL_POINTS must emit a UserWarning."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    X_cal = np.linspace(-3, -0.5, 5).reshape(-1, 1)   # only 5 points
+    y_cal = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
+    with pytest.warns(UserWarning, match="calibration points"):
+        cal.calibrate(gpr, X_cal, y_cal)
+
+
+def test_n_cal_property_exposed():
+    """ConformalCalibrator must expose n_cal as a readable property."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    X_cal = np.linspace(-4, -0.5, 15).reshape(-1, 1)
+    y_cal = np.linspace(2.0, 8.0, 15)
+    cal.calibrate(gpr, X_cal, y_cal)
+    assert cal.n_cal == 15
+
+
+def test_check_ood_returns_false_for_in_distribution():
+    """check_ood() must return False when test scores are within calibration range."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    np.random.seed(7)
+    X_cal = np.linspace(-4, -0.5, 30).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 5.0 + np.random.normal(0, 0.1, 30)
+    cal.calibrate(gpr, X_cal, y_cal)
+    # Test on similar in-distribution data
+    X_test = np.linspace(-3.5, -1.0, 10).reshape(-1, 1)
+    assert cal.check_ood(gpr, X_test) is False
+
+
+def test_check_ood_returns_true_for_out_of_distribution():
+    """check_ood() must return True when test scores are far outside calibration range."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    np.random.seed(7)
+    X_cal = np.linspace(-4, -0.5, 30).reshape(-1, 1)
+    y_cal = -X_cal.ravel() * 5.0 + np.random.normal(0, 0.1, 30)
+    cal.calibrate(gpr, X_cal, y_cal)
+    # Manufacture OOD: query at a point where GPR has low std but residual will be large
+    # (far outside training distribution — GPR returns near-prior, causing large normalised error)
+    X_ood = np.array([[-50.0], [-60.0], [-70.0]])  # far outside calibration range
+    assert cal.check_ood(gpr, X_ood) is True
+
+
+def test_check_ood_raises_before_calibrate():
+    """check_ood() before calibrate() must raise RuntimeError."""
+    gpr = _make_simple_gpr()
+    cal = ConformalCalibrator()
+    with pytest.raises(RuntimeError, match="calibrate"):
+        cal.check_ood(gpr, np.array([[-1.0]]))

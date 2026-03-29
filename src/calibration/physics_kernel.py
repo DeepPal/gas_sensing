@@ -21,7 +21,7 @@ from typing import cast
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
 
@@ -202,9 +202,9 @@ class PhysicsInformedGPR:
 
         X_scaled = self._scaler_X.fit_transform(X_fit)
 
-        kernel = ConstantKernel(1.0, (1e-3, 1e3)) * RBF(1.0, (1e-2, 1e2)) + WhiteKernel(
-            noise_level=1e-2, noise_level_bounds=(1e-5, 1e1)
-        )
+        kernel = ConstantKernel(1.0, (1e-3, 1e3)) * Matern(
+            length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=2.5
+        ) + WhiteKernel(noise_level=1e-2, noise_level_bounds=(1e-5, 1e1))
         self._gpr = GaussianProcessRegressor(
             kernel=kernel,
             alpha=0.0,

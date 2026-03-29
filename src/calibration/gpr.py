@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
 
@@ -53,11 +53,12 @@ class GPRCalibration:
         self.random_state = random_state
         self.n_restarts_optimizer = n_restarts_optimizer
 
-        # RBF captures the smooth trend; WhiteKernel handles observation noise.
-        # length_scale=1.0 matches the StandardScaler output (unit variance),
-        # so the optimizer starts in the correct order-of-magnitude.
-        self.kernel = ConstantKernel(1.0, constant_value_bounds=(1e-3, 1e3)) * RBF(
-            length_scale=1.0, length_scale_bounds=(1e-2, 1e2)
+        # Matérn 5/2 captures the smooth-but-not-analytic trend of Langmuir
+        # calibration curves (twice differentiable, appropriate for physical
+        # measurements). WhiteKernel handles observation noise.
+        # length_scale=1.0 matches the StandardScaler output (unit variance).
+        self.kernel = ConstantKernel(1.0, constant_value_bounds=(1e-3, 1e3)) * Matern(
+            length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=2.5
         ) + WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-5, 1e1))
         self.model = GaussianProcessRegressor(
             kernel=self.kernel,
