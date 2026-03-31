@@ -1,4 +1,5 @@
 import math
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -144,8 +145,9 @@ class TestComputeEnvironmentSummary:
 
     def test_reference_defaults(self):
         info = compute_environment_summary({})
-        assert info["reference"]["temperature"] == 25.0
-        assert info["reference"]["humidity"] == 50.0
+        ref = cast(dict[str, object], info["reference"])
+        assert ref["temperature"] == 25.0
+        assert ref["humidity"] == 50.0
 
     def test_temperature_mean_correct(self):
         agg = _make_env_agg([0.5, 1.0], temp=30.0)
@@ -176,8 +178,9 @@ class TestComputeEnvironmentSummary:
 
     def test_coefficients_none_by_default(self):
         info = compute_environment_summary({})
-        assert info["coefficients"]["temperature"] is None
-        assert info["coefficients"]["humidity"] is None
+        coeffs = cast(dict[str, object], info["coefficients"])
+        assert coeffs["temperature"] is None
+        assert coeffs["humidity"] is None
 
 
 class TestComputeEnvironmentCoefficients:
@@ -186,14 +189,17 @@ class TestComputeEnvironmentCoefficients:
 
     def test_no_env_data_returns_empty(self):
         agg = _make_env_agg([0.5, 1.0], add_env_cols=False)
-        calib = {"concentrations": [0.5, 1.0], "peak_wavelengths": [717.0, 716.5]}
+        calib: dict[str, object] = {"concentrations": [0.5, 1.0], "peak_wavelengths": [717.0, 716.5]}
         assert compute_environment_coefficients(agg, calib) == {}
 
     def test_result_keys_present(self):
         agg = _make_env_agg([0.5, 1.0, 2.0])
         for i, c in enumerate([0.5, 1.0, 2.0]):
             agg[c]["t0"]["temperature"] = np.full(20, 24.0 + i * 2)
-        calib = {"concentrations": [0.5, 1.0, 2.0], "peak_wavelengths": [717.5, 717.0, 716.5]}
+        calib: dict[str, object] = {
+            "concentrations": [0.5, 1.0, 2.0],
+            "peak_wavelengths": [717.5, 717.0, 716.5],
+        }
         result = compute_environment_coefficients(agg, calib)
         for key in ["estimated_coefficients", "r2_conc_only", "r2_full", "delta_r2", "n_points"]:
             assert key in result
@@ -202,7 +208,10 @@ class TestComputeEnvironmentCoefficients:
         agg = _make_env_agg([0.5, 1.0, 2.0])
         for i, c in enumerate([0.5, 1.0, 2.0]):
             agg[c]["t0"]["temperature"] = np.full(20, 24.0 + i * 2)
-        calib = {"concentrations": [0.5, 1.0, 2.0], "peak_wavelengths": [717.5, 717.0, 716.5]}
+        calib: dict[str, object] = {
+            "concentrations": [0.5, 1.0, 2.0],
+            "peak_wavelengths": [717.5, 717.0, 716.5],
+        }
         result = compute_environment_coefficients(agg, calib)
         assert result["n_points"] == 3
 
@@ -210,9 +219,13 @@ class TestComputeEnvironmentCoefficients:
         agg = _make_env_agg([0.5, 1.0, 2.0])
         for i, c in enumerate([0.5, 1.0, 2.0]):
             agg[c]["t0"]["temperature"] = np.full(20, 24.0 + i)
-        calib = {"concentrations": [0.5, 1.0, 2.0], "peak_wavelengths": [717.5, 717.0, 716.5]}
+        calib: dict[str, object] = {
+            "concentrations": [0.5, 1.0, 2.0],
+            "peak_wavelengths": [717.5, 717.0, 716.5],
+        }
         result = compute_environment_coefficients(agg, calib)
-        assert math.isfinite(result["estimated_coefficients"]["intercept"])
+        est = cast(dict[str, float], result["estimated_coefficients"])
+        assert math.isfinite(est["intercept"])
 
     def test_delta_r2_non_negative_with_covarying_env(self):
         concs = [0.5, 1.0, 1.5, 2.0]
@@ -222,6 +235,7 @@ class TestComputeEnvironmentCoefficients:
         agg = {c: {"t0": pd.DataFrame({"wavelength": wl, "transmittance": np.ones(20),
                                         "temperature": np.full(20, T)})}
                for c, T in zip(concs, temps)}
-        calib = {"concentrations": concs, "peak_wavelengths": peak_wl}
+        calib: dict[str, object] = {"concentrations": concs, "peak_wavelengths": peak_wl}
         result = compute_environment_coefficients(agg, calib)
-        assert result["delta_r2"] >= -1e-10
+        delta_r2 = cast(float, result["delta_r2"])
+        assert delta_r2 >= -1e-10

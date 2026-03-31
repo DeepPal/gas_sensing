@@ -68,41 +68,68 @@ _WL = np.linspace(400, 700, 3000)  # realistic 300-nm range at ~0.1 nm/px
 class TestLSPRFeaturesVector:
     def test_all_none_returns_zeros(self):
         feat = LSPRFeatures()
-        assert feat.feature_vector == [0.0, 0.0, 0.0, 0.0]
+        assert feat.feature_vector == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     def test_populated_values_returned(self):
         feat = LSPRFeatures(
             delta_lambda=-0.5,
-            delta_intensity_peak=-0.03,
+            delta_fwhm_nm=0.3,
+            delta_amplitude=-0.03,
+            delta_intensity_area=-1.2,
+            delta_intensity_std=0.01,
+            delta_asymmetry=0.05,
+        )
+        assert feat.feature_vector == [-0.5, 0.3, -0.03, -1.2, 0.01, 0.05]
+
+    def test_populated_values_asymmetry_none(self):
+        """When delta_asymmetry is None (fit failed), 6th element is 0.0."""
+        feat = LSPRFeatures(
+            delta_lambda=-0.5,
+            delta_fwhm_nm=0.3,
+            delta_amplitude=-0.03,
             delta_intensity_area=-1.2,
             delta_intensity_std=0.01,
         )
-        assert feat.feature_vector == [-0.5, -0.03, -1.2, 0.01]
+        assert feat.feature_vector == [-0.5, 0.3, -0.03, -1.2, 0.01, 0.0]
 
     def test_zero_delta_lambda_not_treated_as_missing(self):
         """Regression: `0.0 or 0.0` falsy trap must be fixed → use `is not None`."""
         feat = LSPRFeatures(
             delta_lambda=0.0,
-            delta_intensity_peak=0.0,
+            delta_fwhm_nm=0.0,
+            delta_amplitude=0.0,
             delta_intensity_area=0.0,
             delta_intensity_std=0.0,
+            delta_asymmetry=0.0,
         )
         # All fields are explicitly 0.0 (not None) — must survive as 0.0
         vec = feat.feature_vector
-        assert vec == [0.0, 0.0, 0.0, 0.0]
+        assert vec == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # Crucially: a LSPRFeatures with all-zero fields is distinct from one
-        # with all-None fields; both should return [0,0,0,0] but for different reasons.
+        # with all-None fields; both should return [0,0,0,0,0,0] but for different reasons.
         feat_none = LSPRFeatures()
-        assert feat.feature_vector == feat_none.feature_vector  # both [0,0,0,0]
+        assert feat.feature_vector == feat_none.feature_vector  # both [0,0,0,0,0,0]
 
     def test_negative_delta_lambda_preserved(self):
         """Negative shift (adsorption redshift) must not be zeroed out."""
         feat = LSPRFeatures(delta_lambda=-2.3)
         assert feat.feature_vector[0] == pytest.approx(-2.3)
 
-    def test_length_always_four(self):
-        feat = LSPRFeatures(delta_lambda=1.0, delta_intensity_peak=None)
-        assert len(feat.feature_vector) == 4
+    def test_length_always_six(self):
+        """feature_vector always returns 6 elements (extended with delta_asymmetry)."""
+        feat = LSPRFeatures(delta_lambda=1.0, delta_fwhm_nm=None)
+        assert len(feat.feature_vector) == 6
+
+    def test_legacy_vector_still_four(self):
+        """feature_vector_legacy preserves the original 4-element contract."""
+        feat = LSPRFeatures(
+            delta_lambda=-0.5,
+            delta_intensity_peak=-0.03,
+            delta_intensity_area=-1.2,
+            delta_intensity_std=0.01,
+        )
+        assert feat.feature_vector_legacy == [-0.5, -0.03, -1.2, 0.01]
+        assert len(feat.feature_vector_legacy) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -346,10 +373,20 @@ class TestExtractLSPRFeatures:
         if feat.peak_fwhm_nm is not None:
             assert feat.peak_fwhm_nm > 0.0
 
-    def test_feature_vector_length_four(self, spectra_pair):
+    def test_feature_vector_length_six(self, spectra_pair):
+        """feature_vector returns 6 orthogonal physical features including delta_asymmetry."""
         ref, gas = spectra_pair
         feat = extract_lspr_features(_WL, gas, ref)
-        assert len(feat.feature_vector) == 4
+        assert len(feat.feature_vector) == 6
+
+    def test_delta_fwhm_populated_when_fit_succeeds(self, spectra_pair):
+        """ΔFWHM must be extracted when both gas and ref Lorentzian fits succeed."""
+        ref, gas = spectra_pair
+        feat = extract_lspr_features(_WL, gas, ref)
+        # If delta_lambda was extracted via Lorentzian fit, delta_fwhm_nm must also be set.
+        if feat.delta_lambda_std is not None:
+            assert feat.delta_fwhm_nm is not None
+            assert feat.delta_amplitude is not None
 
     def test_identical_spectra_zero_delta_intensity_area(self):
         """No analyte → diff = 0 → ΔI_area = 0."""

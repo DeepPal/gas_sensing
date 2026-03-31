@@ -1,6 +1,7 @@
 """spectraagent.__main__ — CLI entry point (Typer)."""
 from __future__ import annotations
 
+import inspect
 from importlib.metadata import entry_points as entry_points
 import logging
 from typing import TYPE_CHECKING, cast
@@ -8,6 +9,10 @@ from typing import TYPE_CHECKING, cast
 import typer
 
 from spectraagent.drivers.base import AbstractHardwareDriver
+from spectraagent.drivers.validation import (
+    validate_driver_class,
+    validate_driver_instance,
+)
 from spectraagent.physics.base import AbstractSensorPhysicsPlugin
 
 if TYPE_CHECKING:
@@ -32,8 +37,15 @@ def _load_driver(simulate: bool, cfg) -> AbstractHardwareDriver:
     from spectraagent.drivers.simulation import SimulationDriver
 
     if simulate:
-        drv: AbstractHardwareDriver = SimulationDriver(integration_time_ms=cfg.hardware.integration_time_ms)
+        drv: AbstractHardwareDriver = SimulationDriver(
+            integration_time_ms=cfg.hardware.integration_time_ms
+        )
         drv.connect()
+        issues = validate_driver_instance(drv, require_live_sample=True)
+        if issues:
+            raise RuntimeError(
+                "Simulation driver failed contract validation: " + "; ".join(issues)
+            )
         return drv
 
     hw_eps = {ep.name: ep for ep in entry_points(group="spectraagent.hardware")}
@@ -49,8 +61,20 @@ def _load_driver(simulate: bool, cfg) -> AbstractHardwareDriver:
 
     try:
         cls = hw_eps[driver_name].load()
-        drv = cls(integration_time_ms=cfg.hardware.integration_time_ms)  # type: ignore[assignment]
+        class_issues = validate_driver_class(cls)
+        if class_issues:
+            raise RuntimeError("; ".join(class_issues))
+
+        # Extension compatibility: only pass kwargs accepted by plugin constructor.
+        sig = inspect.signature(cls)
+        kwargs = {}
+        if "integration_time_ms" in sig.parameters:
+            kwargs["integration_time_ms"] = cfg.hardware.integration_time_ms
+        drv = cls(**kwargs)  # type: ignore[assignment]
         drv.connect()
+        issues = validate_driver_instance(drv, require_live_sample=True)
+        if issues:
+            raise RuntimeError("; ".join(issues))
         return drv
     except Exception as exc:
         typer.echo(
@@ -190,6 +214,12 @@ def _process_acquired_frame(
                 payload["peak_shift_nm"] = round(sd.wavelength_shift, 4)
             if sd.snr is not None:
                 payload["snr"] = round(sd.snr, 2)
+            if sd.peak_wavelength is not None:
+                payload["peak_wavelength"] = round(sd.peak_wavelength, 4)
+            if getattr(sd, "gas_type", None) is not None:
+                payload["gas_type"] = sd.gas_type
+            if getattr(sd, "confidence_score", None) is not None:
+                payload["confidence_score"] = round(sd.confidence_score, 3)
         msg = json.dumps(payload)
         broadcast_fn = spectrum_bc.broadcast
         app_loop.call_soon_threadsafe(
@@ -368,8 +398,9 @@ def plugins_cmd(
     hw_eps = entry_points(group="spectraagent.hardware")
     for ep in hw_eps:
         try:
-            ep.load()
-            status = "✓ loadable"
+            cls = ep.load()
+            class_issues = validate_driver_class(cls)
+            status = "✓ loadable" if not class_issues else f"✗ invalid: {'; '.join(class_issues)}"
         except Exception as exc:
             status = f"✗ {exc}"
         typer.echo(f"  [{ep.name}]  {ep.value}  —  {status}")

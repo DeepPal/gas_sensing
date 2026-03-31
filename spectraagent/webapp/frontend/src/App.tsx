@@ -1,0 +1,844 @@
+import { useEffect, useRef, useState, useCallback } from 'react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} from 'recharts'
+import {
+  Activity, Wifi, WifiOff, Play, Square, Camera, Plus,
+  MessageSquare, ChevronDown, ChevronUp, Settings, Zap,
+  AlertTriangle, Info, FlaskConical, FileText, History,
+  X, TrendingUp, Sliders,
+} from 'lucide-react'
+import { api, connectSpectrum, connectAgentEvents } from './api'
+import type { SpectrumFrame, AgentEvent, SessionMeta, SessionDetail, HealthResponse } from './api'
+import './App.css'
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function levelIcon(level: string) {
+  if (level === 'error') return <AlertTriangle size={13} />
+  if (level === 'warn' || level === 'warning') return <AlertTriangle size={13} />
+  if (level === 'info') return <Info size={13} />
+  if (level === 'ok') return <Activity size={13} />
+  if (level === 'claude') return <MessageSquare size={13} />
+  return <Zap size={13} />
+}
+
+interface TrendPoint {
+  frame: number
+  shift: number
+  conc?: number
+  ciLow?: number
+  ciHigh?: number
+}
+
+interface SessionAnalysis {
+  lod_ppm?: number
+  loq_ppm?: number
+  r_squared?: number
+  drift_rate_nm_per_min?: number
+  mean_snr?: number
+  frame_count?: number
+}
+
+// ─── Modal overlay ─────────────────────────────────────────────────────────────
+
+function Modal({ title, onClose, children }: {
+  title: string; onClose: () => void; children: React.ReactNode
+}) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">{title}</span>
+          <button type="button" className="modal-close" onClick={onClose} title="Close">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [wsConnected, setWsConnected] = useState(false)
+  const [spectrum, setSpectrum] = useState<{ wl: number[]; i: number[] } | null>(null)
+  const [frameNum, setFrameNum] = useState(0)
+  const [latestResult, setLatestResult] = useState<Partial<SpectrumFrame>>({})
+  const [trend, setTrend] = useState<TrendPoint[]>([])
+  const [events, setEvents] = useState<AgentEvent[]>([])
+  const [sessionRunning, setSessionRunning] = useState(false)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [gasLabel, setGasLabel] = useState('Ethanol')
+  const [targetConc, setTargetConc] = useState('')
+  const [integrationMs, setIntegrationMs] = useState(50)
+
+  // Calibration
+  const [calConc, setCalConc] = useState('')
+  const [calDelta, setCalDelta] = useState('')
+  const [calPoints, setCalPoints] = useState<{ c: number; d: number }[]>([])
+  const [suggestedConc, setSuggestedConc] = useState<number | null>(null)
+
+  // Claude ask
+  const [askQuery, setAskQuery] = useState('')
+  const [askAnswer, setAskAnswer] = useState('')
+  const [askStreaming, setAskStreaming] = useState(false)
+  const [autoExplain, setAutoExplain] = useState(false)
+
+  // Panel visibility
+  const [showAsk, setShowAsk] = useState(false)
+  const [showCal, setShowCal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(true)
+
+  // Quality / drift settings (initialised from health)
+  const [satThreshold, setSatThreshold] = useState(60000)
+  const [snrThreshold, setSnrThreshold] = useState(3.0)
+  const [driftThreshold, setDriftThreshold] = useState(0.05)
+  const [driftWindow, setDriftWindow] = useState(60)
+
+  // Session history
+  const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
+
+  // Session analysis (from session_complete event)
+  const [sessionAnalysis, setSessionAnalysis] = useState<SessionAnalysis | null>(null)
+
+  // Report modal
+  const [reportContent, setReportContent] = useState<string | null>(null)
+  const [reportGenerating, setReportGenerating] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+
+  // Anomaly / Claude explanation modal
+  const [anomalyEvent, setAnomalyEvent] = useState<AgentEvent | null>(null)
+
+  // Planner suggestions from events
+  const [plannerSuggestions, setPlannerSuggestions] = useState<string[]>([])
+
+  const specWs = useRef<WebSocket | null>(null)
+  const agentWs = useRef<WebSocket | null>(null)
+  const eventsBottomRef = useRef<HTMLDivElement>(null)
+
+  // ── Health poll (also seeds settings sliders) ────────────────────────────
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const h = await api.health()
+        setHealth(h)
+        setSatThreshold(h.quality_settings.saturation_threshold)
+        setSnrThreshold(h.quality_settings.snr_warn_threshold)
+        setDriftThreshold(h.drift_settings.drift_threshold_nm_per_min)
+        setDriftWindow(h.drift_settings.window_frames)
+      } catch { /* server warming up */ }
+    }
+    poll()
+    const t = setInterval(poll, 10000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ── Spectrum WebSocket ───────────────────────────────────────────────────
+  useEffect(() => {
+    const connect = () => {
+      const ws = connectSpectrum((frame) => {
+        setSpectrum({ wl: frame.wl, i: frame.i })
+        setFrameNum(frame.frame)
+        setLatestResult(prev => ({
+          concentration_ppm: frame.concentration_ppm,
+          ci_low: frame.ci_low,
+          ci_high: frame.ci_high,
+          peak_shift_nm: frame.peak_shift_nm,
+          peak_wavelength: frame.peak_wavelength,
+          snr: frame.snr,
+          // Keep last known classification result (not every frame has it)
+          gas_type: frame.gas_type ?? prev.gas_type,
+          confidence_score: frame.confidence_score ?? prev.confidence_score,
+        }))
+        if (frame.peak_shift_nm !== undefined || frame.concentration_ppm !== undefined) {
+          setTrend(prev => [...prev, {
+            frame: frame.frame,
+            shift: frame.peak_shift_nm ?? 0,
+            conc: frame.concentration_ppm,
+            ciLow: frame.ci_low,
+            ciHigh: frame.ci_high,
+          }].slice(-300))
+        }
+        setWsConnected(true)
+      })
+      ws.onclose = () => { setWsConnected(false); setTimeout(connect, 2000) }
+      ws.onerror = () => ws.close()
+      specWs.current = ws
+    }
+    connect()
+    return () => specWs.current?.close()
+  }, [])
+
+  // ── Agent events WebSocket ───────────────────────────────────────────────
+  useEffect(() => {
+    const connect = () => {
+      const ws = connectAgentEvents((ev) => {
+        setEvents(prev => [ev, ...prev].slice(0, 100))
+
+        // Session complete → extract analysis metrics
+        if (ev.type === 'session_complete' && ev.data) {
+          const d = ev.data as Record<string, unknown>
+          setSessionAnalysis({
+            lod_ppm: d.lod_ppm as number | undefined,
+            loq_ppm: d.loq_ppm as number | undefined,
+            r_squared: d.r_squared as number | undefined,
+            drift_rate_nm_per_min: d.drift_rate_nm_per_min as number | undefined,
+            mean_snr: d.mean_snr as number | undefined,
+            frame_count: d.frame_count as number | undefined,
+          })
+        }
+
+        // Claude narrative / anomaly events → surface as modal
+        if (
+          (ev.level === 'claude' ||
+            ev.source.toLowerCase().includes('explainer') ||
+            ev.source.toLowerCase().includes('narrator')) &&
+          ev.text.length > 80
+        ) {
+          setAnomalyEvent(ev)
+        }
+
+        // Experiment planner suggestions
+        if (ev.type === 'experiment_suggestion' || ev.type === 'suggestion') {
+          setPlannerSuggestions(prev => [ev.text, ...prev].slice(0, 5))
+        }
+      })
+      ws.onclose = () => setTimeout(connect, 2000)
+      ws.onerror = () => ws.close()
+      agentWs.current = ws
+    }
+    connect()
+    return () => agentWs.current?.close()
+  }, [])
+
+  // Auto-scroll events to bottom (newest is top, so no-op needed but kept for completeness)
+  useEffect(() => {
+    eventsBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [events])
+
+  // ── Session controls ─────────────────────────────────────────────────────
+  const startSession = async () => {
+    await api.configAcquisition({
+      integration_time_ms: integrationMs,
+      gas_label: gasLabel,
+      target_concentration: targetConc ? parseFloat(targetConc) : null,
+    })
+    const r = await api.startSession()
+    setSessionRunning(true)
+    setTrend([])
+    setSessionAnalysis(null)
+    if (r.session_id) setCurrentSessionId(r.session_id as string)
+  }
+
+  const stopSession = async () => {
+    await api.stopSession()
+    setSessionRunning(false)
+    try {
+      const list = await api.listSessions()
+      setSessions(list)
+    } catch { /* ignore */ }
+  }
+
+  const captureRef = async () => {
+    const r = await api.captureReference()
+    setEvents(prev => [{
+      source: 'UI', level: 'info', type: 'reference_captured',
+      text: r.error ?? 'Reference spectrum captured',
+    }, ...prev])
+  }
+
+  // ── Session history ──────────────────────────────────────────────────────
+  const loadSessions = async () => {
+    try { setSessions(await api.listSessions()) } catch { /* ignore */ }
+  }
+
+  const openSession = async (id: string) => {
+    try { setSessionDetail(await api.getSession(id)) } catch { /* ignore */ }
+  }
+
+  // ── Report generation ────────────────────────────────────────────────────
+  const generateReport = async () => {
+    if (!currentSessionId) return
+    setReportGenerating(true)
+    try {
+      const result = await api.generateReport(currentSessionId)
+      setReportContent(result.report)
+      setShowReport(true)
+    } catch (err) {
+      setEvents(prev => [{
+        source: 'UI', level: 'error', type: 'report_error',
+        text: String(err),
+      }, ...prev])
+    } finally {
+      setReportGenerating(false)
+    }
+  }
+
+  // ── Settings ─────────────────────────────────────────────────────────────
+  const saveQualitySettings = async () => {
+    await api.setQualitySettings({ saturation_threshold: satThreshold, snr_warn_threshold: snrThreshold })
+    setEvents(prev => [{
+      source: 'UI', level: 'info', type: 'settings_updated',
+      text: `Quality settings updated: saturation=${satThreshold}, SNR warn=${snrThreshold}`,
+    }, ...prev])
+  }
+
+  const saveDriftSettings = async () => {
+    await api.setDriftSettings({ drift_threshold_nm_per_min: driftThreshold, window_frames: driftWindow })
+    setEvents(prev => [{
+      source: 'UI', level: 'info', type: 'settings_updated',
+      text: `Drift settings updated: threshold=${driftThreshold} nm/min, window=${driftWindow} frames`,
+    }, ...prev])
+  }
+
+  // ── Calibration ──────────────────────────────────────────────────────────
+  const addCalPoint = async () => {
+    if (!calConc || !calDelta) return
+    const c = parseFloat(calConc), d = parseFloat(calDelta)
+    await api.addCalibrationPoint({ concentration: c, delta_lambda: d })
+    setCalPoints(prev => [...prev, { c, d }])
+    setCalConc('')
+    setCalDelta('')
+  }
+
+  const suggestNext = async () => {
+    const r = await api.suggestConcentration()
+    setSuggestedConc(r.suggestion ?? null)
+  }
+
+  // ── Claude ask ───────────────────────────────────────────────────────────
+  const submitAsk = useCallback(async () => {
+    if (!askQuery.trim() || askStreaming) return
+    setAskAnswer('')
+    setAskStreaming(true)
+    try {
+      await api.ask(askQuery, (chunk) => setAskAnswer(prev => prev + chunk))
+    } finally {
+      setAskStreaming(false)
+    }
+  }, [askQuery, askStreaming])
+
+  const toggleAutoExplain = async () => {
+    const next = !autoExplain
+    setAutoExplain(next)
+    await api.setAutoExplain(next)
+  }
+
+  // ── Chart data ───────────────────────────────────────────────────────────
+  const specData = spectrum
+    ? spectrum.wl
+        .map((w, i) => ({ wl: parseFloat(w.toFixed(1)), intensity: parseFloat(spectrum.i[i].toFixed(4)) }))
+        .filter((_, i) => i % 4 === 0)
+    : []
+
+  const hasCIBands = trend.some(t => t.ciLow !== undefined)
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className="app">
+      {/* Header */}
+      <header className="header">
+        <div className="header-left">
+          <FlaskConical size={22} className="logo-icon" />
+          <span className="logo-text">SpectraAgent</span>
+          {health && <span className="version-badge">v{health.version}</span>}
+          {health && <span className="physics-badge">{health.physics_plugin}</span>}
+        </div>
+        <div className="header-right">
+          {health && (
+            <span className={`hw-badge ${health.simulate ? 'sim' : 'live'}`}>
+              {health.simulate ? '⚡ Simulation' : `🔬 ${health.hardware}`}
+            </span>
+          )}
+          <a
+            href="http://localhost:8501"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="workbench-link"
+            title="Open Analysis Workbench — GPR/PLS training, LOD/LOQ, publication figures"
+          >
+            <FlaskConical size={13} />
+            Analysis Workbench
+          </a>
+          <span className={`ws-badge ${wsConnected ? 'on' : 'off'}`}>
+            {wsConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
+            {wsConnected ? 'Live' : 'Connecting…'}
+          </span>
+        </div>
+      </header>
+
+      <div className="layout">
+        {/* ── Sidebar ── */}
+        <aside className="sidebar">
+
+          {/* Session config */}
+          <section className="card">
+            <h2><Settings size={15} /> Session</h2>
+            <label>Gas / analyte
+              <input value={gasLabel} onChange={e => setGasLabel(e.target.value)} />
+            </label>
+            <label>Target concentration (ppm)
+              <input type="number" placeholder="optional" value={targetConc}
+                onChange={e => setTargetConc(e.target.value)} />
+            </label>
+            <label>Integration time (ms)
+              <input type="number" min={10} max={10000} value={integrationMs}
+                onChange={e => setIntegrationMs(Number(e.target.value))} />
+            </label>
+            <div className="btn-row">
+              {!sessionRunning
+                ? <button type="button" className="btn-primary" onClick={startSession}><Play size={14} />Start</button>
+                : <button type="button" className="btn-danger" onClick={stopSession}><Square size={14} />Stop</button>}
+              <button type="button" className="btn-secondary" onClick={captureRef}><Camera size={14} />Reference</button>
+            </div>
+            {sessionRunning && (
+              <div className="session-pill">
+                <span className="pulse" /> Recording · frame {frameNum}
+              </div>
+            )}
+            {!sessionRunning && currentSessionId && (
+              <div className="post-session-actions">
+                <button
+                  type="button"
+                  className="btn-secondary full-width"
+                  onClick={generateReport}
+                  disabled={reportGenerating}
+                >
+                  <FileText size={13} />
+                  {reportGenerating ? 'Generating…' : 'Generate Report'}
+                </button>
+                <div className="session-id-badge">ID: {currentSessionId.slice(0, 18)}…</div>
+              </div>
+            )}
+          </section>
+
+          {/* Session analysis (populated from session_complete agent event) */}
+          {sessionAnalysis && (
+            <section className="card analysis-card">
+              <h2><TrendingUp size={15} /> Session Analysis</h2>
+              <div className="analysis-grid">
+                {sessionAnalysis.lod_ppm !== undefined && (
+                  <div className="an-metric">
+                    <span className="an-label">LOD</span>
+                    <span className="an-val">{sessionAnalysis.lod_ppm.toExponential(2)} ppm</span>
+                  </div>
+                )}
+                {sessionAnalysis.loq_ppm !== undefined && (
+                  <div className="an-metric">
+                    <span className="an-label">LOQ</span>
+                    <span className="an-val">{sessionAnalysis.loq_ppm.toExponential(2)} ppm</span>
+                  </div>
+                )}
+                {sessionAnalysis.r_squared !== undefined && (
+                  <div className="an-metric">
+                    <span className="an-label">R²</span>
+                    <span className={`an-val ${sessionAnalysis.r_squared < 0.9 ? 'warn' : 'good'}`}>
+                      {sessionAnalysis.r_squared.toFixed(4)}
+                    </span>
+                  </div>
+                )}
+                {sessionAnalysis.mean_snr !== undefined && (
+                  <div className="an-metric">
+                    <span className="an-label">Mean SNR</span>
+                    <span className="an-val">{sessionAnalysis.mean_snr.toFixed(1)}</span>
+                  </div>
+                )}
+                {sessionAnalysis.drift_rate_nm_per_min !== undefined && (
+                  <div className="an-metric an-full">
+                    <span className="an-label">Drift rate</span>
+                    <span className={`an-val ${Math.abs(sessionAnalysis.drift_rate_nm_per_min) > 0.05 ? 'warn' : 'good'}`}>
+                      {sessionAnalysis.drift_rate_nm_per_min.toFixed(4)} nm/min
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Live result */}
+          {(latestResult.concentration_ppm !== undefined || latestResult.peak_shift_nm !== undefined) && (
+            <section className="card result-card">
+              <h2><Activity size={15} /> Live result</h2>
+              {(latestResult.gas_type || latestResult.confidence_score !== undefined) && (
+                <div className="gas-badge-row">
+                  {latestResult.gas_type && (
+                    <span className="gas-badge">{latestResult.gas_type}</span>
+                  )}
+                  {latestResult.confidence_score !== undefined && (
+                    <span className="conf-badge">
+                      {(latestResult.confidence_score * 100).toFixed(0)}% conf
+                    </span>
+                  )}
+                </div>
+              )}
+              {latestResult.concentration_ppm !== undefined && (
+                <div className="metric">
+                  <span className="mlabel">Concentration</span>
+                  <span className="mval">{latestResult.concentration_ppm.toFixed(3)} ppm</span>
+                  {latestResult.ci_low !== undefined && (
+                    <span className="mci">
+                      95% CI [{latestResult.ci_low.toFixed(3)}, {latestResult.ci_high!.toFixed(3)}]
+                    </span>
+                  )}
+                </div>
+              )}
+              {latestResult.peak_shift_nm !== undefined && (
+                <div className="metric">
+                  <span className="mlabel">Δλ peak shift</span>
+                  <span className="mval">{latestResult.peak_shift_nm.toFixed(4)} nm</span>
+                </div>
+              )}
+              {latestResult.peak_wavelength !== undefined && (
+                <div className="metric">
+                  <span className="mlabel">Peak λ</span>
+                  <span className="mval-sm">{latestResult.peak_wavelength.toFixed(3)} nm</span>
+                </div>
+              )}
+              {latestResult.snr !== undefined && (
+                <div className="metric">
+                  <span className="mlabel">SNR</span>
+                  <span className={`mval-sm ${latestResult.snr < 3 ? 'warn' : ''}`}>
+                    {latestResult.snr.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Planner suggestions */}
+          {plannerSuggestions.length > 0 && (
+            <section className="card">
+              <button type="button" className="collapse-hdr" onClick={() => setShowSuggestions(v => !v)}>
+                <h2><Zap size={15} /> Planner Suggestions</h2>
+                {showSuggestions ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showSuggestions && (
+                <div className="panel-body">
+                  {plannerSuggestions.map((s, i) => (
+                    <div key={i} className="suggestion-item">{s}</div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Calibration */}
+          <section className="card">
+            <button type="button" className="collapse-hdr" onClick={() => setShowCal(v => !v)}>
+              <h2><Plus size={15} /> Calibration</h2>
+              {showCal ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showCal && (
+              <div className="panel-body">
+                <label>Concentration (ppm)
+                  <input type="number" value={calConc} onChange={e => setCalConc(e.target.value)} />
+                </label>
+                <label>Δλ (nm)
+                  <input type="number" step="0.001" value={calDelta} onChange={e => setCalDelta(e.target.value)} />
+                </label>
+                <div className="btn-row">
+                  <button type="button" className="btn-secondary" onClick={addCalPoint}>
+                    <Plus size={13} />Add
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={suggestNext}>
+                    Suggest next
+                  </button>
+                </div>
+                {suggestedConc !== null && (
+                  <div className="suggestion">Next: <strong>{suggestedConc.toFixed(2)} ppm</strong></div>
+                )}
+                {calPoints.length > 0 && (
+                  <div className="cal-chips">
+                    {calPoints.map((p, i) => (
+                      <span key={i} className="chip">{p.c} ppm / {p.d} nm</span>
+                    ))}
+                  </div>
+                )}
+                {/* Mini calibration curve */}
+                {calPoints.length >= 2 && (
+                  <div className="cal-curve-mini">
+                    <div className="cal-curve-label">Calibration curve (Δλ vs [C])</div>
+                    <ResponsiveContainer width="100%" height={100}>
+                      <LineChart
+                        data={[...calPoints].sort((a, b) => a.c - b.c).map(p => ({ c: p.c, d: p.d }))}
+                        margin={{ top: 4, right: 4, bottom: 18, left: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="c" tick={{ fontSize: 9, fill: '#64748b' }}
+                          label={{ value: 'ppm', position: 'insideBottom', offset: -12, fill: '#64748b', fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={32} />
+                        <Line type="monotone" dataKey="d" stroke="#f59e0b"
+                          dot={{ r: 3, fill: '#f59e0b' }} strokeWidth={1.5}
+                          isAnimationActive={false} name="Δλ (nm)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Ask Claude */}
+          <section className="card">
+            <button type="button" className="collapse-hdr" onClick={() => setShowAsk(v => !v)}>
+              <h2><MessageSquare size={15} /> Ask Claude</h2>
+              {showAsk ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showAsk && (
+              <div className="panel-body">
+                <label className="toggle-row">
+                  Auto-explain anomalies
+                  <input type="checkbox" checked={autoExplain} onChange={toggleAutoExplain} />
+                </label>
+                <textarea rows={3} className="ask-ta"
+                  placeholder="Ask about drift, LOD, anomalies… (Ctrl+Enter)"
+                  value={askQuery}
+                  onChange={e => setAskQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) submitAsk() }}
+                />
+                <button type="button" className="btn-primary" onClick={submitAsk} disabled={askStreaming}>
+                  {askStreaming ? 'Streaming…' : 'Ask'}
+                </button>
+                {askAnswer && (
+                  <div className="ask-answer">
+                    {askAnswer}
+                    {askStreaming && <span className="blink">▋</span>}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Detection settings */}
+          <section className="card">
+            <button type="button" className="collapse-hdr" onClick={() => setShowSettings(v => !v)}>
+              <h2><Sliders size={15} /> Detection Settings</h2>
+              {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showSettings && (
+              <div className="panel-body">
+                <div className="settings-group-label">Quality Gate</div>
+                <label>Saturation threshold (counts)
+                  <input type="number" value={satThreshold}
+                    onChange={e => setSatThreshold(Number(e.target.value))} />
+                </label>
+                <label>SNR warn threshold
+                  <input type="number" step="0.1" value={snrThreshold}
+                    onChange={e => setSnrThreshold(Number(e.target.value))} />
+                </label>
+                <button type="button" className="btn-secondary btn-mb"
+                  onClick={saveQualitySettings}>
+                  Apply quality settings
+                </button>
+                <div className="settings-group-label">Drift Monitor</div>
+                <label>Drift threshold (nm/min)
+                  <input type="number" step="0.001" value={driftThreshold}
+                    onChange={e => setDriftThreshold(Number(e.target.value))} />
+                </label>
+                <label>Window (frames)
+                  <input type="number" min={10} value={driftWindow}
+                    onChange={e => setDriftWindow(Number(e.target.value))} />
+                </label>
+                <button type="button" className="btn-secondary" onClick={saveDriftSettings}>
+                  Apply drift settings
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* Session history */}
+          <section className="card">
+            <button
+              type="button"
+              className="collapse-hdr"
+              onClick={() => {
+                const next = !showHistory
+                setShowHistory(next)
+                if (next) loadSessions()
+              }}
+            >
+              <h2><History size={15} /> Session History</h2>
+              {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showHistory && (
+              <div className="panel-body">
+                {sessions.length === 0 && (
+                  <div className="ev-empty">No past sessions found.</div>
+                )}
+                {sessions.map(s => (
+                  <div
+                    key={s.session_id}
+                    className="session-row"
+                    onClick={() => openSession(s.session_id)}
+                  >
+                    <div className="ses-id">{s.session_id.slice(0, 14)}…</div>
+                    <div className="ses-meta">{s.gas_label} · {s.frame_count} frames</div>
+                    <div className="ses-date">{new Date(s.started_at).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </aside>
+
+        {/* ── Main ── */}
+        <main className="main">
+
+          {/* Live Spectrum */}
+          <section className="card chart-card">
+            <h2><Activity size={15} /> Live Spectrum · frame {frameNum}</h2>
+            {specData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={specData} margin={{ top: 4, right: 16, bottom: 20, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="wl" domain={['dataMin', 'dataMax']} tickCount={8}
+                    label={{ value: 'Wavelength (nm)', position: 'insideBottom', offset: -12, fill: '#64748b', fontSize: 11 }}
+                    tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <YAxis width={50} tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <Tooltip
+                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }}
+                    formatter={(v) => [Number(v).toFixed(4), 'Intensity']}
+                    labelFormatter={(l) => `λ = ${l} nm`}
+                  />
+                  <ReferenceLine x={717.9} stroke="#f59e0b" strokeDasharray="4 2"
+                    label={{ value: 'λ_ref', fill: '#f59e0b', fontSize: 10, position: 'top' }} />
+                  <Line type="monotone" dataKey="intensity" stroke="#38bdf8"
+                    dot={false} strokeWidth={1.5} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty">Waiting for first spectrum frame…</div>
+            )}
+          </section>
+
+          {/* Concentration + Shift Trend (with CI bands) */}
+          <section className="card chart-card">
+            <h2>
+              <Activity size={15} /> Concentration &amp; Shift Trend
+              {hasCIBands && <span className="chart-legend-badge ci">± 95% CI</span>}
+            </h2>
+            {trend.length > 1 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={trend} margin={{ top: 4, right: 16, bottom: 20, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="frame"
+                    label={{ value: 'Frame', position: 'insideBottom', offset: -12, fill: '#64748b', fontSize: 11 }}
+                    tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <YAxis width={56} tick={{ fontSize: 10, fill: '#64748b' }}
+                    label={{ value: 'ppm / Δλ nm', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }}
+                  />
+                  {/* CI band — dashed upper/lower bounds */}
+                  {hasCIBands && (
+                    <>
+                      <Line type="monotone" dataKey="ciHigh" stroke="#22c55e"
+                        strokeDasharray="3 2" strokeWidth={1} dot={false}
+                        opacity={0.45} name="CI high" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="ciLow" stroke="#22c55e"
+                        strokeDasharray="3 2" strokeWidth={1} dot={false}
+                        opacity={0.45} name="CI low" isAnimationActive={false} />
+                    </>
+                  )}
+                  {trend.some(t => t.conc !== undefined) && (
+                    <Line type="monotone" dataKey="conc" stroke="#22c55e"
+                      dot={false} strokeWidth={2} name="Concentration (ppm)" isAnimationActive={false} />
+                  )}
+                  <Line type="monotone" dataKey="shift" stroke="#a78bfa"
+                    dot={false} strokeWidth={1.5} name="Δλ (nm)" isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty">Start a session to see the concentration trend…</div>
+            )}
+          </section>
+
+          {/* Session detail inline panel (shown when a history session is clicked) */}
+          {sessionDetail && (
+            <section className="card">
+              <div className="session-detail-header">
+                <h2 className="session-detail-title">
+                  <History size={15} /> {sessionDetail.gas_label} — {sessionDetail.session_id.slice(0, 16)}…
+                </h2>
+                <button type="button" className="icon-btn" onClick={() => setSessionDetail(null)} title="Close session detail">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="session-detail-meta">
+                <span>{sessionDetail.frame_count} frames</span>
+                <span>{new Date(sessionDetail.started_at).toLocaleString()}</span>
+                {sessionDetail.stopped_at && (
+                  <span>→ {new Date(sessionDetail.stopped_at).toLocaleString()}</span>
+                )}
+              </div>
+              <div className="events-list session-detail-events">
+                {sessionDetail.agent_events.slice(0, 30).map((ev, i) => (
+                  <div key={i} className={`ev-row ev-${ev.level}`}>
+                    <span className="ev-icon">{levelIcon(ev.level)}</span>
+                    <div className="ev-body">
+                      <span className="ev-source">{ev.source}</span>
+                      <span className="ev-type">{ev.type}</span>
+                      <p className="ev-text">{ev.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Agent Events */}
+          <section className="card events-card">
+            <h2>
+              <Zap size={15} /> Agent Events
+              <span className="ev-count">{events.length}</span>
+            </h2>
+            <div className="events-list">
+              {events.length === 0 && (
+                <div className="ev-empty">No events yet — agents are listening…</div>
+              )}
+              {events.map((ev, i) => (
+                <div key={i} className={`ev-row ev-${ev.level}`}>
+                  <span className="ev-icon">{levelIcon(ev.level)}</span>
+                  <div className="ev-body">
+                    <span className="ev-source">{ev.source}</span>
+                    <span className="ev-type">{ev.type}</span>
+                    <p className="ev-text">{ev.text}</p>
+                  </div>
+                </div>
+              ))}
+              <div ref={eventsBottomRef} />
+            </div>
+          </section>
+        </main>
+      </div>
+
+      {/* ── Modals ── */}
+
+      {showReport && reportContent && (
+        <Modal title="Session Report" onClose={() => setShowReport(false)}>
+          <pre className="report-pre">{reportContent}</pre>
+        </Modal>
+      )}
+
+      {anomalyEvent && (
+        <Modal
+          title={`${anomalyEvent.source} — ${anomalyEvent.type}`}
+          onClose={() => setAnomalyEvent(null)}
+        >
+          <p className="anomaly-text">{anomalyEvent.text}</p>
+          {anomalyEvent.data && Object.keys(anomalyEvent.data).length > 0 && (
+            <pre className="anomaly-data">{JSON.stringify(anomalyEvent.data, null, 2)}</pre>
+          )}
+        </Modal>
+      )}
+    </div>
+  )
+}

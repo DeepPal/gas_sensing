@@ -199,17 +199,19 @@ class PhysicsInformedGPR:
                 self._linearity_result = linearity  # type: ignore[assignment]
                 is_linear = bool(linearity.get("is_linear", True))
                 if is_linear:
+                    p_value = float(cast(Any, linearity.get("p_value", 1.0)))
                     log.info(
                         "Mandel's test: linear model sufficient (p=%.3f); "
                         "Langmuir prior not applied.",
-                        float(linearity.get("p_value", 1.0)),
+                        p_value,
                     )
                 else:
                     apply_langmuir = True
+                    p_value = float(cast(Any, linearity.get("p_value", 0.0)))
                     log.info(
                         "Mandel's test: significant nonlinearity (p=%.3f); "
                         "Langmuir prior applied.",
-                        float(linearity.get("p_value", 0.0)),
+                        p_value,
                     )
             except Exception as exc:
                 warnings.warn(

@@ -93,6 +93,16 @@ class AgentSettings(BaseModel):
     auto_explain: bool
 
 
+class QualitySettings(BaseModel):
+    saturation_threshold: float | None = None
+    snr_warn_threshold: float | None = None
+
+
+class DriftSettings(BaseModel):
+    drift_threshold_nm_per_min: float | None = None
+    window_frames: int | None = None
+
+
 _ASK_MODEL = "claude-sonnet-4-6"
 
 
@@ -223,11 +233,17 @@ def create_app(simulate: bool = False) -> FastAPI:
     @app.get("/api/health")
     async def health() -> JSONResponse:
         driver = app.state.driver
+        plugin = app.state.plugin
+        quality_agent = getattr(app.state, "quality_agent", None)
+        drift_agent = getattr(app.state, "drift_agent", None)
         return JSONResponse({
             "status": "ok",
             "version": spectraagent.__version__,
             "hardware": driver.name if driver is not None else "not_connected",
             "simulate": app.state.simulate,
+            "physics_plugin": plugin.name if plugin is not None else "none",
+            "quality_settings": quality_agent.settings if quality_agent is not None else {},
+            "drift_settings": drift_agent.settings if drift_agent is not None else {},
         })
 
     # ------------------------------------------------------------------
@@ -462,6 +478,44 @@ def create_app(simulate: bool = False) -> FastAPI:
     # ------------------------------------------------------------------
     # Agent settings — runtime toggle for auto-explain
     # ------------------------------------------------------------------
+
+    @app.put("/api/agents/quality-settings")
+    def agents_quality_settings(settings: QualitySettings) -> JSONResponse:
+        """Update QualityAgent thresholds at runtime."""
+        qa = getattr(app.state, "quality_agent", None)
+        if qa is not None:
+            qa.configure(
+                saturation_threshold=settings.saturation_threshold,
+                snr_warn_threshold=settings.snr_warn_threshold,
+            )
+            return JSONResponse({"status": "updated", **qa.settings})
+        return JSONResponse({"status": "agent_not_ready"})
+
+    @app.get("/api/agents/quality-settings")
+    def agents_quality_settings_get() -> JSONResponse:
+        qa = getattr(app.state, "quality_agent", None)
+        if qa is None:
+            return JSONResponse({})
+        return JSONResponse(qa.settings)
+
+    @app.put("/api/agents/drift-settings")
+    def agents_drift_settings(settings: DriftSettings) -> JSONResponse:
+        """Update DriftAgent thresholds at runtime."""
+        da = getattr(app.state, "drift_agent", None)
+        if da is not None:
+            da.configure(
+                drift_threshold_nm_per_min=settings.drift_threshold_nm_per_min,
+                window_frames=settings.window_frames,
+            )
+            return JSONResponse({"status": "updated", **da.settings})
+        return JSONResponse({"status": "agent_not_ready"})
+
+    @app.get("/api/agents/drift-settings")
+    def agents_drift_settings_get() -> JSONResponse:
+        da = getattr(app.state, "drift_agent", None)
+        if da is None:
+            return JSONResponse({})
+        return JSONResponse(da.settings)
 
     @app.put("/api/agents/settings")
     def agents_settings(settings: AgentSettings) -> JSONResponse:

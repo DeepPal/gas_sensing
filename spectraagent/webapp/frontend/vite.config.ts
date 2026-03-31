@@ -1,0 +1,18 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    // Output directly into the directory the FastAPI server serves
+    outDir: '../static/dist',
+    emptyOutDir: true,
+  },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:8765',
+      '/ws': { target: 'ws://localhost:8765', ws: true },
+    },
+  },
+})

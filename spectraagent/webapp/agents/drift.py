@@ -55,6 +55,25 @@ class DriftAgent:
         # Pending undelivered emit handles; cancelled by reset() to suppress stale alerts.
         self._pending: list[asyncio.Handle] = []
 
+    def configure(
+        self,
+        drift_threshold_nm_per_min: float | None = None,
+        window_frames: int | None = None,
+    ) -> None:
+        """Update drift detection settings at runtime."""
+        if drift_threshold_nm_per_min is not None:
+            self._threshold = float(drift_threshold_nm_per_min)
+        if window_frames is not None:
+            self._window = int(window_frames)
+            self._history = type(self._history)(maxlen=self._window)
+
+    @property
+    def settings(self) -> dict:
+        return {
+            "drift_threshold_nm_per_min": self._threshold,
+            "window_frames": self._window,
+        }
+
     def update(self, frame_num: int, peak_wavelength: float) -> None:
         """Record a peak wavelength observation. Emits drift_warn if threshold exceeded.
 

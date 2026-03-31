@@ -7,12 +7,15 @@ Based on ThorLabs TLCCS driver documentation.
 
 import builtins
 import contextlib
+import logging
 import struct
 import time
 from typing import Optional
 
 import numpy as np
 import pyvisa
+
+log = logging.getLogger(__name__)
 
 
 class CCS200Serial:
@@ -113,7 +116,8 @@ class CCS200Serial:
                 time.sleep(0.01)  # Small delay for device processing
                 try:
                     return self.instrument.read_bytes(read_length)
-                except:
+                except Exception as exc:
+                    log.warning("read_bytes failed: %s", exc)
                     return None
 
             return None
@@ -231,14 +235,14 @@ class CCS200Serial:
                 self._send_command(self.CMD_CLOSE)
                 self.instrument.close()
                 self.instrument = None
-        except:
+        except Exception:
             pass
 
         try:
             if self.rm:
                 self.rm.close()
                 self.rm = None
-        except:
+        except Exception:
             pass
 
     def __enter__(self):

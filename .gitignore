@@ -124,6 +124,8 @@ site/
 # MLflow experiment tracking (can be large; regenerable by retraining)
 # =============================================================================
 experiments/mlruns/
+mlruns/
+mlruns.db
 
 # =============================================================================
 # Trained model artefacts (tracked in models/registry/ but not committed)

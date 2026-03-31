@@ -534,6 +534,44 @@ def sensor_performance_summary(
     else:
         lod_propagated_std = float("nan")
 
+    # LOB (Limit of Blank): highest signal expected from a blank sample
+    # = μ_blank + 1.645·σ_blank (IUPAC 2012, one-sided 95th percentile)
+    # In concentration units: (|μ_blank| + 1.645·σ_blank) / |slope|
+    # Since blank mean ≈ 0 for a well-zeroed sensor, this simplifies to
+    # 1.645·σ_blank / |slope|, but we keep the general form.
+    blank_mean_signal = 0.0  # LSPR shifts are reference-subtracted → blank mean = 0
+    if abs(slope) > 1e-12:
+        lob = max(
+            (abs(blank_mean_signal) + 1.645 * baseline_noise_std) / abs(slope), 1e-7
+        )
+    else:
+        lob = float("inf")
+
+    # Mandel's linearity test on the full calibration range
+    linearity_result: dict | None = None
+    lol_ppm: float | None = None
+    if len(c) >= 5:
+        # LOL = highest conc where Mandel p ≥ 0.05 (progressive truncation)
+        sort_idx = np.argsort(c)
+        sc = c[sort_idx]
+        sr = r[sort_idx]
+        for n_keep in range(len(sc), 3, -1):
+            try:
+                lin = mandel_linearity_test(sc[:n_keep], sr[:n_keep])
+                if lin.get("is_linear", False):
+                    lol_ppm = float(sc[n_keep - 1])
+                    linearity_result = lin
+                    break
+            except Exception:
+                continue
+    elif len(c) >= 4:
+        try:
+            linearity_result = mandel_linearity_test(c, r)
+            if linearity_result.get("is_linear", False):
+                lol_ppm = float(np.max(c))
+        except Exception:
+            pass
+
     summary = {
         # ICH Q2(R1) mandatory fields
         "gas": gas_name,
@@ -543,6 +581,8 @@ def sensor_performance_summary(
         "r_squared": round(r2, 6),
         "noise_std": round(baseline_noise_std, 8),
         "n_calibration_points": int(len(c)),
+        # LOB (IUPAC 2012 mandatory for publication)
+        "lob_ppm": round(lob, 6) if np.isfinite(lob) else None,
         # LOD
         "lod_ppm": round(lod, 6) if np.isfinite(lod) else None,
         "lod_ppm_ci_lower": round(lod_ci_lo, 6) if np.isfinite(lod_ci_lo) else None,
@@ -554,9 +594,15 @@ def sensor_performance_summary(
         "loq_ppm": round(loq, 6) if np.isfinite(loq) else None,
         "loq_ppm_ci_lower": round(loq_ci_lo, 6) if np.isfinite(loq_ci_lo) else None,
         "loq_ppm_ci_upper": round(loq_ci_hi, 6) if np.isfinite(loq_ci_hi) else None,
+        # LOL (Limit of Linearity, ICH Q2(R1) §4.2)
+        "lol_ppm": round(lol_ppm, 6) if lol_ppm is not None else None,
+        # Mandel's linearity test result (full range)
+        "mandel_linearity": linearity_result,
         # Methodology tag for audit trail
         "lod_method": "ICH Q2(R1) 3.3σ/S with bootstrap 95% CI (n=1000)",
         "loq_method": "ICH Q2(R1) 10σ/S with bootstrap 95% CI (n=1000)",
+        "lob_method": "IUPAC 2012: (|μ_blank| + 1.645·σ_blank) / |S|",
+        "lol_method": "ICH Q2(R1) §4.2 Mandel F-test progressive truncation",
     }
 
     log.info(

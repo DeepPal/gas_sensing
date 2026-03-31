@@ -1,0 +1,3 @@
+# AbstractSpectrometer
+
+::: src.spectrometer.base

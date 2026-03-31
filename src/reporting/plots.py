@@ -457,7 +457,8 @@ def save_wavelength_shift_visualization(
     ax4.set_title(
         f"Zoomed Feature Region ({zoom_min:.1f}-{zoom_max:.1f} nm)\n{feature_type.upper()} positions marked"
     )
-    ax4.legend(loc="upper right", fontsize=7)
+    if ax4.get_legend_handles_labels()[0]:
+        ax4.legend(loc="upper right", fontsize=7)
     ax4.grid(True, alpha=0.3)
 
     # (2,2) Peak vs Valley R² comparison bar chart
@@ -505,7 +506,8 @@ def save_wavelength_shift_visualization(
     ax6.set_ylabel("Δλ from baseline (nm)")
     ax6.set_title("Wavelength Shift Comparison\n(Peak vs Valley)")
     ax6.axhline(0, color="black", linestyle="-", linewidth=0.5)
-    ax6.legend()
+    if ax6.get_legend_handles_labels()[0]:
+        ax6.legend()
     ax6.grid(True, alpha=0.3, axis="y")
 
     selected_label = f"Selected: {feature_type.upper()}" if feature_type != "unknown" else ""
@@ -844,11 +846,11 @@ def save_spectral_response_diagnostic(
                 else:
                     feature_wl = wl_win[extremum_idx]
                 feature_positions.append(float(feature_wl))
-            vals = np.array(feature_positions, dtype=float)
-            if vals.size != len(concentrations) or not np.all(np.isfinite(vals)):
+            vals_arr = np.array(feature_positions, dtype=float)
+            if vals_arr.size != len(concentrations) or not np.all(np.isfinite(vals_arr)):
                 continue
             try:
-                reg = linregress(concentrations, vals)
+                reg = linregress(concentrations, vals_arr)
                 r2_val = float(reg.rvalue**2)
             except Exception:
                 continue

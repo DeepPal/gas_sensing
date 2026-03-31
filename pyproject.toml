@@ -267,6 +267,8 @@ markers = [
 filterwarnings = [
     "ignore::sklearn.exceptions.ConvergenceWarning",  # GPR on tiny synthetic test data
     "ignore::UserWarning:sklearn",                    # sklearn misc on small datasets
+    "ignore:ConformalCalibrator.*calibration points:UserWarning",  # small test datasets
+    "ignore:No artists with labels:UserWarning",       # legend on empty axes in tests
 ]
 
 # ---------------------------------------------------------------------------

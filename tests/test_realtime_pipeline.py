@@ -27,6 +27,8 @@ Design notes
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
 
 import numpy as np
 import pytest
@@ -41,7 +43,7 @@ if realtime_pipeline_spec is None:
         allow_module_level=True,
     )
 
-from src.inference.realtime_pipeline import (  # noqa: E402
+from src.inference.realtime_pipeline import (  # noqa: E402; type: ignore[no-redef]
     PipelineConfig,
     PipelineResult,
     RealTimePipeline,

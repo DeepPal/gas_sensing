@@ -40,7 +40,7 @@ import numpy as np
 
 import datetime
 
-from src.scientific.lod import lod_bootstrap_ci
+from src.scientific.lod import calculate_lod_3sigma, calculate_loq_10sigma, lod_bootstrap_ci
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,27 @@ class SessionAnalysis:
     # Drift: linear trend in peak_wavelength over measurement frames
     drift_rate_nm_per_frame: float | None = None
     total_drift_nm: float | None = None
+
+    # Limit of Linearity (IUPAC 2012): highest concentration where calibration
+    # remains linear (Mandel's F-test p ≥ 0.05 on the truncated calibration range)
+    lol_ppm: float = float("nan")
+    """Limit of Linearity: highest concentration where the calibration curve
+    is statistically linear (Mandel's test, ICH Q2(R1) §4.2).
+    Above this concentration, a nonlinear (e.g. Langmuir) model is required."""
+
+    linearity: dict[str, Any] = field(default_factory=dict)
+    """Mandel's F-test result dict from the final linear subrange.
+    Keys: ``is_linear``, ``f_statistic``, ``p_value``, ``r2_linear``,
+    ``r2_quadratic``, ``recommendation``."""
+
+    # Response kinetics (ICH Q2(R1) §5.5)
+    response_time_t90_seconds: float | None = None
+    """Time (s) for sensor to reach 90% of steady-state response.
+    Populated from measurement events with a ``response_time_t90_s`` field,
+    or from a step-response analysis of the concentration time-series."""
+
+    response_time_t10_seconds: float | None = None
+    """Time (s) for sensor to recover to 10% above baseline (T10 / recovery time)."""
 
     # Interval coverage check (when ground truth is available)
     interval_coverage: float | None = None
@@ -212,9 +233,9 @@ class SessionAnalyzer:
                     (abs(blank_mean_nm) + 1.645 * sigma_blank_nm) / abs_m, 1e-7
                 )
 
-                # LOD and LOQ point estimates
-                result.lod_ppm = max(3.0 * sigma_blank_nm / abs_m, 1e-6)
-                result.loq_ppm = max(10.0 * sigma_blank_nm / abs_m, 3e-6)
+                # LOD and LOQ point estimates (IUPAC 3σ/10σ via shared utility)
+                result.lod_ppm = max(calculate_lod_3sigma(sigma_blank_nm, abs_m), 1e-6)
+                result.loq_ppm = max(calculate_loq_10sigma(sigma_blank_nm, abs_m), 3e-6)
 
                 # Bootstrap 95% CI on LOD/LOQ using low-concentration data
                 # (Henry's law region gives the relevant sensitivity estimate)
@@ -296,6 +317,47 @@ class SessionAnalyzer:
             result.drift_rate_nm_per_frame = float(coeffs[0])
             result.total_drift_nm = float(wls_arr[-1] - wls_arr[0])
 
+        # ── Limit of Linearity (LOL) via progressive Mandel's test ──────
+        # LOL = highest concentration where calibration remains statistically
+        # linear (Mandel p ≥ 0.05).  Requires ≥ 5 calibration points so that
+        # the minimum truncated subset still has 4 points for the F-test.
+        if result.calibration_n_points >= 5:
+            from src.scientific.lod import mandel_linearity_test
+            sorted_idx = np.argsort(cal_concs)
+            s_concs = cal_concs[sorted_idx]
+            s_shifts = cal_shifts[sorted_idx]
+            for n_keep in range(len(s_concs), 3, -1):
+                sub_c = s_concs[:n_keep]
+                sub_s = s_shifts[:n_keep]
+                try:
+                    lin_result = mandel_linearity_test(sub_c, sub_s)
+                    if lin_result.get("is_linear", False):
+                        result.lol_ppm = float(sub_c[-1])
+                        result.linearity = lin_result
+                        break
+                except Exception:
+                    continue
+
+        # ── Response kinetics (T90 / T10) ────────────────────────────────
+        # Preferred: pre-computed fields in measurement events (set by the
+        # real-time pipeline from a step-response fit).
+        # Fallback: no computation here — dynamic characterisation requires
+        # a known step stimulus and is left to experiment design.
+        t90_vals = [
+            float(e["response_time_t90_s"])
+            for e in meas_events
+            if e.get("response_time_t90_s") is not None
+        ]
+        t10_vals = [
+            float(e["response_time_t10_s"])
+            for e in meas_events
+            if e.get("response_time_t10_s") is not None
+        ]
+        if t90_vals:
+            result.response_time_t90_seconds = float(np.mean(t90_vals))
+        if t10_vals:
+            result.response_time_t10_seconds = float(np.mean(t10_vals))
+
         # ── Summary text ─────────────────────────────────────────────────
         lines = [f"Session summary: {frame_count} frames acquired."]
         lines.append(f"Calibration: {result.calibration_n_points} points")
@@ -312,6 +374,12 @@ class SessionAnalyzer:
             else:
                 lines.append(f"  LOD = {result.lod_ppm:.4f} ppm")
             lines.append(f"  LOQ = {result.loq_ppm:.4f} ppm")
+        if not np.isnan(result.lol_ppm):
+            lines.append(f"  LOL = {result.lol_ppm:.4f} ppm")
+        if result.response_time_t90_seconds is not None:
+            lines.append(f"  T90 = {result.response_time_t90_seconds:.2f} s")
+        if result.response_time_t10_seconds is not None:
+            lines.append(f"  T10 = {result.response_time_t10_seconds:.2f} s")
         if result.drift_rate_nm_per_frame is not None:
             lines.append(
                 f"Drift rate: {result.drift_rate_nm_per_frame:.6f} nm/frame"
@@ -331,6 +399,8 @@ class SessionAnalyzer:
             "n_bootstrap": 500,
             "bootstrap_confidence": 0.95,
             "calibration_n_points": result.calibration_n_points,
+            "lol_ppm": result.lol_ppm if not np.isnan(result.lol_ppm) else None,
+            "lol_mandel_p_value": result.linearity.get("p_value") if result.linearity else None,
             "frame_count": frame_count,
             "framework_version": _FRAMEWORK_VERSION,
             "analysis_timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),

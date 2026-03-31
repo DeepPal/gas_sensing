@@ -34,6 +34,12 @@ from src.calibration.roi_scan import (
     compute_concentration_response,
     stack_trials_for_response,
 )
+from src.calibration.selectivity import SelectivityAnalyzer, SelectivityReport
+from src.calibration.batch_reproducibility import (
+    BatchReproducibilityAnalyzer,
+    BatchReproducibilityReport,
+)
+from src.calibration.pls import PLSCalibration, PLSFitResult
 from src.calibration.transforms import transform_concentrations
 
 __all__ = [
@@ -43,6 +49,12 @@ __all__ = [
     "LangmuirMeanFunction",
     "PhysicsInformedGPR",
     "fit_langmuir_params",
+    "PLSCalibration",
+    "PLSFitResult",
+    "SelectivityAnalyzer",
+    "SelectivityReport",
+    "BatchReproducibilityAnalyzer",
+    "BatchReproducibilityReport",
     "transform_concentrations",
     "select_multi_roi_candidates",
     "fit_multi_roi_fusion",

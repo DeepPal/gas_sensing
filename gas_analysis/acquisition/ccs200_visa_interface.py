@@ -7,10 +7,13 @@ Does not require ThorLabs TLCCS_64.dll - only needs PyVISA and USB drivers.
 
 import builtins
 import contextlib
+import logging
 import time
 
 import numpy as np
 import pyvisa
+
+log = logging.getLogger(__name__)
 
 
 class CCS200VISA:
@@ -93,9 +96,9 @@ class CCS200VISA:
             # Try to identify the device
             try:
                 idn = self.instrument.query("*IDN?")
-                print(f"Connected to: {idn.strip()}")
-            except:
-                print(f"Connected to: {resource_name}")
+                log.info("Connected to: %s", idn.strip())
+            except Exception:
+                log.info("Connected to: %s", resource_name)
 
             # Initialize device
             self._initialize()
@@ -189,14 +192,14 @@ class CCS200VISA:
                     # Try reading with different methods
                     try:
                         raw_data = self.instrument.read()
-                    except:
+                    except Exception:
                         # Try reading bytes
                         try:
                             raw_bytes = self.instrument.read_bytes(3648 * 8)  # 3648 doubles
                             data = np.frombuffer(raw_bytes, dtype=np.float64)
                             if len(data) == 3648:
                                 break
-                        except:
+                        except Exception:
                             pass
 
                     if raw_data:
@@ -253,10 +256,10 @@ class CCS200VISA:
                 # Try as float array
                 try:
                     return np.frombuffer(raw_data, dtype=np.float64)
-                except:
+                except Exception:
                     try:
                         return np.frombuffer(raw_data, dtype=np.float32)
-                    except:
+                    except Exception:
                         raw_data = raw_data.decode("utf-8", errors="ignore")
 
             # Try parsing as comma-separated values

@@ -36,7 +36,13 @@ from src import __version__
 # Calibration
 # ---------------------------------------------------------------------------
 from src.calibration.gpr import GPRCalibration
+from src.calibration.pls import PLSCalibration, PLSFitResult
 from src.calibration.roi_scan import RoiScanConfig, compute_concentration_response
+from src.calibration.selectivity import SelectivityAnalyzer, SelectivityReport
+from src.calibration.batch_reproducibility import (
+    BatchReproducibilityAnalyzer,
+    BatchReproducibilityReport,
+)
 
 # ---------------------------------------------------------------------------
 # Core pipeline
@@ -53,9 +59,30 @@ from src.inference.realtime_pipeline import (
 from src.models.cnn import CNNGasClassifier
 
 # ---------------------------------------------------------------------------
+# Hardware abstraction
+# ---------------------------------------------------------------------------
+from src.spectrometer import (
+    AbstractSpectrometer,
+    SimulatedSpectrometer,
+    SpectralFrame,
+    SpectrometerRegistry,
+)
+
+# ---------------------------------------------------------------------------
+# I/O
+# ---------------------------------------------------------------------------
+from src.io import (
+    ArchiveReader,
+    ArchiveWriter,
+    open_archive_reader,
+    open_archive_writer,
+)
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 from src.reporting import (
+    compute_comprehensive_sensor_characterization,
     compute_noise_metrics_map,
     compute_roi_performance,
     save_concentration_response_metrics,
@@ -64,6 +91,20 @@ from src.reporting import (
     save_roi_performance_metrics,
     select_signal_column,
 )
+from src.reporting.publication import (
+    JOURNAL_PRESETS,
+    journal_style,
+    list_presets,
+    preset_info,
+    save_calibration_figure,
+    save_pls_diagnostics_figure,
+    save_spectral_overlay_figure,
+)
+
+# ---------------------------------------------------------------------------
+# Experiment tracking
+# ---------------------------------------------------------------------------
+from src.experiment_tracking import ExperimentTracker, get_tracker
 
 # ---------------------------------------------------------------------------
 # Schemas / data types
@@ -87,8 +128,24 @@ __all__ = [
     "CNNGasClassifier",
     # calibration
     "GPRCalibration",
+    "PLSCalibration",
+    "PLSFitResult",
     "RoiScanConfig",
     "compute_concentration_response",
+    "SelectivityAnalyzer",
+    "SelectivityReport",
+    "BatchReproducibilityAnalyzer",
+    "BatchReproducibilityReport",
+    # hardware abstraction
+    "AbstractSpectrometer",
+    "SpectralFrame",
+    "SpectrometerRegistry",
+    "SimulatedSpectrometer",
+    # archiving
+    "ArchiveWriter",
+    "ArchiveReader",
+    "open_archive_writer",
+    "open_archive_reader",
     # schemas
     "SpectrumReading",
     "PredictionResult",
@@ -96,6 +153,7 @@ __all__ = [
     "KNOWN_GAS_TYPES",
     "normalise_gas_type",
     # reporting
+    "compute_comprehensive_sensor_characterization",
     "select_signal_column",
     "compute_noise_metrics_map",
     "compute_roi_performance",
@@ -103,4 +161,15 @@ __all__ = [
     "save_roi_performance_metrics",
     "save_concentration_response_plot",
     "save_research_grade_calibration_plot",
+    # experiment tracking
+    "ExperimentTracker",
+    "get_tracker",
+    # publication figures
+    "JOURNAL_PRESETS",
+    "journal_style",
+    "list_presets",
+    "preset_info",
+    "save_calibration_figure",
+    "save_spectral_overlay_figure",
+    "save_pls_diagnostics_figure",
 ]

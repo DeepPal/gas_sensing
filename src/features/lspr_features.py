@@ -203,7 +203,8 @@ def fit_lorentzian_peak(
             return None
 
         return float(center), float(abs(gamma)), float(amp), center_std
-    except Exception:
+    except Exception as exc:
+        log.debug("Lorentzian fit failed (wl range %.1f–%.1f nm): %s", lo, hi, exc)
         return None
 
 

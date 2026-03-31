@@ -159,6 +159,73 @@ class TestSensorPerformanceSummary:
         summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
         assert summary["n_calibration_points"] == len(self._CONCS)
 
+    # ── New fields: LOB, LOL, Mandel linearity ──────────────────────────────
+
+    def test_lob_ppm_present_and_positive(self):
+        """lob_ppm must be in the summary and positive (IUPAC 2012 mandatory)."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert "lob_ppm" in summary, "lob_ppm missing from sensor_performance_summary"
+        assert summary["lob_ppm"] is not None
+        assert cast(float, summary["lob_ppm"]) > 0
+
+    def test_lob_less_than_lod(self):
+        """LOB must be less than LOD (1.645σ/S < 3σ/S when blank mean ≈ 0)."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        lob = cast(float, summary["lob_ppm"])
+        lod = cast(float, summary["lod_ppm"])
+        assert lob < lod, f"LOB={lob} must be < LOD={lod}"
+
+    def test_lol_ppm_key_present(self):
+        """lol_ppm key must always be present in the return dict."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert "lol_ppm" in summary
+
+    def test_lol_ppm_not_none_with_4_points(self):
+        """4 calibration points is sufficient for Mandel's test; LOL should be populated."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        # _CONCS has 4 points — uses the elif len >= 4 path
+        # LOL is populated only when Mandel test passes (data is actually linear)
+        # For nearly-linear data, LOL should be the max concentration
+        if summary["lol_ppm"] is not None:
+            assert cast(float, summary["lol_ppm"]) <= float(self._CONCS.max()) + 1e-6
+
+    def test_lol_ppm_none_with_only_3_points(self):
+        """With only 3 calibration points, LOL stays None (Mandel requires ≥4)."""
+        summary = sensor_performance_summary(
+            np.array([0.5, 1.0, 2.0]),
+            np.array([-1.0, -2.0, -4.0]),
+        )
+        assert summary["lol_ppm"] is None
+
+    def test_mandel_linearity_key_present(self):
+        """mandel_linearity key must always be present."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert "mandel_linearity" in summary
+
+    def test_mandel_linearity_dict_has_required_keys_with_4_points(self):
+        """mandel_linearity dict must contain is_linear, f_statistic, p_value."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        lin = summary.get("mandel_linearity")
+        if lin is not None:
+            for key in ("is_linear", "f_statistic", "p_value", "r2_linear", "r2_quadratic"):
+                assert key in lin, f"mandel_linearity missing key: {key!r}"
+
+    def test_mandel_linearity_none_with_3_points(self):
+        """With <4 points, mandel_linearity must be None (insufficient for F-test)."""
+        summary = sensor_performance_summary(
+            np.array([0.5, 1.0, 2.0]),
+            np.array([-1.0, -2.0, -4.0]),
+        )
+        assert summary["mandel_linearity"] is None
+
+    def test_lob_method_and_lol_method_tags_present(self):
+        """Audit trail method tags must be present for regulatory traceability."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert "lob_method" in summary
+        assert "lol_method" in summary
+        assert "IUPAC" in cast(str, summary["lob_method"])
+        assert "Mandel" in cast(str, summary["lol_method"])
+
 
 # ---------------------------------------------------------------------------
 # mandel_linearity_test

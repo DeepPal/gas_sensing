@@ -279,18 +279,27 @@ class TestOnnxExportCli:
     @_SKIP_ONNX
     def test_cli_exports_file(self, tiny_clf, tmp_path):
         """End-to-end: save checkpoint, call main() via argv, check file exists."""
+        import sys
+
         from src.models.onnx_export import main
 
         ckpt = tmp_path / "clf.pt"
         tiny_clf.save(str(ckpt))
         out = tmp_path / "clf.onnx"
 
-        main(["--checkpoint", str(ckpt), "--output", str(out), "--opset", "17"])
+        sys.argv = ["onnx_export", "--checkpoint", str(ckpt), "--output", str(out), "--opset", "17"]
+        try:
+            main()
+        except SystemExit as s:
+            if s.code != 0:
+                raise
         assert out.exists()
         assert out.stat().st_size > 0
 
     @_SKIP_FULL
     def test_cli_validate_flag(self, tiny_clf, tmp_path):
+        import sys
+
         from src.models.onnx_export import main
 
         ckpt = tmp_path / "clf.pt"
@@ -298,4 +307,9 @@ class TestOnnxExportCli:
         out = tmp_path / "clf.onnx"
 
         # Should not raise or exit with error
-        main(["--checkpoint", str(ckpt), "--output", str(out), "--validate"])
+        sys.argv = ["onnx_export", "--checkpoint", str(ckpt), "--output", str(out), "--validate"]
+        try:
+            main()
+        except SystemExit as s:
+            if s.code != 0:
+                raise

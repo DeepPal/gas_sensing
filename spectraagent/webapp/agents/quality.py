@@ -73,6 +73,24 @@ class QualityAgent:
         self._sat_threshold = saturation_threshold
         self._snr_threshold = snr_warn_threshold
 
+    def configure(
+        self,
+        saturation_threshold: float | None = None,
+        snr_warn_threshold: float | None = None,
+    ) -> None:
+        """Update thresholds at runtime without restarting the server."""
+        if saturation_threshold is not None:
+            self._sat_threshold = float(saturation_threshold)
+        if snr_warn_threshold is not None:
+            self._snr_threshold = float(snr_warn_threshold)
+
+    @property
+    def settings(self) -> dict:
+        return {
+            "saturation_threshold": self._sat_threshold,
+            "snr_warn_threshold": self._snr_threshold,
+        }
+
     def process(
         self,
         frame_num: int,

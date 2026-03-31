@@ -463,6 +463,164 @@ def summarize_quality_control(
     return qc
 
 
+def compute_comprehensive_sensor_characterization(
+    concentrations: np.ndarray,
+    responses: np.ndarray,
+    baseline_noise_std: float | None = None,
+    gas_name: str = "unknown",
+    blank_measurements: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Full IUPAC/ICH sensor characterisation: LOB, LOD, LOQ, LOL, linearity, T90.
+
+    Bundles all regulatory-grade metrics into one call, suitable for
+    ACS Sensors / Analytical Chemistry "Sensor Characterization" table.
+
+    Methodology
+    -----------
+    - **LOB** = (|μ_blank| + 1.645·σ_blank) / |S|  (IUPAC 2012)
+    - **LOD** = 3·σ_blank / |S|                     (IUPAC 2012 / 3σ)
+    - **LOQ** = 10·σ_blank / |S|                    (IUPAC 2012 / 10σ)
+    - **LOL** = highest concentration with linear response (Mandel F-test,
+      ICH Q2(R1) §4.2, progressive truncation)
+    - **Bootstrap CI** for LOD and LOQ (ICH Q2(R2) Appendix B 2022, n=1000)
+    - **Linear dynamic range** = LOQ to LOL (or max(conc) when LOL not found)
+    - **R²**, **RMSE**, **slope SE**
+
+    Parameters
+    ----------
+    concentrations :
+        Calibration concentrations (ppm), shape (n,).
+    responses :
+        Corresponding sensor responses (e.g. Δλ nm), shape (n,).
+    baseline_noise_std :
+        Blank noise σ.  If None, estimated from OLS residuals.
+    gas_name :
+        Analyte label (for the ``"gas"`` key in the returned dict).
+    blank_measurements :
+        Optional array of blank-measurement response values.  When provided,
+        σ_blank is computed from these (preferred for regulatory submissions)
+        and μ_blank is set to their mean.
+
+    Returns
+    -------
+    dict
+        Comprehensive characterisation dict.  All keys documented below.
+
+        Mandatory (always present):
+        ``gas``, ``sensitivity``, ``sensitivity_se``, ``intercept``,
+        ``r_squared``, ``rmse``, ``noise_std``, ``n_calibration_points``,
+        ``lob_ppm``, ``lod_ppm``, ``loq_ppm``.
+
+        Present when computable (≥4 calibration points):
+        ``lol_ppm``, ``mandel_linearity``, ``linear_dynamic_range_ppm``.
+
+        Bootstrap CI keys (present when bootstrap converges):
+        ``lod_ppm_ci_lower``, ``lod_ppm_ci_upper``,
+        ``loq_ppm_ci_lower``, ``loq_ppm_ci_upper``.
+    """
+    from src.scientific.lod import (
+        calculate_sensitivity,
+        calculate_lod_3sigma,
+        calculate_loq_10sigma,
+        lod_bootstrap_ci,
+        mandel_linearity_test,
+    )
+
+    c = np.asarray(concentrations, dtype=float).ravel()
+    r = np.asarray(responses, dtype=float).ravel()
+
+    slope, intercept, r2, slope_se = calculate_sensitivity(c, r)
+    residuals = r - (slope * c + intercept)
+    rmse = float(np.sqrt(np.mean(residuals**2)))
+
+    # σ_blank and μ_blank
+    # For LSPR the wavelength shift signal is defined relative to the
+    # reference spectrum, so the true blank mean is 0 nm by construction.
+    # Using the OLS intercept as blank mean is incorrect for nonlinear
+    # (Langmuir) calibration curves and will violate LOB < LOD.
+    if blank_measurements is not None and len(blank_measurements) >= 2:
+        blank_arr = np.asarray(blank_measurements, dtype=float).ravel()
+        baseline_noise_std = float(np.std(blank_arr, ddof=1))
+        blank_mean = float(np.mean(blank_arr))
+        sigma_source = "blank_measurements"
+    else:
+        if baseline_noise_std is None:
+            baseline_noise_std = float(np.std(residuals, ddof=max(1, len(c) - 2)))
+        blank_mean = 0.0  # LSPR shifts are reference-subtracted → blank mean = 0
+        sigma_source = "ols_residuals"
+
+    lod = calculate_lod_3sigma(baseline_noise_std, slope)
+    loq = calculate_loq_10sigma(baseline_noise_std, slope)
+    lob = (
+        max((abs(blank_mean) + 1.645 * baseline_noise_std) / abs(slope), 1e-7)
+        if abs(slope) > 1e-12
+        else float("inf")
+    )
+
+    # Bootstrap 95% CI
+    lod_point, ci_lo, ci_hi = lod_bootstrap_ci(c, r, baseline_noise_std, n_bootstrap=1000)
+    loq_ci_lo = ci_lo * (10.0 / 3.0)
+    loq_ci_hi = ci_hi * (10.0 / 3.0)
+
+    # LOL via progressive Mandel's test
+    lol_ppm: float | None = None
+    linearity_result: dict | None = None
+    if len(c) >= 4:
+        sort_idx = np.argsort(c)
+        sc, sr = c[sort_idx], r[sort_idx]
+        for n_keep in range(len(sc), 3, -1):
+            try:
+                lin = mandel_linearity_test(sc[:n_keep], sr[:n_keep])
+                if lin.get("is_linear", False):
+                    lol_ppm = float(sc[n_keep - 1])
+                    linearity_result = lin
+                    break
+            except Exception:
+                continue
+
+    # Linear dynamic range = LOQ → LOL (or max conc when LOL not resolved)
+    ldr_upper = lol_ppm if lol_ppm is not None else float(np.max(c))
+    ldr_lower = loq if np.isfinite(loq) else float(np.min(c))
+    linear_dynamic_range = (
+        (ldr_lower, ldr_upper) if ldr_upper > ldr_lower else None
+    )
+
+    result: dict[str, Any] = {
+        # Core regression
+        "gas": gas_name,
+        "sensitivity": round(slope, 6),
+        "sensitivity_se": round(slope_se, 8),
+        "intercept": round(intercept, 6),
+        "r_squared": round(r2, 6),
+        "rmse": round(rmse, 8),
+        "noise_std": round(float(baseline_noise_std), 8),
+        "sigma_source": sigma_source,
+        "n_calibration_points": int(len(c)),
+        # IUPAC triad
+        "lob_ppm": round(lob, 6) if np.isfinite(lob) else None,
+        "lod_ppm": round(lod, 6) if np.isfinite(lod) else None,
+        "loq_ppm": round(loq, 6) if np.isfinite(loq) else None,
+        # Bootstrap CI on LOD/LOQ
+        "lod_ppm_ci_lower": round(ci_lo, 6) if np.isfinite(ci_lo) else None,
+        "lod_ppm_ci_upper": round(ci_hi, 6) if np.isfinite(ci_hi) else None,
+        "loq_ppm_ci_lower": round(loq_ci_lo, 6) if np.isfinite(loq_ci_lo) else None,
+        "loq_ppm_ci_upper": round(loq_ci_hi, 6) if np.isfinite(loq_ci_hi) else None,
+        # LOL and linearity
+        "lol_ppm": round(lol_ppm, 6) if lol_ppm is not None else None,
+        "mandel_linearity": linearity_result,
+        "linear_dynamic_range_ppm": linear_dynamic_range,
+        # Methods for audit trail
+        "methods": {
+            "lob": "IUPAC 2012: (|μ_blank| + 1.645·σ_blank) / |S|",
+            "lod": "IUPAC 2012 / ICH Q2(R1): 3·σ_blank / |S|",
+            "loq": "IUPAC 2012 / ICH Q2(R1): 10·σ_blank / |S|",
+            "lol": "ICH Q2(R1) §4.2 Mandel F-test, progressive truncation",
+            "ci": "Bootstrap percentile, 1000 resamples (ICH Q2(R2) Appendix B 2022)",
+        },
+    }
+    return result
+
+
 def summarize_top_comparison(
     results: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:

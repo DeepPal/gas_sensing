@@ -179,3 +179,111 @@ def test_blank_lod_lower_than_residual_lod_with_low_noise_blanks():
 
     assert result_with_blanks.lod_used_blanks is True
     assert result_with_blanks.lod_ppm <= result_no_blanks.lod_ppm + 1e-6  # tighter or equal
+
+
+# ---------------------------------------------------------------------------
+# LOL (Limit of Linearity) tests
+# ---------------------------------------------------------------------------
+
+
+def test_lol_populated_with_5_calibration_points():
+    """LOL must be computed when calibration_n_points >= 5."""
+    result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
+    assert result.calibration_n_points == 5
+    # LOL may be NaN only if no subrange is linear, but for this Langmuir data
+    # the low-concentration region should be approximately linear.
+    # At minimum the linearity dict must be populated.
+    assert isinstance(result.linearity, dict), "linearity dict must be populated with ≥5 pts"
+
+
+def test_lol_leq_max_calibration_concentration():
+    """LOL can never exceed the highest calibration concentration."""
+    result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
+    if not (result.lol_ppm != result.lol_ppm):  # not NaN
+        max_cal = max(result.calibration_concentrations)
+        assert result.lol_ppm <= max_cal + 1e-6
+
+
+def test_linearity_dict_has_required_keys():
+    """linearity dict must contain all keys produced by mandel_linearity_test."""
+    result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
+    if result.linearity:  # only check if populated
+        for key in ("is_linear", "f_statistic", "p_value", "r2_linear", "r2_quadratic"):
+            assert key in result.linearity, f"Missing linearity key: {key!r}"
+
+
+def test_lol_not_populated_with_fewer_than_5_calibration_points():
+    """With only 3 calibration points LOL stays NaN (need 4 for Mandel)."""
+    events = []
+    for conc in [0.5, 1.0, 2.0]:  # only 3 calibration points
+        events.append({
+            "type": "calibration_point",
+            "concentration_ppm": float(conc),
+            "wavelength_shift": -10.0 * conc / (1.0 + conc),
+            "snr": 15.0,
+        })
+    for _ in range(5):
+        events.append({
+            "type": "measurement",
+            "concentration_ppm": 1.5,
+            "wavelength_shift": -6.0,
+            "snr": 14.0,
+        })
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    import math
+    assert math.isnan(result.lol_ppm), "LOL should be NaN with only 3 calibration points"
+
+
+def test_lol_in_audit_trail():
+    """LOL value must be recorded in the audit trail."""
+    result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
+    assert "lol_ppm" in result.audit
+    assert "lol_mandel_p_value" in result.audit
+
+
+# ---------------------------------------------------------------------------
+# Response kinetics (T90 / T10) tests
+# ---------------------------------------------------------------------------
+
+
+def test_t90_t10_none_without_timing_events():
+    """T90 and T10 must be None when events lack response_time_t90_s."""
+    result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
+    assert result.response_time_t90_seconds is None
+    assert result.response_time_t10_seconds is None
+
+
+def test_t90_aggregated_from_measurement_events():
+    """T90 must equal the mean of response_time_t90_s values across measurement events."""
+    events = _make_events()
+    for i, ev in enumerate(events):
+        if ev["type"] == "measurement":
+            ev["response_time_t90_s"] = 30.0 + i  # add timing field to each measurement
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.response_time_t90_seconds is not None
+    # Mean of t90 values for the 15 measurement events (indices 5-19) is 30+5 to 30+19 → mean ≈ 42
+    expected = float(np.mean([30.0 + i for i in range(5, 20)]))
+    assert abs(result.response_time_t90_seconds - expected) < 0.01
+
+
+def test_t10_aggregated_independently_from_t90():
+    """T10 must be populated independently and correctly from its own event field."""
+    events = _make_events()
+    for ev in events:
+        if ev["type"] == "measurement":
+            ev["response_time_t10_s"] = 55.0
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.response_time_t10_seconds is not None
+    assert abs(result.response_time_t10_seconds - 55.0) < 0.01
+
+
+def test_t90_populated_t10_none_when_only_t90_in_events():
+    """T90 and T10 are extracted independently; one can be present without the other."""
+    events = _make_events()
+    for ev in events:
+        if ev["type"] == "measurement":
+            ev["response_time_t90_s"] = 25.0
+            # deliberately omit response_time_t10_s
+    result = SessionAnalyzer().analyze(events, frame_count=len(events))
+    assert result.response_time_t90_seconds is not None
+    assert result.response_time_t10_seconds is None

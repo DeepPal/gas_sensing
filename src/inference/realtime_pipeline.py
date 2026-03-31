@@ -660,3 +660,55 @@ class RealTimePipeline:
         """Return the last *n* results from the buffer."""
         buf = list(self._result_buffer)
         return buf[-n:] if len(buf) > n else buf
+
+    def process_frame(self, frame: Any) -> PipelineResult:
+        """Process a :class:`~src.spectrometer.SpectralFrame` through the pipeline.
+
+        Convenience bridge that extracts ``wavelengths`` and ``intensities``
+        from *frame* and calls :meth:`process_spectrum`.  Accepts any object
+        with ``wavelengths``, ``intensities``, and ``timestamp`` attributes,
+        including :class:`~src.spectrometer.SpectralFrame` and plain dicts.
+
+        Parameters
+        ----------
+        frame :
+            A ``SpectralFrame`` (or duck-typed equivalent).
+
+        Returns
+        -------
+        PipelineResult
+            Same result as :meth:`process_spectrum`.
+
+        Example
+        -------
+        ::
+
+            from src.spectrometer import SpectrometerRegistry
+            from src.inference.realtime_pipeline import RealTimePipeline, PipelineConfig
+
+            pipeline = RealTimePipeline(PipelineConfig())
+            pipeline.set_calibration(slope=-0.116, intercept=0.0)
+
+            with SpectrometerRegistry.create("simulated") as spec:
+                frame = spec.acquire()
+                result = pipeline.process_frame(frame)
+                if result.success:
+                    print(f"{result.spectrum.concentration_ppm:.3f} ppm")
+        """
+        if isinstance(frame, dict):
+            wl = np.asarray(frame["wavelengths"], dtype=np.float64)
+            intensities = np.asarray(frame["intensities"], dtype=np.float64)
+            ts = frame.get("timestamp")
+            sample_id = frame.get("sample_id") or frame.get("serial_number")
+        else:
+            wl = np.asarray(frame.wavelengths, dtype=np.float64)
+            intensities = np.asarray(frame.intensities, dtype=np.float64)
+            ts = getattr(frame, "timestamp", None)
+            sample_id = getattr(frame, "serial_number", None)
+
+        return self.process_spectrum(
+            wavelengths=wl,
+            intensities=intensities,
+            timestamp=ts,
+            sample_id=sample_id,
+        )

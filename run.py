@@ -33,6 +33,7 @@ import logging
 from pathlib import Path
 import sys
 import time
+from typing import Any, cast
 import warnings
 
 # ---------------------------------------------------------------------------
@@ -42,9 +43,9 @@ import warnings
 if hasattr(sys.stdout, "reconfigure"):
     try:
         if sys.stdout is not None:
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        if sys.stderr is not None:
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            cast(Any, sys.stdout).reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+            cast(Any, sys.stderr).reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -155,7 +156,7 @@ class SpectrometerInterface:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self._service = None
+        self._service: Any | None = None
         self.wavelengths: np.ndarray | None = None
         self.is_simulation = False
 
@@ -196,7 +197,7 @@ class SpectrometerInterface:
         if self.is_simulation:
             return self._simulate_spectrum()
         if self._service:
-            sample = self._service.get_latest_sample()
+            sample = cast(dict[str, Any] | None, self._service.get_latest_sample())
             if sample:
                 sample["wavelengths"] = self.wavelengths
             return sample

@@ -105,6 +105,34 @@ except Exception as _exc:
         log.error("signal_proc unavailable: %s", _exc2)
 
 # ---------------------------------------------------------------------------
+# Authentication & Health Check (must happen before page config)
+# ---------------------------------------------------------------------------
+try:
+    from dashboard.auth import check_password
+    from dashboard.health import startup_check
+    from dashboard.startup_validation import run_startup_validation
+
+    # Run comprehensive startup validation first
+    if not run_startup_validation(REPO_ROOT):
+        st.error(
+            "Critical startup validation failed. "
+            "Check logs/ directory for details."
+        )
+        st.stop()
+
+    # Run startup health checks
+    startup_check()
+
+    # Enforce password authentication for lab security
+    if not check_password():
+        st.stop()
+
+except Exception as _exc:
+    log.error("Auth/health check failed: %s", _exc)
+    st.error("Authentication system failed. Contact lab admin.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
 # Live server — start once per process before any Streamlit calls
 # ---------------------------------------------------------------------------
 _LIVE_SERVER_PORT = 5006
@@ -125,6 +153,58 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ---------------------------------------------------------------------------
+# Sidebar: Health Check & Lab Info
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🏥 System Status")
+
+    try:
+        from dashboard.health import HealthCheck
+
+        hc = HealthCheck(REPO_ROOT)
+        status = hc.get_status()
+
+        # Overall status indicator
+        overall_text = "✅ Healthy" if status["overall_healthy"] else "⚠️ Issues Detected"
+        st.markdown(
+            f"**Status:** {overall_text}  \n"
+            f"**Hostname:** {status['hostname']}"
+        )
+
+        # Disk space indicator
+        disk = status["disk_space"]
+        disk_color = "🟢" if disk["healthy"] else "🔴"
+        st.markdown(f"{disk_color} Disk: {disk['available_gb']:.1f} GB available")
+
+        # Hardware availability
+        hw = status["hardware"]
+        spec_status = "✓" if hw["spectrometer"]["available"] else "✗"
+        live_status = "✓" if hw["live_server"]["available"] else "✗"
+        st.markdown(
+            f"📡 Hardware:  \n"
+            f"  • Spectrometer: {spec_status}  \n"
+            f"  • Live Server: {live_status}"
+        )
+
+        # Expandable detailed report
+        with st.expander("📋 Detailed Health Report"):
+            st.code(hc.to_json(), language="json")
+
+    except Exception as _health_err:
+        st.warning(f"Health check unavailable: {_health_err}")
+
+    st.divider()
+    st.markdown("### 🔗 Platform Links")
+    st.link_button(
+        "⚡ Live Acquisition Platform",
+        "http://localhost:8765",
+        help="Open SpectraAgent — real-time spectrum, AI agents, session recording",
+        use_container_width=True,
+    )
+    st.caption("Live platform runs on port 8765")
+    st.divider()
 
 # ---------------------------------------------------------------------------
 # Tab layout

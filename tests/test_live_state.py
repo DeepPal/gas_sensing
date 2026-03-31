@@ -62,8 +62,11 @@ class TestLiveDataStoreBasic:
         store = self._store()
         store.push({"val": 1})
         last = store.get_last_result()
+        assert last is not None
         last["val"] = 999
-        assert store.get_last_result()["val"] == 1
+        current = store.get_last_result()
+        assert current is not None
+        assert current["val"] == 1
 
     def test_get_latest_returns_n_items(self):
         store = self._store()
@@ -112,9 +115,13 @@ class TestLiveDataStoreSpectrum:
         it = np.ones(50) * 300
         store.set_wavelengths(wl)
         store.push({}, raw_intensities=it)
-        wl_a, it_a = store.get_latest_spectrum()
+        spec_a = store.get_latest_spectrum()
+        assert spec_a is not None
+        wl_a, _it_a = spec_a
         wl_a[0] = 9999
-        wl_b, it_b = store.get_latest_spectrum()
+        spec_b = store.get_latest_spectrum()
+        assert spec_b is not None
+        wl_b, _it_b = spec_b
         assert wl_b[0] != 9999  # not the same array
 
 
