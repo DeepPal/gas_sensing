@@ -562,6 +562,12 @@ export default function App() {
   )
 
   const hasCIBands = useMemo(() => trend.some(t => t.ciLow !== undefined), [trend])
+  const qualificationChecks = qualificationDossier?.checks ?? []
+  const passedQualificationChecks = qualificationChecks.filter(check => check.pass).length
+  const failedCriticalChecks = qualificationChecks.filter(check => check.critical && !check.pass)
+  const latestArtifactCount =
+    (lastExport?.paths ? Object.keys(lastExport.paths).length : 0) +
+    (lastPackage?.package_path ? 1 : 0)
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -637,24 +643,7 @@ export default function App() {
                   <FileText size={13} />
                   {reportGenerating ? 'Generating…' : 'Generate Report'}
                 </button>
-                <button
-                  type="button"
-                  className="btn-secondary full-width"
-                  onClick={exportDossier}
-                  disabled={qualBusy}
-                >
-                  <FileText size={13} />
-                  {qualBusy ? 'Working…' : 'Export Qualification Dossier'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary full-width"
-                  onClick={buildResearchPackage}
-                  disabled={qualBusy}
-                >
-                  <History size={13} />
-                  {qualBusy ? 'Working…' : 'Build Research Package (.zip)'}
-                </button>
+                <div className="session-id-badge">Qualification Center unlocked for this session</div>
                 {qualNotice && <div className="session-id-badge">{qualNotice}</div>}
                 <div className="session-id-badge">ID: {currentSessionId.slice(0, 18)}…</div>
               </div>
@@ -1117,87 +1106,205 @@ export default function App() {
             </section>
           )}
 
-          {/* Readiness Coach */}
+          {/* Qualification Center */}
           {(researchFlow || qualificationDossier) && (
-            <section className="card readiness-card">
-              <h2><CheckCircle2 size={15} /> Readiness Coach</h2>
-              {researchFlow && (
-                <div className="readiness-topline">
-                  <div className="readiness-score-block">
-                    <span className="an-label">Readiness score</span>
-                    <span className="readiness-score">{researchFlow.readiness_score}</span>
+            <section className="card readiness-card qualification-center">
+              <h2><CheckCircle2 size={15} /> Qualification Center</h2>
+
+              <div className="qualification-hero">
+                {researchFlow && (
+                  <div className="qualification-hero-block">
+                    <span className="an-label">Research readiness</span>
+                    <div className="readiness-topline">
+                      <div className="readiness-score-block">
+                        <span className="readiness-score">{researchFlow.readiness_score}</span>
+                        <span className="readiness-caption">out of 100</span>
+                      </div>
+                      <div className={`coach-badge ${researchFlow.commercialization_signal}`}>
+                        {researchFlow.commercialization_signal === 'strong' ? 'Pilot-ready signal' : 'Developing signal'}
+                      </div>
+                    </div>
+                    <div className="qualification-subtext">
+                      {researchFlow.session_running
+                        ? 'Session is active. Let the run finish before packaging artifacts.'
+                        : 'Readiness combines hardware, reference capture, calibration quality, and AI availability.'}
+                    </div>
                   </div>
-                  <div className={`coach-badge ${researchFlow.commercialization_signal}`}>
-                    {researchFlow.commercialization_signal}
+                )}
+
+                {qualificationDossier && (
+                  <div className="qualification-hero-block qualification-hero-block-emphasis">
+                    <span className="an-label">Buyer qualification</span>
+                    <div className="qualification-score-row">
+                      <span className={`coach-pass ${qualificationDossier.overall_pass ? 'pass' : 'fail'}`}>
+                        {qualificationDossier.overall_pass ? 'Qualified' : 'Action required'}
+                      </span>
+                      {qualificationDossier.qualification_tier && (
+                        <span className="coach-tier">Tier: {qualificationDossier.qualification_tier}</span>
+                      )}
+                      {qualificationDossier.score !== undefined && (
+                        <span className="coach-tier">Score: {qualificationDossier.score}</span>
+                      )}
+                    </div>
+                    <div className="qualification-summary-metrics">
+                      <div className="qualification-metric-chip">
+                        <span className="qualification-metric-label">Checks passed</span>
+                        <span className="qualification-metric-value">
+                          {passedQualificationChecks}/{qualificationChecks.length || 0}
+                        </span>
+                      </div>
+                      <div className="qualification-metric-chip">
+                        <span className="qualification-metric-label">Critical blockers</span>
+                        <span className={`qualification-metric-value ${failedCriticalChecks.length > 0 ? 'warn' : 'good'}`}>
+                          {failedCriticalChecks.length}
+                        </span>
+                      </div>
+                      <div className="qualification-metric-chip">
+                        <span className="qualification-metric-label">Artifacts ready</span>
+                        <span className="qualification-metric-value">{latestArtifactCount}</span>
+                      </div>
+                    </div>
                   </div>
+                )}
+              </div>
+
+              <div className="qualification-action-row">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={generateReport}
+                  disabled={!currentSessionId || reportGenerating}
+                >
+                  <FileText size={13} />
+                  {reportGenerating ? 'Generating…' : 'Generate report'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={exportDossier}
+                  disabled={qualBusy || !currentSessionId}
+                >
+                  <FileText size={13} />
+                  {qualBusy ? 'Working…' : 'Export dossier'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={buildResearchPackage}
+                  disabled={qualBusy || !currentSessionId}
+                >
+                  <History size={13} />
+                  {qualBusy ? 'Working…' : 'Build package zip'}
+                </button>
+              </div>
+
+              {currentSessionId && (
+                <div className="qualification-session-row">
+                  <span className="coach-tier">Session: {currentSessionId.slice(0, 18)}…</span>
+                  {lastExport?.signature && (
+                    <span className="coach-tier">
+                      Signing: {lastExport.signature.signed ? lastExport.signature.algorithm : 'unsigned'}
+                    </span>
+                  )}
                 </div>
               )}
 
+              {qualNotice && <div className="qualification-notice">{qualNotice}</div>}
+
               {researchFlow && (
-                <div className="coach-grid">
-                  {researchFlow.checkpoints.slice(0, 6).map(cp => (
-                    <div key={cp.id} className={`coach-check ${cp.done ? 'done' : 'todo'}`}>
-                      <div className="coach-check-title">{cp.title}</div>
-                      <div className="coach-check-meta">{cp.done ? 'done' : 'pending'}</div>
-                    </div>
-                  ))}
+                <div className="qualification-section">
+                  <div className="coach-list-title">Readiness checkpoints</div>
+                  <div className="coach-grid">
+                    {researchFlow.checkpoints.map(cp => (
+                      <div key={cp.id} className={`coach-check ${cp.done ? 'done' : 'todo'}`}>
+                        <div className="coach-check-title">{cp.title}</div>
+                        <div className="coach-check-meta">{cp.done ? 'done' : 'pending'} · {cp.impact} impact</div>
+                        {(cp.value !== undefined || cp.target !== undefined) && (
+                          <div className="coach-check-detail">
+                            {cp.value ?? 'n/a'} / {cp.target ?? 'n/a'} target
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {qualificationDossier && qualificationDossier.status === 'ok' && (
-                <div className="coach-summary-row">
-                  <span className={`coach-pass ${qualificationDossier.overall_pass ? 'pass' : 'fail'}`}>
-                    {qualificationDossier.overall_pass ? 'Qualified' : 'Not yet qualified'}
-                  </span>
-                  {qualificationDossier.qualification_tier && (
-                    <span className="coach-tier">Tier: {qualificationDossier.qualification_tier}</span>
-                  )}
-                  {qualificationDossier.score !== undefined && (
-                    <span className="coach-tier">Score: {qualificationDossier.score}</span>
-                  )}
-                </div>
-              )}
+                <div className="qualification-columns">
+                  <div className="qualification-section">
+                    <div className="coach-list-title">Qualification checks</div>
+                    <div className="qualification-check-list">
+                      {qualificationChecks.map(check => (
+                        <div key={check.id} className={`qualification-check-row ${check.pass ? 'pass' : 'fail'}`}>
+                          <div className="qualification-check-main">
+                            <div className="qualification-check-title-row">
+                              <span className="qualification-check-title">{check.title}</span>
+                              <span className={`qualification-check-badge ${check.pass ? 'pass' : 'fail'}`}>
+                                {check.pass ? 'pass' : check.critical ? 'critical' : 'warn'}
+                              </span>
+                            </div>
+                            <div className="qualification-check-detail">
+                              Value: {check.value ?? 'n/a'} · Target: {check.target}
+                            </div>
+                            <div className="qualification-check-recommendation">{check.recommendation}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-              {researchFlow && researchFlow.next_steps.length > 0 && (
-                <div className="coach-list-block">
-                  <div className="coach-list-title">Next steps</div>
-                  {researchFlow.next_steps.slice(0, 4).map((step, idx) => (
-                    <div key={idx} className="coach-list-item">{step}</div>
-                  ))}
-                </div>
-              )}
+                  <div className="qualification-section">
+                    {researchFlow && researchFlow.next_steps.length > 0 && (
+                      <div className="coach-list-block qualification-block-tight">
+                        <div className="coach-list-title">Research next steps</div>
+                        {researchFlow.next_steps.slice(0, 5).map((step, idx) => (
+                          <div key={idx} className="coach-list-item">{step}</div>
+                        ))}
+                      </div>
+                    )}
 
-              {qualificationDossier && qualificationDossier.next_actions.length > 0 && (
-                <div className="coach-list-block">
-                  <div className="coach-list-title">Qualification actions</div>
-                  {qualificationDossier.next_actions.slice(0, 3).map((step, idx) => (
-                    <div key={idx} className="coach-list-item">{step}</div>
-                  ))}
-                </div>
-              )}
+                    {qualificationDossier.next_actions.length > 0 && (
+                      <div className="coach-list-block qualification-block-tight">
+                        <div className="coach-list-title">Qualification actions</div>
+                        {qualificationDossier.next_actions.map((step, idx) => (
+                          <div key={idx} className="coach-list-item">{step}</div>
+                        ))}
+                      </div>
+                    )}
 
-              {(lastExport || lastPackage) && (
-                <div className="artifact-links">
-                  {lastExport?.paths?.json && (
-                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.json)} target="_blank" rel="noopener noreferrer">
-                      <Download size={12} /> Dossier JSON
-                    </a>
-                  )}
-                  {lastExport?.paths?.html && (
-                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.html)} target="_blank" rel="noopener noreferrer">
-                      <Download size={12} /> Dossier HTML
-                    </a>
-                  )}
-                  {lastExport?.paths?.signature && (
-                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.signature)} target="_blank" rel="noopener noreferrer">
-                      <Download size={12} /> Signature JSON
-                    </a>
-                  )}
-                  {lastPackage?.package_path && (
-                    <a className="artifact-link" href={api.artifactDownloadUrl(lastPackage.package_path)} target="_blank" rel="noopener noreferrer">
-                      <Download size={12} /> Research Package ZIP
-                    </a>
-                  )}
+                    <div className="coach-list-block qualification-block-tight">
+                      <div className="coach-list-title">Artifact vault</div>
+                      {(lastExport || lastPackage) ? (
+                        <div className="artifact-links">
+                          {lastExport?.paths?.json && (
+                            <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.json)} target="_blank" rel="noopener noreferrer">
+                              <Download size={12} /> Dossier JSON
+                            </a>
+                          )}
+                          {lastExport?.paths?.html && (
+                            <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.html)} target="_blank" rel="noopener noreferrer">
+                              <Download size={12} /> Dossier HTML
+                            </a>
+                          )}
+                          {lastExport?.paths?.signature && (
+                            <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.signature)} target="_blank" rel="noopener noreferrer">
+                              <Download size={12} /> Signature JSON
+                            </a>
+                          )}
+                          {lastPackage?.package_path && (
+                            <a className="artifact-link" href={api.artifactDownloadUrl(lastPackage.package_path)} target="_blank" rel="noopener noreferrer">
+                              <Download size={12} /> Research Package ZIP
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="qualification-empty-state">
+                          Export the dossier or build a package to populate downloadable buyer artifacts.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </section>

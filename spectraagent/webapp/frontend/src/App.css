@@ -494,12 +494,67 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ── Readiness coach ─────────────────────────────────────────────────────── */
 .readiness-card { background: #0b1627; border-color: #20344d; }
+.qualification-center { display: flex; flex-direction: column; gap: 12px; }
+.qualification-hero {
+  display: grid; grid-template-columns: 1.2fr 1fr;
+  gap: 10px;
+}
+.qualification-hero-block {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 17, 31, 0.98));
+  border: 1px solid #29415d; border-radius: 10px; padding: 12px;
+}
+.qualification-hero-block-emphasis {
+  background: linear-gradient(180deg, rgba(10, 34, 28, 0.92), rgba(10, 20, 30, 0.98));
+  border-color: #24514a;
+}
 .readiness-topline {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 12px;
+  gap: 12px;
 }
 .readiness-score-block { display: flex; flex-direction: column; gap: 2px; }
 .readiness-score { font-size: 26px; font-weight: 800; color: var(--text-h); }
+.readiness-caption { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+.qualification-subtext {
+  margin-top: 8px; font-size: 11px; line-height: 1.55; color: var(--text-dim);
+}
+.qualification-score-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px;
+}
+.qualification-summary-metrics {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.qualification-metric-chip {
+  min-width: 104px;
+  background: rgba(2, 8, 23, 0.55);
+  border: 1px solid #274158;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.qualification-metric-label {
+  display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim);
+}
+.qualification-metric-value {
+  display: block; margin-top: 3px; font-size: 16px; font-weight: 700; color: var(--text-h);
+}
+.qualification-metric-value.warn { color: #fca5a5; }
+.qualification-metric-value.good { color: #86efac; }
+.qualification-action-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.qualification-session-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.qualification-notice {
+  font-size: 11px; color: var(--text); background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #29415d; border-radius: 8px; padding: 8px 10px;
+}
+.qualification-columns {
+  display: grid; grid-template-columns: 1.3fr 0.9fr; gap: 12px;
+}
+.qualification-section {
+  background: rgba(8, 15, 29, 0.68);
+  border: 1px solid #20344d; border-radius: 10px; padding: 12px;
+}
 .coach-badge {
   font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
   border-radius: 999px; padding: 4px 10px; font-weight: 700;
@@ -508,9 +563,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .coach-badge.developing { background: #3b2a07; color: #fcd34d; }
 .coach-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px; margin-bottom: 12px;
+  gap: 8px;
 }
 @media (max-width: 860px) {
+  .qualification-hero, .qualification-columns { grid-template-columns: 1fr; }
   .coach-grid { grid-template-columns: 1fr; }
 }
 .coach-check {
@@ -521,6 +577,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .coach-check.todo { border-color: #4b5563; }
 .coach-check-title { font-size: 11px; color: var(--text); margin-bottom: 3px; }
 .coach-check-meta { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+.coach-check-detail { margin-top: 4px; font-size: 10px; color: var(--text-dim); }
 .coach-summary-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
 }
@@ -531,6 +588,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .coach-pass.fail { background: #3f1013; color: #fca5a5; }
 .coach-tier { color: var(--text-dim); background: var(--surface2); }
 .coach-list-block { margin-top: 10px; }
+.qualification-block-tight { margin-top: 0; }
 .coach-list-title {
   font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em;
   margin-bottom: 5px;
@@ -539,6 +597,29 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: 11px; color: var(--text); background: var(--surface2);
   border-left: 3px solid var(--accent); border-radius: 5px; padding: 6px 8px; margin-bottom: 5px;
 }
+.qualification-check-list { display: flex; flex-direction: column; gap: 8px; }
+.qualification-check-row {
+  border: 1px solid #29415d; border-radius: 8px; padding: 10px;
+  background: rgba(15, 23, 42, 0.7);
+}
+.qualification-check-row.pass { border-color: #1f513c; }
+.qualification-check-row.fail { border-color: #5b2a31; }
+.qualification-check-title-row {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+}
+.qualification-check-title { font-size: 12px; color: var(--text-h); font-weight: 600; }
+.qualification-check-badge {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  border-radius: 999px; padding: 3px 8px; border: 1px solid transparent;
+}
+.qualification-check-badge.pass { background: #052e16; color: #86efac; }
+.qualification-check-badge.fail { background: #3f1013; color: #fca5a5; }
+.qualification-check-detail,
+.qualification-check-recommendation {
+  font-size: 11px; line-height: 1.5; color: var(--text-dim);
+}
+.qualification-check-detail { margin-top: 4px; }
+.qualification-check-recommendation { margin-top: 6px; color: var(--text); }
 .artifact-links {
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
 }
@@ -548,3 +629,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   background: var(--surface2); color: var(--text); border: 1px solid var(--border);
 }
 .artifact-link:hover { border-color: var(--accent); color: var(--text-h); }
+.qualification-empty-state {
+  font-size: 11px; color: var(--text-dim); line-height: 1.5;
+  background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px dashed #29415d; padding: 10px;
+}
