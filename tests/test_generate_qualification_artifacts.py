@@ -35,3 +35,16 @@ def test_load_latest_benchmark_evidence_returns_latest_json(tmp_path: Path) -> N
 
     assert payload is not None
     assert payload['summary']['novelty_signal'] is True
+
+
+def test_load_latest_blinded_replication_manifest_returns_latest_json(tmp_path: Path) -> None:
+    older = tmp_path / 'blinded_replication_manifest_20260101_000000.json'
+    newer = tmp_path / 'blinded_replication_manifest_20260102_000000.json'
+
+    older.write_text(json.dumps({'protocol_id': 'old'}), encoding='utf-8')
+    newer.write_text(json.dumps({'protocol_id': 'new'}), encoding='utf-8')
+
+    payload = qualification_artifacts._load_latest_blinded_replication_manifest(tmp_path)
+
+    assert payload is not None
+    assert payload['protocol_id'] == 'new'

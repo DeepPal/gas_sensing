@@ -27,6 +27,17 @@ def _load_latest_benchmark_evidence(output_dir: Path) -> dict | None:
         return None
 
 
+def _load_latest_blinded_replication_manifest(output_dir: Path) -> dict | None:
+    candidates = sorted(output_dir.glob("blinded_replication_manifest_*.json"))
+    if not candidates:
+        return None
+    latest = candidates[-1]
+    try:
+        return json.loads(latest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
 def _signature(payload: str, signing_key: str | None) -> dict[str, str | bool]:
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     if not signing_key:
@@ -106,6 +117,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     benchmark_evidence = _load_latest_benchmark_evidence(out_dir)
+    blinded_manifest = _load_latest_blinded_replication_manifest(out_dir)
 
     dossier = {
         "status": "ok",
@@ -145,6 +157,29 @@ def main() -> None:
             }
         )
 
+    if blinded_manifest:
+        dataset = blinded_manifest.get("dataset", {})
+        protocol_ready = bool(blinded_manifest.get("protocol_id"))
+        dossier["blinded_replication"] = blinded_manifest
+        dossier["checks"].append(
+            {
+                "id": "blinded_replication_protocol",
+                "title": "Blinded replication protocol",
+                "value": "ready" if protocol_ready else "missing",
+                "target": "ready",
+                "pass": protocol_ready,
+            }
+        )
+        dossier["checks"].append(
+            {
+                "id": "external_dataset_status",
+                "title": "External dataset presence",
+                "value": "available" if dataset.get("available_in_run") else "pending",
+                "target": "available",
+                "pass": bool(dataset.get("available_in_run", False)),
+            }
+        )
+
     payload_json = json.dumps(dossier, indent=2, sort_keys=True)
     sig = _signature(payload_json, args.signing_key)
 
@@ -173,6 +208,8 @@ def main() -> None:
         zf.write(sig_path, arcname=f"qualification/{sig_path.name}")
         for benchmark_file in sorted(out_dir.glob("benchmark_evidence_*.*")):
             zf.write(benchmark_file, arcname=f"qualification/{benchmark_file.name}")
+        for protocol_file in sorted(out_dir.glob("blinded_replication_*.*")):
+            zf.write(protocol_file, arcname=f"qualification/{protocol_file.name}")
 
     print(json.dumps({
         "status": "ok",

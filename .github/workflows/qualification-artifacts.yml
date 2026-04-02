@@ -43,6 +43,10 @@ jobs:
         run: |
           python scripts/generate_benchmark_evidence.py \
             --output-dir output/qualification/ci
+          python scripts/generate_blinded_replication_manifest.py \
+            --output-dir output/qualification/ci \
+            --run-id "${RUN_ID}" \
+            --git-sha "${GIT_SHA}"
           python scripts/generate_qualification_artifacts.py \
             --output-dir output/qualification/ci \
             --session-id "ci-${REF_NAME}" \
