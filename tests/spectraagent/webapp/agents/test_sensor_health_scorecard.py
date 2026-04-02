@@ -13,7 +13,6 @@ import pytest
 
 from spectraagent.webapp.agents.sensor_health import SensorHealthAgent
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -140,7 +139,7 @@ class TestScorecardColdStart:
 
 class TestScorecardWithHistory:
     def test_lod_better_than_best_gives_100(self, tmp_path: Path):
-        from spectraagent.knowledge.sensor_memory import SensorMemory, CalibrationObservation
+        from spectraagent.knowledge.sensor_memory import CalibrationObservation, SensorMemory
         mem = SensorMemory(memory_dir=tmp_path, sensor_id="test")
         mem.record_calibration(CalibrationObservation(
             session_id="s1", timestamp_utc="2026-01-01T00:00:00+00:00",
@@ -159,7 +158,7 @@ class TestScorecardWithHistory:
         assert sc["has_history"] is True
 
     def test_lod_worse_than_best_gives_sub_100(self, tmp_path: Path):
-        from spectraagent.knowledge.sensor_memory import SensorMemory, CalibrationObservation
+        from spectraagent.knowledge.sensor_memory import CalibrationObservation, SensorMemory
         mem = SensorMemory(memory_dir=tmp_path, sensor_id="test")
         mem.record_calibration(CalibrationObservation(
             session_id="s1", timestamp_utc="2026-01-01T00:00:00+00:00",

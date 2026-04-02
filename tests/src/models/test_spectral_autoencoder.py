@@ -2,12 +2,12 @@
 import numpy as np
 import pytest
 import torch
+
 from src.models.spectral_autoencoder import (
     AutoencoderConfig,
     SpectralAutoencoder,
     train_autoencoder,
 )
-
 
 # ---------------------------------------------------------------------------
 # AutoencoderConfig

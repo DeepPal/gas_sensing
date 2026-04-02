@@ -532,6 +532,6 @@ def format_candidate_modes_for_prompt(
     if not candidates:
         return "No closely matching failure modes found — this may be an unusual failure pattern."
     blocks = ["## Most likely failure modes (ranked):\n"]
-    for rank, (mid, mode) in enumerate(candidates, 1):
+    for rank, (_mid, mode) in enumerate(candidates, 1):
         blocks.append(f"**Rank {rank}**: {format_failure_mode_for_prompt(mode)}\n")
     return "\n".join(blocks)

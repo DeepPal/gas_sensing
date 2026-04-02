@@ -1,12 +1,13 @@
 """Tests for src.analysis.embedding_viz — dimensionality reduction and visualisation."""
 import numpy as np
 import pytest
+
 from src.analysis.embedding_viz import (
     EmbeddingResult,
-    reduce_dimensions,
     plot_embedding,
     plot_reconstruction,
     plot_training_curves,
+    reduce_dimensions,
 )
 
 

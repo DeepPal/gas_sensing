@@ -24,32 +24,32 @@ roi_scan
 """
 
 from src.calibration.active_learning import BayesianExperimentDesigner
+from src.calibration.batch_reproducibility import (
+    BatchReproducibilityAnalyzer,
+    BatchReproducibilityReport,
+)
 from src.calibration.conformal import ConformalCalibrator
 from src.calibration.gpr import GPRCalibration
+from src.calibration.multi_output_gpr import (
+    IndependentMultiOutputGPR,
+    JointMultiOutputGPR,
+    build_feature_vector,
+)
 from src.calibration.multi_roi import fit_multi_roi_fusion, select_multi_roi_candidates
 from src.calibration.physics_kernel import (
     LangmuirMeanFunction,
     PhysicsInformedGPR,
     fit_langmuir_params,
 )
+from src.calibration.pls import PLSCalibration, PLSFitResult
 from src.calibration.roi_scan import (
     RoiScanConfig,
     compute_concentration_response,
     stack_trials_for_response,
 )
 from src.calibration.selectivity import SelectivityAnalyzer, SelectivityReport
-from src.calibration.batch_reproducibility import (
-    BatchReproducibilityAnalyzer,
-    BatchReproducibilityReport,
-)
-from src.calibration.pls import PLSCalibration, PLSFitResult
+from src.calibration.sensitivity_matrix import SensitivityEntry, SensitivityMatrix
 from src.calibration.transforms import transform_concentrations
-from src.calibration.sensitivity_matrix import SensitivityMatrix, SensitivityEntry
-from src.calibration.multi_output_gpr import (
-    IndependentMultiOutputGPR,
-    JointMultiOutputGPR,
-    build_feature_vector,
-)
 
 __all__ = [
     "BayesianExperimentDesigner",

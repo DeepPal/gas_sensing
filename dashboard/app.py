@@ -23,8 +23,8 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import cast
 import sys
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np

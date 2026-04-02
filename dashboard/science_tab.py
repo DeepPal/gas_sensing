@@ -23,10 +23,10 @@ from __future__ import annotations
 import io
 import logging
 import math
-import time
-import warnings
 from pathlib import Path
+import time
 from typing import Any
+import warnings
 
 import numpy as np
 import streamlit as st
@@ -53,8 +53,8 @@ except ImportError as _e:
     _IMPORT_ERRORS["torch"] = str(_e)
 
 try:
-    import plotly.graph_objects as go
     import plotly.express as px
+    import plotly.graph_objects as go
     PLOTLY_AVAILABLE = True
 except ImportError as _e:
     PLOTLY_AVAILABLE = False
@@ -69,8 +69,11 @@ except ImportError as _e:
 
 try:
     from src.io.universal_loader import (
-        load_dataset, merge_datasets, SpectralDataset,
-        load_session_csv, list_sessions,
+        SpectralDataset,
+        list_sessions,
+        load_dataset,
+        load_session_csv,
+        merge_datasets,
     )
     LOADER_AVAILABLE = True
 except Exception as _e:
@@ -79,7 +82,10 @@ except Exception as _e:
 
 try:
     from src.models.spectral_autoencoder import (
-        SpectralAutoencoder, AutoencoderConfig, train_autoencoder)
+        AutoencoderConfig,
+        SpectralAutoencoder,
+        train_autoencoder,
+    )
     AUTOENCODER_AVAILABLE = TORCH_AVAILABLE
 except Exception as _e:
     AUTOENCODER_AVAILABLE = False
@@ -93,25 +99,27 @@ except Exception as _e:
     _IMPORT_ERRORS["embed_viz"] = str(_e)
 
 try:
+    from src.models.contrastive import ContrastiveConfig, ContrastiveEncoder, train_contrastive
     from src.models.multi_task import (
-        MultiTaskModel, MultiTaskConfig, MultiTaskTargets, train_multi_task)
-    from src.models.contrastive import (
-        ContrastiveEncoder, ContrastiveConfig, train_contrastive)
+        MultiTaskConfig,
+        MultiTaskModel,
+        MultiTaskTargets,
+        train_multi_task,
+    )
     MODELS_AVAILABLE = TORCH_AVAILABLE
 except Exception as _e:
     MODELS_AVAILABLE = False
     _IMPORT_ERRORS["models"] = str(_e)
 
 try:
-    from src.analysis.cross_dataset_eval import run_benchmark, BenchmarkResult
+    from src.analysis.cross_dataset_eval import BenchmarkResult, run_benchmark
     BENCHMARK_AVAILABLE = LOADER_AVAILABLE
 except Exception as _e:
     BENCHMARK_AVAILABLE = False
     _IMPORT_ERRORS["benchmark"] = str(_e)
 
 try:
-    from src.analysis.feature_importance import (
-        gradient_attribution, top_wavelength_bands)
+    from src.analysis.feature_importance import gradient_attribution, top_wavelength_bands
     FEAT_IMP_AVAILABLE = TORCH_AVAILABLE and PLOTLY_AVAILABLE
 except Exception as _e:
     FEAT_IMP_AVAILABLE = False
@@ -244,7 +252,7 @@ def _int_labels_from_dataset(ds: SpectralDataset) -> np.ndarray | None:
 def _loss_curve_figure(
     history: dict[str, list[float]],
     title: str = "Training Loss",
-) -> "go.Figure":
+) -> go.Figure:
     epochs = list(range(1, len(history.get("train_loss", [])) + 1))
     fig = go.Figure()
     for key, color, dash in [
@@ -1059,8 +1067,8 @@ and is tracked by `ModelVersionStore` for rollback if needed.
             )
 
             st.success(
-                f"Model promoted to `models/registry/cnn_classifier.pt`. "
-                f"Restart SpectraAgent to activate it."
+                "Model promoted to `models/registry/cnn_classifier.pt`. "
+                "Restart SpectraAgent to activate it."
             )
             log.info("Model promoted to registry: %s", dest_model)
 
@@ -1223,7 +1231,9 @@ Methods section as evidence of sensor-agnostic generalisation.
 
     # ── Summary metrics ──────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
-    _fmt = lambda v: f"{v:.4f}" if not math.isnan(v) else "N/A"
+    def _fmt(v: float) -> str:
+        return f"{v:.4f}" if not math.isnan(v) else "N/A"
+
     if result.task == "classification":
         c1.metric("Mean cross-config accuracy", _fmt(result.mean_accuracy))
     else:
@@ -1395,8 +1405,8 @@ def _render_publication_figures() -> None:
 
 
 def _build_pub_figure(
-    fig_name: str, ds: "SpectralDataset | None"
-) -> "go.Figure | None":
+    fig_name: str, ds: SpectralDataset | None
+) -> go.Figure | None:
     """Build and return a publication-quality Plotly figure by name."""
 
     if fig_name == "Mean ± SD spectral envelope" and ds is not None:

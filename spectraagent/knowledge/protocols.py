@@ -419,7 +419,6 @@ class ValidationTracker:
 
         # Linearity: need ≥5 points with R²≥0.999 and Mandel pass
         if n >= 5 and r2 is not None:
-            req = ICH_Q2_PROTOCOL["linearity"]
             if r2 >= 0.999 and (mandel_p is None or mandel_p > 0.05):
                 self.update("linearity", ValidationStatus.COMPLETE, {"r_squared": r2})
             elif r2 >= 0.99:

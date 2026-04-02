@@ -45,8 +45,8 @@ Usage
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
+import math
 from typing import TYPE_CHECKING, Callable, Literal
 
 import torch
@@ -396,7 +396,7 @@ class SpectralAutoencoder(nn.Module):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def encode_numpy(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def encode_numpy(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Encode a numpy array of spectra → numpy latent matrix.
 
         Parameters
@@ -413,7 +413,7 @@ class SpectralAutoencoder(nn.Module):
         return self.encode(x).cpu().numpy()
 
     @torch.no_grad()
-    def reconstruct_numpy(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def reconstruct_numpy(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Reconstruct spectra from numpy input."""
         import numpy as np
         device = next(self.parameters()).device
@@ -428,14 +428,14 @@ class SpectralAutoencoder(nn.Module):
 
 def train_autoencoder(
     model: SpectralAutoencoder,
-    spectra: "np.ndarray",  # type: ignore[name-defined]
+    spectra: np.ndarray,  # type: ignore[name-defined]
     n_epochs: int = 100,
     batch_size: int = 32,
     lr: float = 1e-3,
     val_fraction: float = 0.1,
     device: str | None = None,
     verbose: bool = True,
-    epoch_callback: "Callable[[int, int, float, float], None] | None" = None,  # type: ignore[name-defined]
+    epoch_callback: Callable[[int, int, float, float], None] | None = None,  # type: ignore[name-defined]
 ) -> dict[str, list[float]]:
     """Train the autoencoder on a numpy spectra matrix.
 

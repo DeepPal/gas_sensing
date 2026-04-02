@@ -27,7 +27,7 @@ class StartupValidator:
     def validate_all(self) -> bool:
         """
         Run all startup checks.
-        
+
         Returns
         -------
         bool
@@ -211,12 +211,12 @@ class StartupValidator:
 def run_startup_validation(app_root: Path | None = None) -> bool:
     """
     Convenience function to run startup validation.
-    
+
     Parameters
     ----------
     app_root : Path
         Application root directory
-    
+
     Returns
     -------
     bool

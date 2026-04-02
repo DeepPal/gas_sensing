@@ -32,10 +32,7 @@ These features are most powerful for:
 """
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Shift-vector features (peak-shift domain)
@@ -225,7 +222,7 @@ class CrossPeakPCA:
         self._explained_variance_ratio: np.ndarray | None = None
         self.is_fitted: bool = False
 
-    def fit(self, X: np.ndarray) -> "CrossPeakPCA":
+    def fit(self, X: np.ndarray) -> CrossPeakPCA:
         """Fit PCA on calibration peak-shift matrix.
 
         X: (n_samples, n_peaks) — each row is one peak-shift observation.
@@ -266,7 +263,7 @@ def extract_cross_peak_features(
     analyte_patterns: dict[str, np.ndarray] | None = None,
     diff_spectrum: np.ndarray | None = None,
     analyte_spectra: dict[str, np.ndarray] | None = None,
-    pca: "CrossPeakPCA | None" = None,
+    pca: CrossPeakPCA | None = None,
     min_abs_shift: float = 0.01,
 ) -> tuple[dict[str, float], list[str]]:
     """Extract all cross-peak features from one frame.

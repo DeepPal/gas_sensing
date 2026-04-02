@@ -1,13 +1,13 @@
 """Tests for src.features.compensation — environmental drift compensation."""
 import numpy as np
 import pytest
+
 from src.features.compensation import (
     AdaptiveDriftCorrector,
     EnvironmentalCompensator,
     differential_peak_correction,
     polynomial_detrend,
 )
-
 
 # ---------------------------------------------------------------------------
 # EnvironmentalCompensator

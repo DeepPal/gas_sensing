@@ -14,10 +14,10 @@ For lab networks, self-signed certificates are acceptable because:
 
 from __future__ import annotations
 
-import logging
-import subprocess
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
+import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def generate_self_signed_cert(
 ) -> tuple[Path, Path]:
     """
     Generate a self-signed SSL certificate for local HTTPS.
-    
+
     Parameters
     ----------
     app_root : Path
@@ -38,12 +38,12 @@ def generate_self_signed_cert(
         Number of days certificate is valid (default: 365 = 1 year)
     overwrite : bool
         If True, regenerate even if cert exists
-    
+
     Returns
     -------
     tuple[Path, Path]
         (cert_path, key_path) — paths to the generated certificate and key files
-    
+
     Raises
     ------
     RuntimeError
@@ -71,7 +71,7 @@ def generate_self_signed_cert(
         raise RuntimeError(
             "OpenSSL is not installed. Required for certificate generation.\n"
             "Install via: conda install openssl  (or apt/brew)"
-        )
+        ) from None
 
     log.info("🔐 Generating self-signed SSL certificate (valid for %d days)...", validity_days)
 
@@ -99,20 +99,20 @@ def generate_self_signed_cert(
         log.info("✓ Private key generated: %s", key_file)
         return cert_file, key_file
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Certificate generation failed: {e.stderr.decode()}")
+        raise RuntimeError(f"Certificate generation failed: {e.stderr.decode()}") from e
 
 
 def _is_cert_valid(cert_path: Path, days_remaining: int = 7) -> bool:
     """
     Check if a certificate is valid and won't expire soon.
-    
+
     Parameters
     ----------
     cert_path : Path
         Path to the certificate file
     days_remaining : int
         Minimum days until expiration (default: 7)
-    
+
     Returns
     -------
     bool
@@ -149,12 +149,12 @@ def _is_cert_valid(cert_path: Path, days_remaining: int = 7) -> bool:
 def setup_https(app_root: Path | None = None) -> dict[str, Path]:
     """
     Complete HTTPS setup: generate cert and return Streamlit config.
-    
+
     Parameters
     ----------
     app_root : Path
         Root of the application
-    
+
     Returns
     -------
     dict[str, Path]
@@ -173,14 +173,14 @@ if __name__ == "__main__":
     import sys
 
     logging.basicConfig(level=logging.INFO)
-    
+
     try:
         cert_path, key_path = generate_self_signed_cert(overwrite=("--force" in sys.argv))
-        print(f"\n✓ Certificates ready for deployment")
+        print("\n✓ Certificates ready for deployment")
         print(f"  Certificate: {cert_path}")
         print(f"  Private Key: {key_path}")
-        print(f"\nEnable in .streamlit/config.toml:")
-        print(f"  [server]")
+        print("\nEnable in .streamlit/config.toml:")
+        print("  [server]")
         print(f"  sslCertFile = \"{cert_path}\"")
         print(f"  sslKeyFile = \"{key_path}\"")
     except RuntimeError as e:

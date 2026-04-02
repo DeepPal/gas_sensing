@@ -26,12 +26,12 @@ def test_name(plugin):
 
 def test_detect_peak_returns_float(plugin, lspr_spectrum):
     """Lorentzian at 717.9 nm — test fixture broadened for simulator robustness.
-    
+
     HARDWARE NOTE: Your actual Au-MIP sensor peak is ~531.5–532.0 nm
     (see dashboard/agentic_pipeline_tab.py defaults). This test uses 717.9 nm
     to validate the plugin works across a wide wavelength range, ensuring
     the peak detection algorithm is wavelength-agnostic.
-    
+
     For production inference, use your measured peak from SensorMemory.
     """
     wl, sp = lspr_spectrum

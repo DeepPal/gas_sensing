@@ -1,6 +1,7 @@
 """Tests for src.calibration.multi_output_gpr."""
 import numpy as np
 import pytest
+
 from src.calibration.multi_output_gpr import (
     IndependentMultiOutputGPR,
     JointMultiOutputGPR,

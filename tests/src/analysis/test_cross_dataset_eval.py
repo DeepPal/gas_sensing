@@ -1,6 +1,7 @@
 """Tests for src.analysis.cross_dataset_eval — cross-config benchmark."""
 import numpy as np
 import pytest
+
 from src.analysis.cross_dataset_eval import (
     BenchmarkConfig,
     BenchmarkResult,
@@ -9,7 +10,6 @@ from src.analysis.cross_dataset_eval import (
     run_benchmark,
 )
 from src.io.universal_loader import SpectralDataset
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

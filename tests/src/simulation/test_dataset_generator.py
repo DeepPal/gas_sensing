@@ -1,6 +1,7 @@
 """Tests for src.simulation.dataset_generator — batch dataset generation."""
 import numpy as np
 import pytest
+
 from src.simulation.dataset_generator import (
     DatasetConfig,
     DatasetGenerator,

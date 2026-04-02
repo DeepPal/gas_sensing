@@ -4,16 +4,16 @@ Unit tests for src.scientific.cross_session.
 from __future__ import annotations
 
 import math
-import pytest
+
 import numpy as np
+import pytest
 
 from src.scientific.cross_session import (
     CrossSessionComparison,
     SessionData,
-    compare_sessions,
     compare_lod_series,
+    compare_sessions,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

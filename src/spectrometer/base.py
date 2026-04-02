@@ -36,13 +36,12 @@ Quick start
 
 from __future__ import annotations
 
-import datetime
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import datetime
 from typing import Any
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # SpectralFrame — the atomic unit of all spectral data
@@ -143,7 +142,7 @@ class SpectralFrame:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SpectralFrame":
+    def from_dict(cls, d: dict[str, Any]) -> SpectralFrame:
         """Reconstruct a :class:`SpectralFrame` from a serialised dict."""
         ts_raw = d["timestamp"]
         if isinstance(ts_raw, str):
@@ -292,7 +291,7 @@ class AbstractSpectrometer(ABC):
     # Context manager
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "AbstractSpectrometer":
+    def __enter__(self) -> AbstractSpectrometer:
         self.open()
         return self
 

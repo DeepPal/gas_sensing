@@ -22,8 +22,8 @@ Public API
 """
 from __future__ import annotations
 
-import warnings
 from typing import Protocol
+import warnings
 
 import numpy as np
 

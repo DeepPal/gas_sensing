@@ -376,7 +376,7 @@ class TestPublicAPICompleteness:
         from src.public_api import compute_comprehensive_sensor_characterization  # noqa: F401
 
     def test_pipeline_classes_still_exported(self):
-        from src.public_api import RealTimePipeline, PipelineConfig, PipelineResult  # noqa: F401
+        from src.public_api import PipelineConfig, PipelineResult, RealTimePipeline  # noqa: F401
 
     def test_gpr_still_exported(self):
         from src.public_api import GPRCalibration  # noqa: F401

@@ -20,7 +20,6 @@ import pytest
 
 from src.calibration.pls import PLSCalibration, PLSFitResult
 
-
 # ---------------------------------------------------------------------------
 # Synthetic dataset factory
 # ---------------------------------------------------------------------------

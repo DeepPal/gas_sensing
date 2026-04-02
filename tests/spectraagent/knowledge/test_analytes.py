@@ -13,7 +13,6 @@ from spectraagent.knowledge.analytes import (
     lookup_analyte,
 )
 
-
 # ---------------------------------------------------------------------------
 # AnalyteProperties dataclass
 # ---------------------------------------------------------------------------

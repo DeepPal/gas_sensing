@@ -50,7 +50,7 @@ Usage
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import torch
@@ -159,7 +159,7 @@ class _CNNEncoder(nn.Module):
         layers: list[nn.Module] = []
         in_ch = 1
         out_ch = hidden_dim
-        for i in range(n_layers):
+        for _ in range(n_layers):
             layers += [
                 nn.Conv1d(in_ch, out_ch, kernel_size=7, padding=3),
                 nn.BatchNorm1d(out_ch),
@@ -211,7 +211,6 @@ class _TransformerEncoder(nn.Module):
         super().__init__()
         # Chunk the spectrum into segments of ~32 points → tokens
         self.chunk_size = 32
-        n_tokens = max(1, input_dim // self.chunk_size)
         self.chunk_proj = nn.Linear(self.chunk_size, hidden_dim)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
         encoder_layer = nn.TransformerEncoderLayer(
@@ -384,7 +383,7 @@ class MultiTaskModel(nn.Module):
         return total
 
     @torch.no_grad()
-    def embed_numpy(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def embed_numpy(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Encode numpy spectra → numpy shared feature matrix.
 
         Parameters
@@ -401,7 +400,7 @@ class MultiTaskModel(nn.Module):
         return self.forward(x).features.cpu().numpy()
 
     @torch.no_grad()
-    def predict_analyte(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def predict_analyte(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Predict analyte class indices from numpy spectra."""
         import numpy as np
         device = next(self.parameters()).device
@@ -412,7 +411,7 @@ class MultiTaskModel(nn.Module):
         return logits.argmax(dim=-1).cpu().numpy()
 
     @torch.no_grad()
-    def predict_concentration(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def predict_concentration(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Predict concentration from numpy spectra."""
         import numpy as np
         device = next(self.parameters()).device
@@ -429,10 +428,10 @@ class MultiTaskModel(nn.Module):
 
 def train_multi_task(
     model: MultiTaskModel,
-    spectra: "np.ndarray",                    # (N, input_dim)  # type: ignore[name-defined]
-    analyte_labels: "np.ndarray | None" = None,   # (N,) int  # type: ignore[name-defined]
-    concentrations: "np.ndarray | None" = None,    # (N,) float  # type: ignore[name-defined]
-    qc_labels: "np.ndarray | None" = None,         # (N,) float in [0,1]  # type: ignore[name-defined]
+    spectra: np.ndarray,                    # (N, input_dim)  # type: ignore[name-defined]
+    analyte_labels: np.ndarray | None = None,   # (N,) int  # type: ignore[name-defined]
+    concentrations: np.ndarray | None = None,    # (N,) float  # type: ignore[name-defined]
+    qc_labels: np.ndarray | None = None,         # (N,) float in [0,1]  # type: ignore[name-defined]
     n_epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-3,

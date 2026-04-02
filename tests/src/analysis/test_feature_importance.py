@@ -3,15 +3,15 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
+
 from src.analysis.feature_importance import (
-    gradient_attribution,
-    integrated_gradients,
-    top_wavelength_bands,
     WavelengthBand,
     _get_model_output,
     _smooth,
+    gradient_attribution,
+    integrated_gradients,
+    top_wavelength_bands,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal test models
@@ -185,14 +185,12 @@ class TestTopWavelengthBands:
 
 class TestGetModelOutput:
     def test_plain_tensor(self):
-        import torch
         model = nn.Linear(8, 3)
         x = torch.randn(4, 8)
         out = _get_model_output(model, x)
         assert out.shape == (4, 3)
 
     def test_tuple_output(self):
-        import torch
 
         class _TupleModel(nn.Module):
             def forward(self, x):
@@ -203,8 +201,7 @@ class TestGetModelOutput:
         assert out.shape[0] == 4
 
     def test_multi_task_model(self):
-        import torch
-        from src.models.multi_task import MultiTaskModel, MultiTaskConfig
+        from src.models.multi_task import MultiTaskConfig, MultiTaskModel
         cfg = MultiTaskConfig(input_dim=16, embed_dim=8, hidden_dim=16,
                               n_layers=1, n_analytes=2)
         m = MultiTaskModel(cfg)

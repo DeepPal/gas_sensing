@@ -9,7 +9,12 @@ Public API — import from here, not from submodules:
 """
 
 from src.preprocessing.baseline import als_baseline, correct_baseline, polynomial_baseline
-from src.preprocessing.denoising import savgol_smooth, smooth_spectrum, spike_rejection, wavelet_denoise
+from src.preprocessing.denoising import (
+    savgol_smooth,
+    smooth_spectrum,
+    spike_rejection,
+    wavelet_denoise,
+)
 from src.preprocessing.normalization import normalize_spectrum
 from src.preprocessing.quality import (
     NoiseFloorTracker,

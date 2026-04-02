@@ -10,9 +10,10 @@ Unit tests for src.scientific.lod:
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
-from typing import cast
 
 from src.scientific.lod import (
     calculate_lod_3sigma,

@@ -206,6 +206,10 @@ ignore = [
 "scripts/**" = ["E402", "F401", "SIM102", "B007", "E741"]
 # Dashboard tabs: Streamlit's execution model requires some top-level imports
 "dashboard/**" = ["E402", "F401", "SIM102"]
+# PyTorch convention: torch.nn.functional imported as F
+"src/models/*.py" = ["N812"]
+# Scientific matrix naming in calibration tests (S matrix)
+"tests/src/calibration/test_mixture_deconvolution.py" = ["N802"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "config", "dashboard", "gas_analysis", "spectraagent"]

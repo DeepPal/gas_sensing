@@ -26,7 +26,6 @@ from src.spectrometer import (
 from src.spectrometer.base import AbstractSpectrometer as _BaseABC
 from src.spectrometer.registry import SpectrometerRegistry as _Reg
 
-
 # ---------------------------------------------------------------------------
 # Helpers / stubs
 # ---------------------------------------------------------------------------

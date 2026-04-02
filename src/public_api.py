@@ -31,6 +31,10 @@ from __future__ import annotations
 # Version
 # ---------------------------------------------------------------------------
 from src import __version__
+from src.calibration.batch_reproducibility import (
+    BatchReproducibilityAnalyzer,
+    BatchReproducibilityReport,
+)
 
 # ---------------------------------------------------------------------------
 # Calibration
@@ -39,10 +43,11 @@ from src.calibration.gpr import GPRCalibration
 from src.calibration.pls import PLSCalibration, PLSFitResult
 from src.calibration.roi_scan import RoiScanConfig, compute_concentration_response
 from src.calibration.selectivity import SelectivityAnalyzer, SelectivityReport
-from src.calibration.batch_reproducibility import (
-    BatchReproducibilityAnalyzer,
-    BatchReproducibilityReport,
-)
+
+# ---------------------------------------------------------------------------
+# Experiment tracking
+# ---------------------------------------------------------------------------
+from src.experiment_tracking import ExperimentTracker, get_tracker
 
 # ---------------------------------------------------------------------------
 # Core pipeline
@@ -54,21 +59,6 @@ from src.inference.realtime_pipeline import (
 )
 
 # ---------------------------------------------------------------------------
-# ML models
-# ---------------------------------------------------------------------------
-from src.models.cnn import CNNGasClassifier
-
-# ---------------------------------------------------------------------------
-# Hardware abstraction
-# ---------------------------------------------------------------------------
-from src.spectrometer import (
-    AbstractSpectrometer,
-    SimulatedSpectrometer,
-    SpectralFrame,
-    SpectrometerRegistry,
-)
-
-# ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
 from src.io import (
@@ -77,6 +67,11 @@ from src.io import (
     open_archive_reader,
     open_archive_writer,
 )
+
+# ---------------------------------------------------------------------------
+# ML models
+# ---------------------------------------------------------------------------
+from src.models.cnn import CNNGasClassifier
 
 # ---------------------------------------------------------------------------
 # Reporting
@@ -102,11 +97,6 @@ from src.reporting.publication import (
 )
 
 # ---------------------------------------------------------------------------
-# Experiment tracking
-# ---------------------------------------------------------------------------
-from src.experiment_tracking import ExperimentTracker, get_tracker
-
-# ---------------------------------------------------------------------------
 # Schemas / data types
 # ---------------------------------------------------------------------------
 from src.schemas import (
@@ -115,6 +105,16 @@ from src.schemas import (
     SessionMeta,
     SpectrumReading,
     normalise_gas_type,
+)
+
+# ---------------------------------------------------------------------------
+# Hardware abstraction
+# ---------------------------------------------------------------------------
+from src.spectrometer import (
+    AbstractSpectrometer,
+    SimulatedSpectrometer,
+    SpectralFrame,
+    SpectrometerRegistry,
 )
 
 __all__ = [

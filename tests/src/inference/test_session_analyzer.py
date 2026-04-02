@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from src.inference.session_analyzer import SessionAnalyzer, SessionAnalysis
+
+from src.inference.session_analyzer import SessionAnalysis, SessionAnalyzer
 
 
 def _make_events(n: int = 20) -> list[dict]:
@@ -199,7 +200,7 @@ def test_lol_populated_with_5_calibration_points():
 def test_lol_leq_max_calibration_concentration():
     """LOL can never exceed the highest calibration concentration."""
     result = SessionAnalyzer().analyze(_make_events(), frame_count=20)
-    if not (result.lol_ppm != result.lol_ppm):  # not NaN
+    if result.lol_ppm == result.lol_ppm:  # not NaN
         max_cal = max(result.calibration_concentrations)
         assert result.lol_ppm <= max_cal + 1e-6
 

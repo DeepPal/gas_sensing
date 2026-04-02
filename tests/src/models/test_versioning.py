@@ -7,8 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.models.versioning import ModelVersionStore, VersionRecord, _serialise, _git_short_hash
-
+from src.models.versioning import ModelVersionStore, VersionRecord, _git_short_hash, _serialise
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -104,7 +103,7 @@ class TestLoad:
 
     def test_load_latest_when_no_version_id(self, store, simple_model):
         store.save({"v": 1}, "m")
-        vid2 = store.save({"v": 2}, "m")
+        store.save({"v": 2}, "m")
         loaded = store.load("m")  # no version_id — falls back to most recent
         # most recent is vid2
         assert loaded["v"] == 2 or loaded is not None  # just checks it loads without error
@@ -231,7 +230,7 @@ class TestSummary:
         assert "0.01" in s
 
     def test_summary_marks_promoted(self, store, simple_model):
-        vid = store.save(simple_model, "m", promote=True)
+        store.save(simple_model, "m", promote=True)
         s = store.summary("m")
         assert "PROMOTED" in s
 

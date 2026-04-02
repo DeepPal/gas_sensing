@@ -17,8 +17,8 @@ Public API
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, cast
+import warnings
 
 import numpy as np
 from scipy.optimize import curve_fit

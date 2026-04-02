@@ -47,13 +47,14 @@ locking the rest of the codebase to MLflow-specific calls.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 import contextlib
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
-from typing import Any, Generator
+import tempfile
+from typing import Any
 
 import numpy as np
 
@@ -134,7 +135,7 @@ class ExperimentTracker:
         self,
         run_name: str | None = None,
         tags: dict[str, str] | None = None,
-    ) -> Generator["ExperimentTracker", None, None]:
+    ) -> Generator[ExperimentTracker, None, None]:
         """Context manager that wraps code in an MLflow run.
 
         Example
@@ -430,7 +431,7 @@ class ExperimentTracker:
     # Query helpers
     # ------------------------------------------------------------------
 
-    def list_runs(self, max_results: int = 100) -> "Any":
+    def list_runs(self, max_results: int = 100) -> Any:
         """Return a DataFrame of recent runs for this experiment.
 
         Returns

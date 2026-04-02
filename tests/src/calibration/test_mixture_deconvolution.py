@@ -1,6 +1,7 @@
 """Tests for src.calibration.mixture_deconvolution."""
 import numpy as np
 import pytest
+
 from src.calibration.mixture_deconvolution import (
     DeconvolutionResult,
     LangmuirDeconvolver,
@@ -8,7 +9,6 @@ from src.calibration.mixture_deconvolution import (
     deconvolve_mixture,
     langmuir_predicted_shifts,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

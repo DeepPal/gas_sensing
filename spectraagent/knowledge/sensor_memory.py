@@ -39,12 +39,11 @@ Usage
 """
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 import json
 import logging
-import statistics
-import time
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import statistics
 from typing import Any, Optional
 
 log = logging.getLogger(__name__)

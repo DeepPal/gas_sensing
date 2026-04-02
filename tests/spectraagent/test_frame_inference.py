@@ -4,8 +4,8 @@ import json
 from types import SimpleNamespace
 from typing import cast
 
-import numpy as np
 from fastapi import FastAPI
+import numpy as np
 
 from spectraagent.__main__ import _process_acquired_frame
 

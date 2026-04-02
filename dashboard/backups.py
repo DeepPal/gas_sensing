@@ -17,8 +17,8 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import shutil
 from pathlib import Path
+import shutil
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -41,12 +41,12 @@ class BackupManager:
     def backup_session(self, session_dir: Path) -> dict[str, Any]:
         """
         Create a timestamped backup of a session directory.
-        
+
         Parameters
         ----------
         session_dir : Path
             Path to session directory to backup (e.g., output/sessions/session_20260328_...)
-        
+
         Returns
         -------
         dict
@@ -109,12 +109,12 @@ class BackupManager:
     def cleanup_old_backups(self, dryrun: bool = False) -> dict[str, Any]:
         """
         Delete backups older than retention_days.
-        
+
         Parameters
         ----------
         dryrun : bool
             If True, report what would be deleted without deleting
-        
+
         Returns
         -------
         dict
@@ -180,14 +180,14 @@ class BackupManager:
     def restore_backup(self, backup_name: str, restore_dir: Path) -> Path:
         """
         Restore a backup to a specified directory.
-        
+
         Parameters
         ----------
         backup_name : str
             Name of backup file (e.g., session_20260328_123456.tar.gz)
         restore_dir : Path
             Where to restore the contents
-        
+
         Returns
         -------
         Path
@@ -228,14 +228,14 @@ def automatic_backup(
 ) -> Path:
     """
     Convenience function for one-off backup.
-    
+
     Parameters
     ----------
     session_dir : Path
         Session directory to backup
     backup_dir : Path
         Optional backup directory (default: backups/)
-    
+
     Returns
     -------
     Path

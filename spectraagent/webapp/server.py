@@ -16,9 +16,8 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Any
-
 import time
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -534,6 +533,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         app.state.reference = intensities
 
         import numpy as _np
+
         from src.features.lspr_features import detect_all_peaks, fit_lorentzian_peak
         wl_np = _np.asarray(latest_spectrum.get("wl", []))
         int_np = _np.asarray(intensities)
@@ -557,9 +557,8 @@ def create_app(simulate: bool = False) -> FastAPI:
         app.state.ref_peak_wls = ref_peak_wls
 
         # Update plugin so subsequent extract_features calls use discovered peaks
-        if plugin is not None and ref_peak_wls:
-            if hasattr(plugin, "update_from_reference"):
-                plugin.update_from_reference(ref_peak_wls)
+        if plugin is not None and ref_peak_wls and hasattr(plugin, "update_from_reference"):
+            plugin.update_from_reference(ref_peak_wls)
 
         # Pre-compute cached Lorentzian fit for the primary peak (saves ~5 ms/frame)
         if plugin is not None and ref_peak is not None:
@@ -700,6 +699,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         """
         try:
             import numpy as np
+
             from src.calibration.mixture_deconvolution import deconvolve_mixture
             S = np.array(req.S_matrix, dtype=float)
             Kd = np.array(req.Kd_matrix, dtype=float) if req.Kd_matrix else None
@@ -744,8 +744,8 @@ def create_app(simulate: bool = False) -> FastAPI:
         per concentration level, for use in sensitivity matrix fitting.
         """
         try:
-            from src.simulation.gas_response import make_single_peak_sensor, make_analyte
             from src.simulation.dataset_generator import DatasetConfig, DatasetGenerator
+            from src.simulation.gas_response import make_analyte, make_single_peak_sensor
             sensor = make_single_peak_sensor(req.peak_nm, req.fwhm_nm, req.wl_start, req.wl_end)
             sensor.analytes = [make_analyte(
                 req.analyte_name, 1,

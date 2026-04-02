@@ -1,6 +1,7 @@
 """Tests for src.simulation.gas_response — physics-complete simulation."""
 import numpy as np
 import pytest
+
 from src.simulation.gas_response import (
     AnalyteProfile,
     ExposureEvent,
@@ -12,7 +13,6 @@ from src.simulation.gas_response import (
     make_multi_peak_sensor,
     make_single_peak_sensor,
 )
-
 
 # ---------------------------------------------------------------------------
 # AnalyteProfile

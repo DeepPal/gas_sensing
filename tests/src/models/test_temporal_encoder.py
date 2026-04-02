@@ -2,12 +2,12 @@
 import numpy as np
 import pytest
 import torch
+
 from src.models.temporal_encoder import (
     TemporalConfig,
     TemporalEncoder,
     train_temporal_encoder,
 )
-
 
 # ---------------------------------------------------------------------------
 # TemporalConfig

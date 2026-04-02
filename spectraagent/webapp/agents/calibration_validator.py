@@ -46,12 +46,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Optional
 
-from spectraagent.webapp.agents.claude_agents import _BaseClaude, _DEFAULT_MODEL, _DEFAULT_TIMEOUT_S
+from spectraagent.webapp.agents.claude_agents import _DEFAULT_MODEL, _DEFAULT_TIMEOUT_S, _BaseClaude
 
 log = logging.getLogger(__name__)
 
 try:
-    from spectraagent.knowledge.protocols import ValidationTracker, ICH_Q2_PROTOCOL, ValidationStatus
+    from spectraagent.knowledge.protocols import (
+        ICH_Q2_PROTOCOL,
+        ValidationTracker,
+    )
     _PROTOCOLS_AVAILABLE = True
 except ImportError:
     _PROTOCOLS_AVAILABLE = False
@@ -215,7 +218,7 @@ class CalibrationValidationOrchestrator(_BaseClaude):
         )
 
         prompt = (
-            f"## Context: ICH Q2(R1) Analytical Method Validation\n\n"
+            "## Context: ICH Q2(R1) Analytical Method Validation\n\n"
             + history_text
             + "\n\n"
             + cal_ctx
@@ -307,7 +310,7 @@ class CalibrationValidationOrchestrator(_BaseClaude):
         elif max_k > 0.1:
             overall_assessment = f"SIGNIFICANT — max K = {max_k:.3f} (> 0.1 threshold)"
         else:
-            overall_assessment = f"GOOD — all K < 0.1 (ICH Q2(R1) §4.1 passed)"
+            overall_assessment = "GOOD — all K < 0.1 (ICH Q2(R1) §4.1 passed)"
 
         self._bus.emit(self._AgentEvent(
             source=self.source,

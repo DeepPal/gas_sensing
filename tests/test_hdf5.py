@@ -7,8 +7,8 @@ Skipped automatically when h5py is not installed.
 from __future__ import annotations
 
 import datetime
-import tempfile
 from pathlib import Path
+import tempfile
 
 import numpy as np
 import pytest
@@ -17,7 +17,6 @@ h5py = pytest.importorskip("h5py", reason="h5py not installed")
 
 from src.io.hdf5 import ArchiveReader, ArchiveWriter, open_archive_reader, open_archive_writer
 from src.spectrometer.base import SpectralFrame
-
 
 # ---------------------------------------------------------------------------
 # Helpers

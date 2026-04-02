@@ -1,22 +1,23 @@
 """Tests for src.io.universal_loader — physics-agnostic spectral dataset loading."""
 import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
+
 from src.io.universal_loader import (
     SpectralDataset,
-    load_dataset,
-    load_timeseries_features,
-    load_session_csv,
-    list_sessions,
-    merge_datasets,
-    _snv,
-    _msc,
     _infer_analyte,
     _infer_concentration,
+    _msc,
+    _snv,
+    list_sessions,
+    load_dataset,
+    load_session_csv,
+    load_timeseries_features,
+    merge_datasets,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

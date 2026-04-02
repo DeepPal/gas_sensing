@@ -36,7 +36,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +50,14 @@ _DEFAULT_TIMEOUT_S = 30.0
 try:
     from spectraagent.knowledge.context_builders import (
         build_anomaly_context as _build_anomaly_context,
+    )
+    from spectraagent.knowledge.context_builders import (
         build_calibration_narration_context as _build_calibration_narration_context,
+    )
+    from spectraagent.knowledge.context_builders import (
         build_hardware_diagnostics_context as _build_hardware_diagnostics_context,
+    )
+    from spectraagent.knowledge.context_builders import (
         build_report_context as _build_report_context,
     )
     _KB_AVAILABLE = True

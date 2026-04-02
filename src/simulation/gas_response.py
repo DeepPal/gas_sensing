@@ -37,12 +37,10 @@ Dissociation phase (after exposure ends):
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Data classes

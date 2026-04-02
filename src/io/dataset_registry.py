@@ -45,8 +45,8 @@ Usage
 """
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, field
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -54,9 +54,9 @@ if TYPE_CHECKING:
     import numpy as np
 
 from src.io.universal_loader import (
-    SpectralDataset,
-    SignalType,
     Normalisation,
+    SignalType,
+    SpectralDataset,
     load_dataset,
     merge_datasets,
 )
@@ -110,7 +110,7 @@ class DatasetEntry:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "DatasetEntry":
+    def from_dict(cls, d: dict[str, Any]) -> DatasetEntry:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
@@ -144,7 +144,7 @@ class DatasetRegistry:
         tags: list[str] | None = None,
         overwrite: bool = False,
         **metadata: Any,
-    ) -> "DatasetRegistry":
+    ) -> DatasetRegistry:
         """Register a new dataset.
 
         Parameters
@@ -208,7 +208,7 @@ class DatasetRegistry:
         name: str,
         normalisation: Normalisation | None = None,
         signal_type: SignalType | None = None,
-        reference_wavelengths: "np.ndarray | None" = None,  # type: ignore[name-defined]
+        reference_wavelengths: np.ndarray | None = None,  # type: ignore[name-defined]
     ) -> SpectralDataset:
         """Load a registered dataset.
 
@@ -243,7 +243,7 @@ class DatasetRegistry:
         self,
         names: list[str],
         normalisation: Normalisation | None = None,
-        reference_wavelengths: "np.ndarray | None" = None,  # type: ignore[name-defined]
+        reference_wavelengths: np.ndarray | None = None,  # type: ignore[name-defined]
     ) -> SpectralDataset:
         """Load and merge multiple registered datasets onto a common wavelength grid.
 
@@ -384,7 +384,7 @@ class DatasetRegistry:
         self._registry_path = path
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "DatasetRegistry":
+    def from_file(cls, path: str | Path) -> DatasetRegistry:
         """Load a registry from a JSON file.
 
         Parameters

@@ -118,8 +118,9 @@ def main():
                 }
             ]
 
-        from src.training.hyperparameter_sweep import sweep_hyperparameters
         import numpy as _np
+
+        from src.training.hyperparameter_sweep import sweep_hyperparameters
 
         sweep_datasets = []
         for ds in datasets:

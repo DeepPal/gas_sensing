@@ -35,10 +35,10 @@ Public API
 
 from __future__ import annotations
 
-import logging
-import warnings
 from dataclasses import dataclass, field
+import logging
 from typing import Any, cast
+import warnings
 
 import numpy as np
 from scipy.stats import pearsonr

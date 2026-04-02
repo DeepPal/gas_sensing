@@ -40,8 +40,8 @@ Quality metrics
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -194,7 +194,7 @@ class SensitivityMatrix:
         )
         return entry
 
-    def fit_from_dataframe(self, df: "pd.DataFrame") -> None:
+    def fit_from_dataframe(self, df: pd.DataFrame) -> None:
         """Fit the full S matrix from a calibration DataFrame.
 
         Expects columns: ``analyte``, ``concentration_ppm``,
@@ -361,7 +361,7 @@ class SensitivityMatrix:
         }, path)
 
     @classmethod
-    def load(cls, path: str) -> "SensitivityMatrix":
+    def load(cls, path: str) -> SensitivityMatrix:
         """Load from a .joblib file created by :meth:`save`."""
         import joblib
         state = joblib.load(path)
@@ -375,7 +375,7 @@ class SensitivityMatrix:
 
     def _is_fully_fitted(self) -> bool:
         """True if every (analyte, peak) combination has been fitted."""
-        for i, name in enumerate(self._analytes):
+        for _i, name in enumerate(self._analytes):
             for j in range(self._n_peaks):
                 if (name, j) not in self._fitted:
                     return False

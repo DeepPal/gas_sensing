@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — CI reliability, release integrity, and diagnostics (2026-04-02)
+- `.github/workflows/release.yml` — added Sigstore signing/verification coverage for release artifacts and hardened provenance checks in the release lane
+- `.github/workflows/quality.yml` — added flaky-test detection/reporting lane and surfaced reliability diagnostics in CI outputs
+- `scripts/detect_flaky_tests.py` — new reliability utility to detect repeated unstable tests from JUnit history and emit markdown/JUnit-friendly summaries
+- `scripts/generate_pr_comment.py` — new PR diagnostics helper that turns CI outcomes into actionable troubleshooting comments
+- `MANIFEST.in`, `pyproject.toml` — strengthened packaging hygiene to keep generated/non-distribution artifacts out of release wheels/sdists
+- `docs/guides/` and CI troubleshooting docs — expanded guidance for recurring workflow failures, release checks, and deployment smoke validation
+
 ### Fixed — Deployment contract and dashboard auth hardening (2026-04-01)
 - `Dockerfile` — fixed editable-install build path by copying the application tree before `pip install -e`, added an explicit `api` target, and kept `spectraagent` as the live-platform runtime target
 - `docker-compose.yml` — aligned the default deployment with the actual product architecture: `spectraagent` now runs on port `8765` with `/api/health`, while `dashboard` points users at the live platform URL via `SPECTRAAGENT_BASE_URL`

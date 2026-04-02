@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from typing import Any
 
 import numpy as np
@@ -22,7 +22,6 @@ import pytest
 mlflow = pytest.importorskip("mlflow", reason="mlflow not installed")
 
 from src.experiment_tracking import ExperimentTracker, _json_default, get_tracker
-
 
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
@@ -111,7 +110,7 @@ class TestExperimentTrackerInit:
         assert tracker.experiment_name == "My_Experiment"
 
     def test_creates_experiment_in_mlflow(self, tmp_path: Path) -> None:
-        tracker = _make_tracker(tmp_path, name="Ethanol_Experiment")
+        _make_tracker(tmp_path, name="Ethanol_Experiment")
         exp = mlflow.get_experiment_by_name("Ethanol_Experiment")
         assert exp is not None
 

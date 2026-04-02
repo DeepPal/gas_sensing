@@ -222,7 +222,7 @@ class EnvironmentalCompensator:
         }, path)
 
     @classmethod
-    def load(cls, path: str) -> "EnvironmentalCompensator":
+    def load(cls, path: str) -> EnvironmentalCompensator:
         import joblib
         state = joblib.load(path)
         obj = cls(state["n_peaks"], state["ref_temp"], state["ref_humidity"])

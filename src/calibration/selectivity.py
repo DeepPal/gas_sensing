@@ -28,9 +28,9 @@ Public API
 """
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from typing import Any
+import warnings
 
 import numpy as np
 from scipy.stats import linregress

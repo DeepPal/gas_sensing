@@ -2,15 +2,16 @@
 import numpy as np
 import pytest
 import torch
+
 from src.models.contrastive import (
     ContrastiveConfig,
     ContrastiveEncoder,
+    _ntxent_loss,
+    _supervised_contrastive_loss,
+    _triplet_loss,
     build_gallery,
     identify_analyte,
     train_contrastive,
-    _supervised_contrastive_loss,
-    _triplet_loss,
-    _ntxent_loss,
 )
 
 

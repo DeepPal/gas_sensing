@@ -1,6 +1,7 @@
 """Tests for src.features.cross_peak_features."""
 import numpy as np
 import pytest
+
 from src.features.cross_peak_features import (
     CrossPeakPCA,
     cosine_similarity_to_reference,
@@ -13,7 +14,6 @@ from src.features.cross_peak_features import (
     spectral_entropy,
     spectral_similarity_scores,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shift vector features

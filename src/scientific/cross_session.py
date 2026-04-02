@@ -34,13 +34,12 @@ Usage
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
+import math
 from typing import Optional
 
 import numpy as np
 from scipy import stats
-
 
 # ---------------------------------------------------------------------------
 # Input data model

@@ -35,9 +35,9 @@ Usage
 """
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Literal
+import warnings
 
 import numpy as np
 
@@ -171,14 +171,14 @@ class CrossDatasetBenchmark:
 
     def __init__(self, config: BenchmarkConfig | None = None) -> None:
         self.config = config or BenchmarkConfig()
-        self._configs: dict[str, "SpectralDataset"] = {}  # type: ignore[name-defined]
+        self._configs: dict[str, SpectralDataset] = {}  # type: ignore[name-defined]
         self._encoder: Callable | None = None  # optional pre-trained encoder
 
     def add_config(
         self,
         name: str,
-        dataset: "SpectralDataset",  # type: ignore[name-defined]
-    ) -> "CrossDatasetBenchmark":
+        dataset: SpectralDataset,  # type: ignore[name-defined]
+    ) -> CrossDatasetBenchmark:
         """Register a dataset from a specific sensor configuration.
 
         Parameters
@@ -191,7 +191,7 @@ class CrossDatasetBenchmark:
         self._configs[name] = dataset
         return self
 
-    def set_encoder(self, encoder: Callable) -> "CrossDatasetBenchmark":
+    def set_encoder(self, encoder: Callable) -> CrossDatasetBenchmark:
         """Optionally plug in a pre-trained encoder.
 
         The encoder must accept an ndarray of shape (N, n_wl) and return
@@ -261,7 +261,7 @@ class CrossDatasetBenchmark:
 
     def _prepare_dataset(
         self,
-        ds: "SpectralDataset",  # type: ignore[name-defined]
+        ds: SpectralDataset,  # type: ignore[name-defined]
         common_wl: np.ndarray | None,
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Align to common grid and extract features."""
@@ -297,7 +297,10 @@ class CrossDatasetBenchmark:
             pca = PCA(n_components=n_comp, random_state=self.config.seed)
             return pca.fit_transform(spectra)
         except ImportError:
-            warnings.warn("sklearn not available — using raw spectra as features.")
+            warnings.warn(
+                "sklearn not available — using raw spectra as features.",
+                stacklevel=2,
+            )
             return spectra
 
     def _evaluate_fold(
@@ -343,8 +346,8 @@ class CrossDatasetBenchmark:
         X_test: np.ndarray, y_test: np.ndarray,
     ) -> tuple[float, float]:
         try:
-            from sklearn.preprocessing import StandardScaler
             from sklearn.metrics import accuracy_score, balanced_accuracy_score
+            from sklearn.preprocessing import StandardScaler
 
             scaler = StandardScaler()
             Xt = scaler.fit_transform(X_train)
@@ -360,7 +363,8 @@ class CrossDatasetBenchmark:
 
             if mask_tr.sum() < 2 or mask_te.sum() < 1:
                 warnings.warn(
-                    "Not enough samples for classification in current fold"
+                    "Not enough samples for classification in current fold",
+                    stacklevel=2,
                 )
                 return float("nan"), float("nan")
 
@@ -371,7 +375,7 @@ class CrossDatasetBenchmark:
             return acc, bal
 
         except ImportError:
-            warnings.warn("sklearn required for classification benchmark.")
+            warnings.warn("sklearn required for classification benchmark.", stacklevel=2)
             return float("nan"), float("nan")
 
     def _regress(
@@ -380,8 +384,8 @@ class CrossDatasetBenchmark:
         X_test: np.ndarray, y_test: np.ndarray,
     ) -> tuple[float, float]:
         try:
-            from sklearn.preprocessing import StandardScaler
             from sklearn.metrics import mean_absolute_error, r2_score
+            from sklearn.preprocessing import StandardScaler
 
             # Drop NaN labels
             tr_mask = np.isfinite(y_train.astype(float))
@@ -401,7 +405,7 @@ class CrossDatasetBenchmark:
             return mae, r2
 
         except ImportError:
-            warnings.warn("sklearn required for regression benchmark.")
+            warnings.warn("sklearn required for regression benchmark.", stacklevel=2)
             return float("nan"), float("nan")
 
     def _silhouette(self, X: np.ndarray, y: np.ndarray) -> float:
@@ -417,9 +421,9 @@ class CrossDatasetBenchmark:
             return float("nan")
 
     def _build_classifier(self):
+        from sklearn.ensemble import RandomForestClassifier
         from sklearn.neighbors import KNeighborsClassifier
         from sklearn.svm import SVC
-        from sklearn.ensemble import RandomForestClassifier
         c = self.config.classifier
         if c == "knn":
             return KNeighborsClassifier(n_neighbors=3, metric="cosine")
@@ -441,7 +445,7 @@ class CrossDatasetBenchmark:
 # ---------------------------------------------------------------------------
 
 def run_benchmark(
-    configs: dict[str, "SpectralDataset"],  # type: ignore[name-defined]
+    configs: dict[str, SpectralDataset],  # type: ignore[name-defined]
     task: Literal["classification", "regression"] = "classification",
     encoder: Callable | None = None,
     **kwargs,

@@ -519,9 +519,9 @@ def compute_comprehensive_sensor_characterization(
         ``loq_ppm_ci_lower``, ``loq_ppm_ci_upper``.
     """
     from src.scientific.lod import (
-        calculate_sensitivity,
         calculate_lod_3sigma,
         calculate_loq_10sigma,
+        calculate_sensitivity,
         lod_bootstrap_ci,
         mandel_linearity_test,
     )

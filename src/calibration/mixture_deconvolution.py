@@ -29,12 +29,12 @@ Physical assumptions
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import numpy as np
-from scipy.optimize import minimize, OptimizeResult
+from scipy.optimize import OptimizeResult, minimize
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class LinearDeconvolver:
         self._S_pinv = np.linalg.pinv(self._S.T)  # (N, M)
 
     @classmethod
-    def from_sensitivity_matrix(cls, sm: object) -> "LinearDeconvolver":
+    def from_sensitivity_matrix(cls, sm: object) -> LinearDeconvolver:
         """Construct from a fitted :class:`~src.calibration.sensitivity_matrix.SensitivityMatrix`."""
         return cls(sm._analytes, sm.matrix)  # type: ignore[attr-defined]
 
@@ -231,7 +231,7 @@ class LangmuirDeconvolver:
         sm: object,
         Kd: np.ndarray | None = None,
         **kwargs: Any,
-    ) -> "LangmuirDeconvolver":
+    ) -> LangmuirDeconvolver:
         """Construct from a fitted SensitivityMatrix."""
         return cls(sm._analytes, sm.matrix, Kd=Kd, **kwargs)  # type: ignore[attr-defined]
 

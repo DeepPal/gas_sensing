@@ -1,6 +1,7 @@
 """Tests for ci_low/ci_high fields and CalibrationStage.set_gpr()."""
 import numpy as np
 import pytest
+
 from src.inference.realtime_pipeline import (
     CalibrationStage,
     PipelineConfig,

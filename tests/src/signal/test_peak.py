@@ -2,8 +2,7 @@
 import numpy as np
 import pytest
 
-from src.signal.peak import gaussian_peak_center, lorentzian_peak_center, estimate_shift_crosscorr
-
+from src.signal.peak import estimate_shift_crosscorr, gaussian_peak_center, lorentzian_peak_center
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

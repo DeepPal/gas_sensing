@@ -48,11 +48,11 @@ Usage
 """
 from __future__ import annotations
 
-import re
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Literal
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -122,7 +122,7 @@ class SpectralDataset:
     def wl_range(self) -> tuple[float, float]:
         return float(self.wavelengths[0]), float(self.wavelengths[-1])
 
-    def subset(self, mask: np.ndarray) -> "SpectralDataset":
+    def subset(self, mask: np.ndarray) -> SpectralDataset:
         """Return a new dataset containing only rows where mask is True."""
         idx = np.where(mask)[0]
         return SpectralDataset(
@@ -139,13 +139,12 @@ class SpectralDataset:
         )
 
     def split(self, test_fraction: float = 0.2, seed: int = 42
-              ) -> tuple["SpectralDataset", "SpectralDataset"]:
+              ) -> tuple[SpectralDataset, SpectralDataset]:
         """Random train/test split."""
         rng = np.random.default_rng(seed)
         n = self.n_samples
         idx = rng.permutation(n)
         n_test = max(1, int(n * test_fraction))
-        test_idx = idx[:n_test]
         train_idx = idx[n_test:]
         train_mask = np.zeros(n, dtype=bool)
         train_mask[train_idx] = True
@@ -270,7 +269,7 @@ def _load_directory(
         try:
             wl, sig, stype, meta = _read_spectrum_csv(fpath, signal_type)
         except Exception as exc:
-            warnings.warn(f"Skipping {fpath.name}: {exc}")
+            warnings.warn(f"Skipping {fpath.name}: {exc}", stacklevel=2)
             continue
 
         conc = _infer_concentration(fpath)
@@ -490,7 +489,7 @@ def _find_wavelength_column(df: pd.DataFrame) -> str | None:
     # Fall back: first numeric column with values suggesting nm range (100–2500)
     for c in df.select_dtypes(include=[np.number]).columns:
         vals = df[c].dropna().values
-        if len(vals) > 10 and 100 <= vals.min() and vals.max() <= 2500:
+        if len(vals) > 10 and vals.min() >= 100 and vals.max() <= 2500:
             return str(c)
     return None
 
@@ -528,7 +527,7 @@ def _is_wide_format(df: pd.DataFrame) -> bool:
         return False
     try:
         vals = [float(c) for c in df.columns]
-        return 100 <= min(vals) and max(vals) <= 2500
+        return min(vals) >= 100 and max(vals) <= 2500
     except (ValueError, TypeError):
         return False
 
@@ -547,7 +546,7 @@ def _is_timeseries_feature_file(path: Path) -> bool:
 
 def _is_spectrum_file(path: Path) -> bool:
     """Return True if this CSV appears to be a spectrum file (not features)."""
-    if not path.suffix.lower() == ".csv":
+    if path.suffix.lower() != ".csv":
         return False
     return not _is_timeseries_feature_file(path)
 

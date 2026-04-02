@@ -68,10 +68,9 @@ from __future__ import annotations
 
 import logging
 import math
-import time
 from typing import Any, Callable, Optional
 
-from spectraagent.webapp.agents.claude_agents import _BaseClaude, _DEFAULT_MODEL, _DEFAULT_TIMEOUT_S
+from spectraagent.webapp.agents.claude_agents import _DEFAULT_MODEL, _DEFAULT_TIMEOUT_S, _BaseClaude
 
 log = logging.getLogger(__name__)
 

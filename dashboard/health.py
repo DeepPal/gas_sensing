@@ -14,12 +14,12 @@ Health checks include:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
+from pathlib import Path
 import platform
 import shutil
-from datetime import datetime, timezone
-from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class HealthCheck:
                 f.write("")  # Empty write to check permissions
             healthy = True
             status = "OK"
-        except (PermissionError, IOError) as e:
+        except (OSError, PermissionError) as e:
             healthy = False
             status = f"NOT WRITABLE: {e}"
 
@@ -169,7 +169,7 @@ class HealthCheck:
 def startup_check() -> bool:
     """
     Run health checks on startup. Log warnings for any issues.
-    
+
     Returns
     -------
     bool

@@ -4,8 +4,8 @@ Unit tests for spectraagent.knowledge.sensor_memory.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -14,7 +14,6 @@ from spectraagent.knowledge.sensor_memory import (
     FailureEvent,
     SensorMemory,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

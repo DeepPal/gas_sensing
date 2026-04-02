@@ -2,10 +2,11 @@
 tests/test_dashboard_auth.py - Unit tests for dashboard authentication
 """
 
-import pytest
-import tempfile
 from pathlib import Path
+import tempfile
 from unittest.mock import patch
+
+import pytest
 
 
 class TestAuthModule:
@@ -48,21 +49,22 @@ class TestAuthModule:
             pwd_file.write_text(password_hash, encoding="utf-8")
 
             # Mock Path.home() to return our temp directory
-            with patch("dashboard.auth.Path.home", return_value=Path(tmpdir)):
-                with patch.dict("os.environ", {}, clear=True):
-                    result = _get_stored_password()
-                    assert result == password_hash
+            with patch("dashboard.auth.Path.home", return_value=Path(tmpdir)), patch.dict(
+                "os.environ", {}, clear=True
+            ):
+                result = _get_stored_password()
+                assert result == password_hash
 
     def test_password_fallback(self):
         """Test missing password configuration returns None."""
         from dashboard.auth import _get_stored_password
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "dashboard.auth.Path.home", return_value=Path(tmpdir)
+        ), patch.dict("os.environ", {}, clear=True):
             # Mock Path.home() to return a directory with no password file
-            with patch("dashboard.auth.Path.home", return_value=Path(tmpdir)):
-                with patch.dict("os.environ", {}, clear=True):
-                    result = _get_stored_password()
-                    assert result is None
+            result = _get_stored_password()
+            assert result is None
 
     def test_verify_password_with_pbkdf2_hash(self):
         """Verify login validation against PBKDF2 verifier strings."""
@@ -126,8 +128,9 @@ class TestHealthCheckModule:
 
     def test_health_check_serialization(self):
         """Test health status can be serialized to JSON."""
-        from dashboard.health import HealthCheck
         import json
+
+        from dashboard.health import HealthCheck
 
         hc = HealthCheck()
         json_str = hc.to_json()

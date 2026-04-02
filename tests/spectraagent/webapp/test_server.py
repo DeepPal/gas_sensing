@@ -442,6 +442,7 @@ def test_ask_rate_limit_returns_429(client):
 def test_report_rate_limit_returns_429(client):
     """POST /api/reports/generate returns 429 after exceeding the per-minute limit."""
     from unittest.mock import AsyncMock, MagicMock
+
     import spectraagent.webapp.server as srv
 
     tight = _RateLimiter(max_calls=1, window_s=60)

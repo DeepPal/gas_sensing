@@ -23,9 +23,9 @@ from src.io.hdf5 import (
 )
 from src.io.universal_loader import (
     SpectralDataset,
+    list_sessions,
     load_dataset,
     load_session_csv,
-    list_sessions,
     load_timeseries_features,
     merge_datasets,
 )

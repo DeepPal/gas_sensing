@@ -29,8 +29,8 @@ This produces training diversity that improves sim→real transfer.
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
+import logging
 from typing import Any
 
 import numpy as np

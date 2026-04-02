@@ -74,6 +74,7 @@ install instructions if it is not present.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import logging
@@ -264,10 +265,8 @@ class ArchiveWriter:
         # Extra metadata dict
         meta = getattr(frame, "metadata", {}) or {}
         if meta:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 grp.attrs["metadata_json"] = json.dumps(meta)
-            except (TypeError, ValueError):
-                pass
 
         self._frame_count += 1
         log.debug("ArchiveWriter: added frame %s (total=%d)", key, self._frame_count)
@@ -370,10 +369,8 @@ class ArchiveWriter:
             for k in scalar_keys:
                 v = fit_result.get(k)
                 if v is not None:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         grp.attrs[k] = float(v)
-                    except (TypeError, ValueError):
-                        pass
 
             # Full dict — JSON for lossless round-trip
             try:
@@ -454,7 +451,7 @@ class ArchiveWriter:
         self._file.close()
         log.info("ArchiveWriter: closed %s (%d frames)", self._path, self._frame_count)
 
-    def __enter__(self) -> "ArchiveWriter":
+    def __enter__(self) -> ArchiveWriter:
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -549,10 +546,8 @@ class ArchiveReader:
 
             # Deserialise extra metadata
             if "metadata_json" in grp.attrs:
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     frame["metadata"] = json.loads(grp.attrs["metadata_json"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             frames.append(frame)
 
@@ -616,10 +611,8 @@ class ArchiveReader:
                 result[attr] = float(grp.attrs[attr])
 
         if "fit_result_json" in grp.attrs:
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 result["fit_result"] = json.loads(grp.attrs["fit_result_json"])
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         return result
 
@@ -659,7 +652,7 @@ class ArchiveReader:
         self._file.close()
         log.debug("ArchiveReader: closed %s", self._path)
 
-    def __enter__(self) -> "ArchiveReader":
+    def __enter__(self) -> ArchiveReader:
         return self
 
     def __exit__(self, *args: Any) -> None:

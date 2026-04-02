@@ -98,9 +98,8 @@ class SimulationDriver(AbstractHardwareDriver):
         # Build simulator
         try:
             from src.simulation.gas_response import (
-                SensorConfig,
-                make_single_peak_sensor,
                 make_analyte,
+                make_single_peak_sensor,
             )
             if sensor_config is not None:
                 cfg = sensor_config  # type: ignore[assignment]

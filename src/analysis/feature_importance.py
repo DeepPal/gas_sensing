@@ -41,7 +41,6 @@ Usage
 """
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -80,8 +79,8 @@ class WavelengthBand:
 # ---------------------------------------------------------------------------
 
 def gradient_attribution(
-    model: "torch.nn.Module",          # type: ignore[name-defined]
-    spectra: "np.ndarray",             # (N, n_wl) or (n_wl,)  # type: ignore[name-defined]
+    model: torch.nn.Module,          # type: ignore[name-defined]
+    spectra: np.ndarray,             # (N, n_wl) or (n_wl,)  # type: ignore[name-defined]
     target_class: int | None = None,   # class index; None → regression output
     target_index: int = 0,             # output index for multi-output regression
     batch_size: int = 32,
@@ -168,9 +167,9 @@ def gradient_attribution(
 # ---------------------------------------------------------------------------
 
 def integrated_gradients(
-    model: "torch.nn.Module",      # type: ignore[name-defined]
-    spectra: "np.ndarray",         # (N, n_wl)  # type: ignore[name-defined]
-    baseline: "np.ndarray | None" = None,  # (n_wl,) or (N, n_wl)  # type: ignore[name-defined]
+    model: torch.nn.Module,      # type: ignore[name-defined]
+    spectra: np.ndarray,         # (N, n_wl)  # type: ignore[name-defined]
+    baseline: np.ndarray | None = None,  # (n_wl,) or (N, n_wl)  # type: ignore[name-defined]
     target_class: int | None = None,
     n_steps: int = 50,
     batch_size: int = 16,
@@ -254,9 +253,9 @@ def integrated_gradients(
 # ---------------------------------------------------------------------------
 
 def shap_attribution(
-    model: "torch.nn.Module",             # type: ignore[name-defined]
-    background_spectra: "np.ndarray",     # (K, n_wl) — reference distribution  # type: ignore[name-defined]
-    query_spectra: "np.ndarray",          # (N, n_wl) — spectra to explain  # type: ignore[name-defined]
+    model: torch.nn.Module,             # type: ignore[name-defined]
+    background_spectra: np.ndarray,     # (K, n_wl) — reference distribution  # type: ignore[name-defined]
+    query_spectra: np.ndarray,          # (N, n_wl) — spectra to explain  # type: ignore[name-defined]
     target_class: int | None = None,
     device: str | None = None,
     max_evals: int = 500,
@@ -324,14 +323,14 @@ def shap_attribution(
 # ---------------------------------------------------------------------------
 
 def plot_wavelength_importance(
-    wavelengths: "np.ndarray",        # (n_wl,)  # type: ignore[name-defined]
-    importance: "np.ndarray",         # (n_wl,)  # type: ignore[name-defined]
+    wavelengths: np.ndarray,        # (n_wl,)  # type: ignore[name-defined]
+    importance: np.ndarray,         # (n_wl,)  # type: ignore[name-defined]
     title: str = "Wavelength Importance",
-    spectrum: "np.ndarray | None" = None,  # (n_wl,) optional overlay  # type: ignore[name-defined]
+    spectrum: np.ndarray | None = None,  # (n_wl,) optional overlay  # type: ignore[name-defined]
     top_n_bands: int = 3,
     band_width_nm: float = 20.0,
     height: int = 400,
-) -> "plotly.graph_objects.Figure":  # type: ignore[name-defined]
+) -> plotly.graph_objects.Figure:  # type: ignore[name-defined]
     """Interactive Plotly figure showing per-wavelength feature importance.
 
     Optionally overlays a representative spectrum (on a secondary y-axis)
@@ -347,7 +346,6 @@ def plot_wavelength_importance(
     """
     try:
         import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
     except ImportError as e:
         raise ImportError("plotly required: pip install plotly") from e
 
@@ -473,9 +471,9 @@ def top_wavelength_bands(
 # ---------------------------------------------------------------------------
 
 def _get_model_output(
-    model: "torch.nn.Module",  # type: ignore[name-defined]
-    x: "torch.Tensor",         # type: ignore[name-defined]
-) -> "torch.Tensor":           # type: ignore[name-defined]
+    model: torch.nn.Module,  # type: ignore[name-defined]
+    x: torch.Tensor,         # type: ignore[name-defined]
+) -> torch.Tensor:           # type: ignore[name-defined]
     """Get a plain tensor from a model forward call.
 
     Handles both plain tensor outputs and dataclass outputs (MultiTaskOutput).

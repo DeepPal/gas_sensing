@@ -14,7 +14,6 @@ import tempfile
 
 from dashboard.reproducibility import ReproducibilityManifest, verify_manifest_artifacts
 
-
 REQUIRED_TOP_LEVEL_KEYS = {
     "session_id",
     "timestamp",

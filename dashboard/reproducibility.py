@@ -15,13 +15,13 @@ This ensures every result can be traced back to exact code, config, and data.
 
 from __future__ import annotations
 
-import json
-import logging
-import platform
-import subprocess
 from datetime import datetime, timezone
 import hashlib
+import json
+import logging
 from pathlib import Path
+import platform
+import subprocess
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 class ReproducibilityManifest:
     """
     Scientific reproducibility manifest for a gas sensing session.
-    
+
     Captures all information needed to reproduce an experiment exactly.
     """
 
@@ -163,12 +163,12 @@ class ReproducibilityManifest:
     def save(self, output_dir: Path) -> Path:
         """
         Save manifest to a JSON file.
-        
+
         Parameters
         ----------
         output_dir : Path
             Directory where manifest will be saved
-        
+
         Returns
         -------
         Path
@@ -240,14 +240,14 @@ def verify_manifest_artifacts(manifest_path: Path) -> tuple[bool, list[str]]:
 def create_session_manifest(session_id: str, output_dir: Path) -> Path:
     """
     Convenience function to create and save a manifest.
-    
+
     Parameters
     ----------
     session_id : str
         Unique session identifier
     output_dir : Path
         Where to save the manifest
-    
+
     Returns
     -------
     Path

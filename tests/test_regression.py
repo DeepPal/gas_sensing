@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
-from typing import cast
 
 from src.scientific.regression import ransac, theil_sen, weighted_linear
 

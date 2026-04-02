@@ -15,7 +15,6 @@ import platform
 import subprocess
 import sys
 
-
 INTERESTING_ENV = [
     "GITHUB_WORKFLOW",
     "GITHUB_JOB",

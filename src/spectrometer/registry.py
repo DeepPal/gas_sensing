@@ -30,7 +30,7 @@ Registering custom drivers
 from __future__ import annotations
 
 import logging
-from typing import Any, Type
+from typing import Any
 
 from src.spectrometer.base import AbstractSpectrometer
 
@@ -48,7 +48,7 @@ class SpectrometerRegistry:
     ``_drivers``.  Keys are lowercase string aliases.
     """
 
-    _drivers: dict[str, Type[AbstractSpectrometer]] = {}
+    _drivers: dict[str, type[AbstractSpectrometer]] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -77,7 +77,7 @@ class SpectrometerRegistry:
             class USB2000Driver(AbstractSpectrometer):
                 ...
         """
-        def decorator(driver_cls: Type[AbstractSpectrometer]) -> Type[AbstractSpectrometer]:
+        def decorator(driver_cls: type[AbstractSpectrometer]) -> type[AbstractSpectrometer]:
             key = alias.lower()
             if key in cls._drivers:
                 log.warning(
@@ -93,7 +93,7 @@ class SpectrometerRegistry:
     def register_driver(
         cls,
         alias: str,
-        driver_cls: Type[AbstractSpectrometer],
+        driver_cls: type[AbstractSpectrometer],
     ) -> None:
         """Imperative alternative to the :meth:`register` decorator."""
         cls._drivers[alias.lower()] = driver_cls

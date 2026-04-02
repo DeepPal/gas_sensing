@@ -1,8 +1,10 @@
 """Tests for ExperimentPlannerAgent with BayesianExperimentDesigner."""
-import pytest
 from unittest.mock import MagicMock
-from spectraagent.webapp.agents.planner import ExperimentPlannerAgent
+
+import pytest
+
 from spectraagent.webapp.agent_bus import AgentBus
+from spectraagent.webapp.agents.planner import ExperimentPlannerAgent
 
 
 def _make_bus():

@@ -27,15 +27,13 @@ Design principles
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
-from spectraagent.knowledge.analytes import lookup_analyte, format_analyte_chemistry_brief
+from spectraagent.knowledge.analytes import format_analyte_chemistry_brief, lookup_analyte
 from spectraagent.knowledge.failure_modes import (
-    match_failure_modes,
     format_candidate_modes_for_prompt,
+    match_failure_modes,
 )
-from spectraagent.knowledge.protocols import ICH_Q2_PROTOCOL
 
 if TYPE_CHECKING:
     from spectraagent.knowledge.sensor_memory import SensorMemory
@@ -107,7 +105,7 @@ def build_sensor_physics_preamble(sensor_type: str = "optical") -> str:
 def build_anomaly_context(
     event_data: dict[str, Any],
     analyte_name: Optional[str],
-    memory: Optional["SensorMemory"],
+    memory: Optional[SensorMemory],
     sensor_type: str = "optical",
 ) -> str:
     """Build comprehensive context for AnomalyExplainer agent.
@@ -190,7 +188,7 @@ def build_anomaly_context(
 def build_calibration_narration_context(
     calibration_data: dict[str, Any],
     analyte_name: Optional[str],
-    memory: Optional["SensorMemory"],
+    memory: Optional[SensorMemory],
 ) -> str:
     """Build context for ExperimentNarrator agent.
 
@@ -287,7 +285,7 @@ def build_calibration_narration_context(
 def build_report_context(
     session_context: dict[str, Any],
     analyte_name: Optional[str],
-    memory: Optional["SensorMemory"],
+    memory: Optional[SensorMemory],
 ) -> str:
     """Build context for ReportWriter agent (Methods + Results).
 
@@ -333,7 +331,6 @@ def build_hardware_diagnostics_context(error_data: dict[str, Any]) -> str:
     spectrometer error codes and patterns.
     """
     code = str(error_data.get("error_code", "unknown"))
-    model = str(error_data.get("hardware_model", "spectrometer"))
 
     # Known error codes for common hardware — expandable
     known_codes: dict[str, str] = {

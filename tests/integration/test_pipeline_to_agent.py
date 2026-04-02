@@ -5,8 +5,8 @@ import pytest
 
 def test_conformal_intervals_are_finite_and_ordered():
     """Full path: GPR fit → conformal calibrate → predict interval."""
-    from src.calibration.gpr import GPRCalibration
     from src.calibration.conformal import ConformalCalibrator
+    from src.calibration.gpr import GPRCalibration
 
     np.random.seed(123)
     n = 40
@@ -66,8 +66,8 @@ def test_session_analyzer_produces_valid_lod():
 
 def test_bayesian_designer_and_physics_gpr_together():
     """BayesianExperimentDesigner with PhysicsInformedGPR suggests valid concentrations."""
-    from src.calibration.physics_kernel import PhysicsInformedGPR
     from src.calibration.active_learning import BayesianExperimentDesigner
+    from src.calibration.physics_kernel import PhysicsInformedGPR
 
     np.random.seed(0)
     concs = np.array([0.5, 1.0, 2.0])
@@ -84,7 +84,7 @@ def test_bayesian_designer_and_physics_gpr_together():
 def test_full_pipeline_with_conformal_stage():
     """RealTimePipeline with set_gpr populates ci_low/ci_high on a real frame."""
     from src.calibration.gpr import GPRCalibration
-    from src.inference.realtime_pipeline import RealTimePipeline, PipelineConfig
+    from src.inference.realtime_pipeline import PipelineConfig, RealTimePipeline
 
     np.random.seed(5)
     n = 15

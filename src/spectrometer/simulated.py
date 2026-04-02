@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import datetime
 import math
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import numpy as np
 

@@ -1,11 +1,12 @@
 """Tests for src.io.dataset_registry — unified multi-dataset registry."""
 import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
-from src.io.dataset_registry import DatasetEntry, DatasetRegistry
 
+from src.io.dataset_registry import DatasetEntry, DatasetRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures

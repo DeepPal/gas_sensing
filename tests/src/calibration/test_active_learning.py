@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from src.calibration.active_learning import BayesianExperimentDesigner
 
 

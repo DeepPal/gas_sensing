@@ -11,9 +11,10 @@ Unit tests for src.calibration.isotherms:
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
-from typing import cast
 
 from src.calibration.isotherms import (
     IsothermResult,

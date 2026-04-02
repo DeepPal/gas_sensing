@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from src.training.hyperparameter_sweep import _expand_grid, sweep_hyperparameters
 
 

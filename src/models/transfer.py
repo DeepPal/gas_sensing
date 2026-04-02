@@ -56,6 +56,7 @@ import torch.nn.functional as F
 
 if TYPE_CHECKING:
     import numpy as np
+
     from src.models.multi_task import MultiTaskModel
 
 __all__ = [
@@ -160,10 +161,8 @@ class DomainAdaptModel(nn.Module):
         if cfg.input_dim > 512:
             self.input_proj: nn.Module = nn.Sequential(
                 nn.Linear(cfg.input_dim, 512), nn.GELU())
-            enc_in = 512
         else:
             self.input_proj = nn.Identity()
-            enc_in = cfg.input_dim
 
         # Simple GRU encoder
         self.proj_in = nn.Linear(1, cfg.hidden_dim // 2)
@@ -320,7 +319,7 @@ class DomainAdaptModel(nn.Module):
         return total, breakdown
 
     @torch.no_grad()
-    def embed_numpy(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def embed_numpy(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Encode numpy spectra to features."""
         import numpy as np
         device = next(self.parameters()).device
@@ -333,10 +332,10 @@ class DomainAdaptModel(nn.Module):
 # ---------------------------------------------------------------------------
 
 def fine_tune(
-    model: "MultiTaskModel",   # type: ignore[name-defined]
-    spectra: "np.ndarray",     # type: ignore[name-defined]
-    analyte_labels: "np.ndarray | None" = None,
-    concentrations: "np.ndarray | None" = None,
+    model: MultiTaskModel,   # type: ignore[name-defined]
+    spectra: np.ndarray,     # type: ignore[name-defined]
+    analyte_labels: np.ndarray | None = None,
+    concentrations: np.ndarray | None = None,
     n_epochs: int = 50,
     batch_size: int = 32,
     lr: float = 5e-4,
@@ -362,6 +361,7 @@ def fine_tune(
     """
     import numpy as np
     from torch.utils.data import DataLoader, TensorDataset
+
     from src.models.multi_task import MultiTaskTargets
 
     if device is None:
@@ -440,10 +440,10 @@ def fine_tune(
 
 def train_domain_adapt(
     model: DomainAdaptModel,
-    source_spectra: "np.ndarray",          # (N_s, input_dim)  # type: ignore[name-defined]
-    source_labels: "np.ndarray | None" = None,   # (N_s,) int  # type: ignore[name-defined]
-    source_conc: "np.ndarray | None" = None,      # (N_s,) float  # type: ignore[name-defined]
-    target_spectra: "np.ndarray | None" = None,   # (N_t, input_dim) — unlabelled  # type: ignore[name-defined]
+    source_spectra: np.ndarray,          # (N_s, input_dim)  # type: ignore[name-defined]
+    source_labels: np.ndarray | None = None,   # (N_s,) int  # type: ignore[name-defined]
+    source_conc: np.ndarray | None = None,      # (N_s,) float  # type: ignore[name-defined]
+    target_spectra: np.ndarray | None = None,   # (N_t, input_dim) — unlabelled  # type: ignore[name-defined]
     n_epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-3,
@@ -571,8 +571,8 @@ def train_domain_adapt(
 
 def evaluate_transfer(
     model: DomainAdaptModel,
-    test_spectra: "np.ndarray",       # (N, input_dim)  # type: ignore[name-defined]
-    test_labels: "np.ndarray",        # (N,) int  # type: ignore[name-defined]
+    test_spectra: np.ndarray,       # (N, input_dim)  # type: ignore[name-defined]
+    test_labels: np.ndarray,        # (N,) int  # type: ignore[name-defined]
     device: str | None = None,
 ) -> dict[str, float]:
     """Evaluate analyte classification accuracy on a test set.

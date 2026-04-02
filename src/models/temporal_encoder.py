@@ -50,7 +50,6 @@ Usage
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -335,8 +334,8 @@ class TemporalEncoder(nn.Module):
 
     @torch.no_grad()
     def encode_numpy(
-        self, sequences: "np.ndarray"  # type: ignore[name-defined]
-    ) -> "np.ndarray":  # type: ignore[name-defined]
+        self, sequences: np.ndarray  # type: ignore[name-defined]
+    ) -> np.ndarray:  # type: ignore[name-defined]
         """Encode numpy sequences → numpy temporal feature matrix.
 
         Parameters
@@ -360,9 +359,9 @@ class TemporalEncoder(nn.Module):
 
 def train_temporal_encoder(
     model: TemporalEncoder,
-    sequences: "np.ndarray",        # (N, T, D)  # type: ignore[name-defined]
-    concentrations: "np.ndarray | None" = None,   # (N,) # type: ignore[name-defined]
-    analyte_labels: "np.ndarray | None" = None,   # (N,) # type: ignore[name-defined]
+    sequences: np.ndarray,        # (N, T, D)  # type: ignore[name-defined]
+    concentrations: np.ndarray | None = None,   # (N,) # type: ignore[name-defined]
+    analyte_labels: np.ndarray | None = None,   # (N,) # type: ignore[name-defined]
     n_epochs: int = 100,
     batch_size: int = 16,
     lr: float = 1e-3,

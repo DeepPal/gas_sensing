@@ -123,7 +123,7 @@ class _ProjectionMLP(nn.Module):
         super().__init__()
         layers: list[nn.Module] = []
         in_dim = input_dim
-        for i in range(n_layers - 1):
+        for _ in range(n_layers - 1):
             layers += [
                 nn.Linear(in_dim, hidden_dim),
                 nn.BatchNorm1d(hidden_dim),
@@ -257,7 +257,7 @@ class ContrastiveEncoder(nn.Module):
             return [[gallery_labels[i] for i in row] for row in topk_idx]
 
     @torch.no_grad()
-    def embed_numpy(self, spectra: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined]
+    def embed_numpy(self, spectra: np.ndarray) -> np.ndarray:  # type: ignore[name-defined]
         """Embed numpy spectra → numpy embedding matrix.
 
         Parameters
@@ -325,10 +325,7 @@ def _triplet_loss(
     margin: float,
 ) -> torch.Tensor:
     """Batch hard triplet loss with hardest positive and hardest negative mining."""
-    B = z.shape[0]
-    device = z.device
-
-    # Pairwise squared L2 distances
+    # Pairwise squared L2 distances  (B = z.shape[0])
     dist = torch.cdist(z, z, p=2)  # (B, B)
 
     labels_col = labels.unsqueeze(1)
@@ -387,7 +384,7 @@ def _ntxent_loss(
 
 def build_gallery(
     model: ContrastiveEncoder,
-    spectra: "np.ndarray",  # type: ignore[name-defined]
+    spectra: np.ndarray,  # type: ignore[name-defined]
     labels: list[Any],
 ) -> tuple[torch.Tensor, list[Any]]:
     """Build a reference gallery by encoding labelled reference spectra.
@@ -414,7 +411,7 @@ def build_gallery(
 
 def identify_analyte(
     model: ContrastiveEncoder,
-    query_spectra: "np.ndarray",  # type: ignore[name-defined]
+    query_spectra: np.ndarray,  # type: ignore[name-defined]
     gallery_embeddings: torch.Tensor,
     gallery_labels: list[Any],
     top_k: int = 1,
@@ -449,8 +446,8 @@ def identify_analyte(
 
 def train_contrastive(
     model: ContrastiveEncoder,
-    spectra: "np.ndarray",  # type: ignore[name-defined]
-    labels: "np.ndarray",   # type: ignore[name-defined]
+    spectra: np.ndarray,  # type: ignore[name-defined]
+    labels: np.ndarray,   # type: ignore[name-defined]
     n_epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-3,

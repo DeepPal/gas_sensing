@@ -23,10 +23,10 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
-from typing import Any, cast
 
 # ── project root ──────────────────────────────────────────────────────────────
 import sys
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -73,7 +73,10 @@ except Exception:
             baseline_correction,
             normalize_spectrum,
         )
-        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum  # type: ignore[assignment]
+        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
+            als_baseline,
+            smooth_spectrum,
+        )
         from src.preprocessing.quality import compute_snr, estimate_noise_metrics
 
         _SP_AVAILABLE = True
@@ -100,7 +103,11 @@ except Exception:
 # ── LOD / kinetics ────────────────────────────────────────────────────────────
 try:
     from src.reporting.metrics import compute_comprehensive_sensor_characterization
-    from src.scientific.lod import calculate_lod_3sigma, calculate_loq_10sigma, calculate_sensitivity
+    from src.scientific.lod import (
+        calculate_lod_3sigma,
+        calculate_loq_10sigma,
+        calculate_sensitivity,
+    )
 
     _LOD_AVAILABLE = True
 except Exception:
@@ -812,7 +819,7 @@ def render() -> None:
                 for d in joy_root.iterdir() if d.is_dir()
             }
             st.caption(
-                f"**Joy_Data** contains: "
+                "**Joy_Data** contains: "
                 + " | ".join(f"{g} ({_joy_counts.get(g,0)} CSVs)" for g in _joy_gases[:6])
                 + (" | ..." if len(_joy_gases) > 6 else "")
             )
@@ -1725,6 +1732,7 @@ def render() -> None:
                 elif "PLS" in model_type:
                     try:
                         import pickle
+
                         from src.calibration.pls import PLSCalibration
 
                         y_arr_pls = np.array(y_concs, dtype=float)
@@ -2453,6 +2461,7 @@ def render() -> None:
                     # Store calibration spectra as frames
                     for _i, _it in enumerate(_pp_arc):
                         import datetime as _dt
+
                         from src.spectrometer.base import SpectralFrame
                         _mc = re.search(r"([\d.]+)ppm", _it.get("label", ""))
                         _c = float(_mc.group(1)) if _mc else None
@@ -2523,8 +2532,8 @@ def render() -> None:
             try:
                 from src.reporting.publication import (
                     save_calibration_figure,
-                    save_spectral_overlay_figure,
                     save_pls_diagnostics_figure,
+                    save_spectral_overlay_figure,
                 )
 
                 fig_dir = _REPO / "output" / "figures"

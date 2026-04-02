@@ -25,15 +25,20 @@ context_builders
     Functions that select and format relevant knowledge for agent prompts,
     adapting the depth and focus based on the specific measurement context.
 """
-from spectraagent.knowledge.analytes import AnalyteProperties, ANALYTE_REGISTRY, lookup_analyte
-from spectraagent.knowledge.failure_modes import FailureMode, FAILURE_TAXONOMY, match_failure_modes
-from spectraagent.knowledge.protocols import ValidationRequirement, ICH_Q2_PROTOCOL, ValidationTracker, ValidationStatus
+from spectraagent.knowledge.analytes import ANALYTE_REGISTRY, AnalyteProperties, lookup_analyte
 from spectraagent.knowledge.context_builders import (
     build_anomaly_context,
     build_calibration_narration_context,
-    build_report_context,
     build_hardware_diagnostics_context,
+    build_report_context,
     build_sensor_physics_preamble,
+)
+from spectraagent.knowledge.failure_modes import FAILURE_TAXONOMY, FailureMode, match_failure_modes
+from spectraagent.knowledge.protocols import (
+    ICH_Q2_PROTOCOL,
+    ValidationRequirement,
+    ValidationStatus,
+    ValidationTracker,
 )
 
 __all__ = [

@@ -2,15 +2,15 @@
 import numpy as np
 import pytest
 import torch
+
 from src.models.transfer import (
     DomainAdaptConfig,
     DomainAdaptModel,
-    fine_tune,
-    train_domain_adapt,
     evaluate_transfer,
+    fine_tune,
     grad_reverse,
+    train_domain_adapt,
 )
-
 
 # ---------------------------------------------------------------------------
 # Gradient Reversal Layer
@@ -181,7 +181,7 @@ class TestTrainDomainAdapt:
 
 class TestFineTune:
     def test_fine_tune_runs(self):
-        from src.models.multi_task import MultiTaskModel, MultiTaskConfig
+        from src.models.multi_task import MultiTaskConfig, MultiTaskModel
         cfg = MultiTaskConfig(input_dim=8, embed_dim=8, hidden_dim=16,
                               n_layers=1, n_analytes=2)
         m = MultiTaskModel(cfg)
@@ -191,7 +191,7 @@ class TestFineTune:
         assert len(hist["train_loss"]) == 5
 
     def test_fine_tune_freezes_encoder(self):
-        from src.models.multi_task import MultiTaskModel, MultiTaskConfig
+        from src.models.multi_task import MultiTaskConfig, MultiTaskModel
         cfg = MultiTaskConfig(input_dim=8, embed_dim=8, hidden_dim=16,
                               n_layers=1, n_analytes=2)
         m = MultiTaskModel(cfg)

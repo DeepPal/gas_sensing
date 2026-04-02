@@ -5,11 +5,11 @@ and KineticFeatures dataclass.
 from __future__ import annotations
 
 import math
+
 import numpy as np
 import pytest
 
 from src.features.lspr_features import KineticFeatures, estimate_response_kinetics
-
 
 # ---------------------------------------------------------------------------
 # Helpers

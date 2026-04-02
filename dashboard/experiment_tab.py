@@ -22,8 +22,8 @@ import contextlib
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import cast
 import traceback
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -53,7 +53,10 @@ try:
     _SP_AVAILABLE = True
 except Exception:
     try:
-        from gas_analysis.core.signal_proc import als_baseline, smooth_spectrum  # type: ignore[assignment]
+        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
+            als_baseline,
+            smooth_spectrum,
+        )
         from src.preprocessing.quality import compute_snr, estimate_noise_metrics
 
         _SP_AVAILABLE = True
@@ -1129,6 +1132,8 @@ Files written:
                                 try:
                                     from src.calibration.isotherms import (
                                         IsothermResult,
+                                    )
+                                    from src.calibration.isotherms import (
                                         select_isotherm as _sel_iso,
                                     )
 

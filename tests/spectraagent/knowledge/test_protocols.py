@@ -13,7 +13,6 @@ from spectraagent.knowledge.protocols import (
     ValidationTracker,
 )
 
-
 # ---------------------------------------------------------------------------
 # ICH_Q2_PROTOCOL registry
 # ---------------------------------------------------------------------------

@@ -210,7 +210,7 @@ class IndependentMultiOutputGPR:
         }, path)
 
     @classmethod
-    def load(cls, path: str) -> "IndependentMultiOutputGPR":
+    def load(cls, path: str) -> IndependentMultiOutputGPR:
         import joblib
         state = joblib.load(path)
         obj = cls(state["analytes"])
@@ -329,7 +329,7 @@ class JointMultiOutputGPR:
         }, path)
 
     @classmethod
-    def load(cls, path: str) -> "JointMultiOutputGPR":
+    def load(cls, path: str) -> JointMultiOutputGPR:
         import joblib
         state = joblib.load(path)
         obj = cls(state["analytes"])

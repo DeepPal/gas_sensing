@@ -1,8 +1,8 @@
 """Tests for src.calibration.sensitivity_matrix."""
 import numpy as np
 import pytest
-from src.calibration.sensitivity_matrix import SensitivityEntry, SensitivityMatrix
 
+from src.calibration.sensitivity_matrix import SensitivityEntry, SensitivityMatrix
 
 # ---------------------------------------------------------------------------
 # Fixtures

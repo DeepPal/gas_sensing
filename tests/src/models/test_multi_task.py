@@ -2,14 +2,14 @@
 import numpy as np
 import pytest
 import torch
+
 from src.models.multi_task import (
     MultiTaskConfig,
     MultiTaskModel,
-    MultiTaskTargets,
     MultiTaskOutput,
+    MultiTaskTargets,
     train_multi_task,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

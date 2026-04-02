@@ -1,7 +1,14 @@
 """Spectral sensor feature extraction public API."""
 
+from src.features.compensation import (
+    AdaptiveDriftCorrector,
+    EnvironmentalCompensator,
+    differential_peak_correction,
+    polynomial_detrend,
+)
 from src.features.cross_peak_features import (
     CrossPeakPCA,
+    cosine_similarity_to_reference,
     extract_cross_peak_features,
     pattern_match_scores,
     shift_ratios,
@@ -10,14 +17,8 @@ from src.features.cross_peak_features import (
     spectral_angle,
     spectral_entropy,
     spectral_similarity_scores,
-    cosine_similarity_to_reference,
 )
-from src.features.compensation import (
-    AdaptiveDriftCorrector,
-    EnvironmentalCompensator,
-    differential_peak_correction,
-    polynomial_detrend,
-)
+
 # Primary import from the sensor-agnostic module name
 from src.features.spectral_features import (
     LSPR_SEARCH_MAX_NM,
@@ -32,6 +33,7 @@ from src.features.spectral_features import (
     extract_lspr_features,
     refine_peak_centroid,
 )
+
 # lspr_features kept as a compatibility shim — imports from spectral_features
 
 __all__ = [

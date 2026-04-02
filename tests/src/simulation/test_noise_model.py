@@ -1,6 +1,7 @@
 """Tests for src.simulation.noise_model — spectrometer noise model."""
 import numpy as np
 import pytest
+
 from src.simulation.noise_model import DomainRandomizedNoise, NoiseModel, SpectrometerNoise
 
 

@@ -67,19 +67,19 @@ References
 
 from __future__ import annotations
 
+from collections.abc import Generator
 import contextlib
-import os
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import matplotlib
 import numpy as np
 
 matplotlib.use("Agg")  # safe in headless / CI environments
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from matplotlib.colors import Normalize
-from matplotlib.cm import ScalarMappable
 
 # ---------------------------------------------------------------------------
 # Journal presets
@@ -545,7 +545,7 @@ def save_spectral_overlay_figure(
             c_max = c_min + 1.0
         norm = Normalize(vmin=c_min, vmax=c_max)
 
-        for i, (spec_row, conc) in enumerate(zip(sp, concs)):
+        for spec_row, conc in zip(sp, concs):
             rgba = cmap(norm(conc))
             ax.plot(
                 wl_plot, spec_row[mask],
