@@ -14,15 +14,17 @@ permissions:
 jobs:
   dependency-review:
     name: Dependency Review (PR)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
@@ -30,6 +32,8 @@ jobs:
           # Block PRs only when newly introduced vulnerabilities are high/critical.
           # Medium/low findings still appear in the report without failing the gate.
           fail-on-severity: high
+          base-ref: ${{ github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event.pull_request.head.sha }}
 
   codeql:
     name: CodeQL Analysis
