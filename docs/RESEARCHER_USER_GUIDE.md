@@ -318,6 +318,61 @@ For each step:
 3. Watch the Δλ trace — wait until it is stable (plateau, not still drifting)
 4. Click **Mark plateau** or just wait — the system uses the last 10 frames automatically
 
+### 5.6 Real-sensor acceptance gate (required before external claims)
+
+Use this gate after every full calibration batch. Do not claim readiness unless
+all required checks pass.
+
+#### A. Pre-run gate
+
+- [ ] Equilibration complete (>= 10 minutes in carrier gas)
+- [ ] Dark spectrum captured in this session
+- [ ] Reference captured in this session
+- [ ] Temperature and humidity logged
+- [ ] Gas standard IDs and expiry dates recorded
+- [ ] Session operator name and timestamp recorded
+
+#### B. In-run gate
+
+- [ ] At least 5 concentration levels measured for linearity
+- [ ] At least 3 replicates per level (6 for repeatability claim)
+- [ ] Plateau stability reached before capture at each level
+- [ ] Recovery leg recorded in carrier gas after highest concentration
+- [ ] No unexplained discontinuity in live drift trace
+
+#### C. Post-run gate
+
+- [ ] Qualification dossier exported
+- [ ] Research package ZIP exported
+- [ ] Reproducibility summary reviewed
+- [ ] Benchmark evidence attached in artifact package
+- [ ] Blinded replication manifest attached in artifact package
+
+#### D. Pass/fail thresholds (pilot readiness)
+
+| Metric | Threshold | Decision |
+| ------ | --------- | -------- |
+| R2 | >= 0.90 | Required pass |
+| RMSE | <= 1.5 ppm | Required pass |
+| LOD RSD | <= 20% | Required pass |
+| LOQ RSD | <= 20% | Required pass |
+| Drift trend | No sustained growth across batch | Required pass |
+| Critical qualification checks | 0 failures | Required pass |
+
+If any required row fails, classify the run as research-only and do not use it
+for external pilot claims.
+
+#### E. Fast triage when gate fails
+
+| Failure pattern | Likely cause | Immediate action |
+| --------------- | ------------ | ---------------- |
+| LOD and LOQ both degrade | Reference/noise issue | Recapture dark + reference, repeat blank |
+| R2 drops, RMSE rises | Concentration prep or plateau timing | Re-run with stricter plateau hold |
+| Drift grows during run | Thermal instability or flow instability | Extend equilibration, stabilize flow |
+| Sensitivity decreases session-over-session | Surface aging/fouling | Clean or re-functionalize chip |
+
+Keep failed runs. They are required evidence for robustness and root-cause logs.
+
 ### 5.6 Stop the session
 
 Click **Stop Session**. The platform automatically:

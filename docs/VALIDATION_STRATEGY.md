@@ -144,3 +144,39 @@ Before submitting to a journal, verify:
 - [ ] LOOCV R² used in paper (not training R²)
 - [ ] Bootstrap CI reported alongside LOD/LOQ point estimates
 - [ ] Temporal leakage documented in Methods section
+
+---
+
+## 8. External Blinded Replication (Translation Requirement)
+
+Internal validation is necessary but not sufficient for practical sensor claims.
+Before external pilot or commercialization language is used, run one full
+blinded external replication cycle.
+
+### 8.1 Minimum protocol
+
+1. Partner lab prepares an external dataset and publishes immutable checksums.
+2. Dataset is split with a fixed random seed and blinded holdout IDs.
+3. Development team tunes only on non-holdout partition.
+4. Model artifact is hash-locked before holdout label reveal.
+5. Partner computes final holdout metrics without retraining.
+6. Both teams sign the replication report and archive hashes.
+
+### 8.2 Minimum translation gates
+
+| Gate | Threshold | Required |
+| ---- | --------- | -------- |
+| Holdout R2 | >= 0.90 | Yes |
+| Holdout RMSE | <= 1.5 ppm | Yes |
+| LOD RSD (cross-session) | <= 20% | Yes |
+| LOQ RSD (cross-session) | <= 20% | Yes |
+| Critical qualification checks | No failures | Yes |
+
+If any required gate fails, classify the result as research-only and continue
+iterative improvement without external readiness claims.
+
+### 8.3 Claim discipline
+
+- "Validated in internal controlled lab conditions" is acceptable with only internal data.
+- "Practical field-ready" requires at least one successful blinded external replication cycle.
+- "Generalizable across sensors" requires independent chips or instruments, not only configuration changes on one sensor.

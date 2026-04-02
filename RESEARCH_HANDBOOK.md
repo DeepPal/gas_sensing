@@ -359,6 +359,44 @@ The core novelty claim for publication is:
 The platform has completed all Part A (production), Part B (science gaps), and Phase 5C
 (data-driven science layer) items.
 
+---
+
+## 9. Practical Readiness and Claim Boundaries
+
+This platform is suitable for accelerating real sensor development, but claim
+strength must match evidence strength.
+
+### 9.1 What can be claimed now
+
+1. Strong internal reproducibility and qualification automation.
+2. Evidence-backed calibration workflow for real sensor sessions.
+3. Fast detection of degradation trends through cross-session health tracking.
+
+### 9.2 What still requires real-world proof
+
+1. Blinded external replication with independent partner data.
+2. Multi-week stability under realistic temperature and humidity variation.
+3. Cross-operator robustness in sample preparation and acquisition timing.
+
+### 9.3 No-overclaim policy
+
+- Do not claim field readiness from simulation or internal-only validation.
+- Do not claim cross-sensor generalization without independent chips/instruments.
+- Label non-passing runs as research-only, never external-ready.
+
+### 9.4 Practical deployment gate
+
+A run is practical-pilot-ready only when all of the following are true:
+
+- Holdout R2 >= 0.90
+- Holdout RMSE <= 1.5 ppm
+- LOD RSD <= 20%
+- LOQ RSD <= 20%
+- No critical qualification failures
+
+If any condition fails, treat the outcome as iteration evidence, not as a
+deployment-ready result.
+
 Test totals evolve continuously. Treat CI and local test runs as authoritative
 status instead of fixed numbers in this document.
 
