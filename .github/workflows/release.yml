@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write   # needed to create the GitHub Release
+  id-token: write  # needed for Sigstore OIDC attestation
 
 jobs:
   release:
@@ -68,12 +69,24 @@ jobs:
       - name: Verify distributions
         run: twine check dist/*
 
+      - name: Sign artifacts with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3
+        with:
+          inputs: dist/*.whl dist/*.tar.gz
+          upload-signing-artifacts: true
+
       - name: Publish release checksums in workflow summary
         run: |
           echo "## Release Artifact Checksums" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
           cat dist/sha256sums.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Sigstore Attestation" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts are signed via [Sigstore](https://sigstore.dev). Verify with:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "gh attestation verify <artifact.whl> --repo DeepPal/gas_sensing" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Extract changelog section for this release
@@ -97,7 +110,9 @@ jobs:
         with:
           name: "SpectraAgent ${{ github.ref_name }}"
           body: ${{ steps.changelog.outputs.notes }}
-          files: dist/*
+          files: |
+            dist/*
+            dist/*.sigstore.json
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
 

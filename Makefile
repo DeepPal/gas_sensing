@@ -58,6 +58,7 @@ help:
 	@echo "    make verify-release-manifest Verify checksum manifest coverage for dist artifacts"
 	@echo "    make check-artifact-hygiene Validate no forbidden files in release artifacts"
 	@echo "    make ci-diagnostics   Collect local CI-style diagnostics markdown"
+	@echo "    make detect-flaky-tests Analyze test history for flaky tests"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────
@@ -201,3 +202,10 @@ check-artifact-hygiene:
 .PHONY: ci-diagnostics
 ci-diagnostics:
 	$(PYTHON) scripts/collect_ci_diagnostics.py --output output/test-results/ci-diagnostics-local.md
+
+.PHONY: detect-flaky-tests
+detect-flaky-tests:
+	$(PYTHON) scripts/detect_flaky_tests.py \
+		--history-dir output/test-history \
+		--output output/test-results/flaky-report.md \
+		--advisory
