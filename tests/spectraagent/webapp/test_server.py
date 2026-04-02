@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -88,6 +89,36 @@ def test_research_flow_recommends_reference_capture_when_missing(client):
     data = resp.json()
     joined = " ".join(data.get("next_steps", [])).lower()
     assert "reference" in joined
+
+
+def test_qualification_dossier_insufficient_data(client):
+    """Qualification dossier reports insufficient data before a session analysis exists."""
+    resp = client.get("/api/qualification/dossier")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "insufficient_data"
+    assert data["overall_pass"] is False
+    assert isinstance(data["next_actions"], list)
+
+
+def test_qualification_dossier_passes_with_strong_metrics(client):
+    """With strong session metrics, dossier should pass and produce a qualification tier."""
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=8,
+        calibration_r2=0.985,
+        mean_snr=4.2,
+        lod_ppm=0.012,
+        loq_ppm=0.040,
+        drift_rate_nm_per_frame=0.001,
+        summary_text="Qualification-ready session.",
+    )
+    resp = client.get("/api/qualification/dossier")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["overall_pass"] is True
+    assert data["qualification_tier"] in {"bronze", "silver", "gold"}
+    assert isinstance(data["checks"], list)
 
 
 # ---------------------------------------------------------------------------

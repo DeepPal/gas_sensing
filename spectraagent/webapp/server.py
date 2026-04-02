@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import time
@@ -87,6 +88,16 @@ def _int_from_env(name: str, default: int, minimum: int) -> int:
         return default
     with contextlib.suppress(ValueError):
         return max(int(raw), minimum)
+    return default
+
+
+def _float_from_env(name: str, default: float, minimum: float) -> float:
+    """Read a float env var safely, clamped to a lower bound."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    with contextlib.suppress(ValueError):
+        return max(float(raw), minimum)
     return default
 
 
@@ -338,6 +349,209 @@ def _build_research_flow_payload(app: FastAPI) -> dict[str, Any]:
     }
 
 
+def _is_finite_number(v: Any) -> bool:
+    with contextlib.suppress(TypeError, ValueError):
+        return math.isfinite(float(v))
+    return False
+
+
+def _quality_thresholds() -> dict[str, float]:
+    """Return qualification criteria (env-overridable for deployment profiles)."""
+    return {
+        "min_calibration_points": _float_from_env(
+            "SPECTRAAGENT_QUAL_MIN_CAL_POINTS", default=5.0, minimum=3.0
+        ),
+        "min_r2": _float_from_env("SPECTRAAGENT_QUAL_MIN_R2", default=0.95, minimum=0.0),
+        "min_snr": _float_from_env("SPECTRAAGENT_QUAL_MIN_SNR", default=3.0, minimum=0.0),
+        "max_abs_drift_nm_per_frame": _float_from_env(
+            "SPECTRAAGENT_QUAL_MAX_ABS_DRIFT_NM_PER_FRAME", default=0.005, minimum=0.0
+        ),
+    }
+
+
+def _latest_session_complete_payload(session: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract latest SessionAnalyzer summary from a persisted session record."""
+    if not session:
+        return None
+    events = session.get("events", [])
+    if not isinstance(events, list):
+        return None
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "session_complete" and isinstance(event.get("data"), dict):
+            return dict(event["data"])
+    return None
+
+
+def _build_qualification_dossier(
+    app: FastAPI,
+    session_id: str | None,
+    active_session: dict[str, Any],
+) -> dict[str, Any]:
+    """Build supplier-facing qualification dossier with pass/fail criteria."""
+    thresholds = _quality_thresholds()
+    analysis = getattr(app.state, "last_session_analysis", None)
+    resolved_session_id = session_id or active_session.get("session_id")
+
+    metrics: dict[str, Any] | None = None
+    source = "none"
+
+    if analysis is not None and (session_id is None or session_id == active_session.get("session_id")):
+        metrics = {
+            "calibration_n_points": getattr(analysis, "calibration_n_points", None),
+            "calibration_r2": getattr(analysis, "calibration_r2", None),
+            "mean_snr": getattr(analysis, "mean_snr", None),
+            "lod_ppm": getattr(analysis, "lod_ppm", None),
+            "loq_ppm": getattr(analysis, "loq_ppm", None),
+            "drift_rate_nm_per_frame": getattr(analysis, "drift_rate_nm_per_frame", None),
+            "summary_text": getattr(analysis, "summary_text", ""),
+        }
+        source = "live_analysis"
+
+    if metrics is None and resolved_session_id:
+        sw = getattr(app.state, "session_writer", None)
+        session = None if sw is None else sw.get_session(str(resolved_session_id))
+        payload = _latest_session_complete_payload(session)
+        if payload is not None:
+            metrics = payload
+            source = "session_log"
+
+    if metrics is None:
+        return {
+            "status": "insufficient_data",
+            "session_id": resolved_session_id,
+            "overall_pass": False,
+            "source": source,
+            "criteria": thresholds,
+            "checks": [],
+            "next_actions": [
+                "Run a full acquisition session and stop it to generate SessionAnalyzer outputs.",
+                "Collect calibration points (>= 5) and capture a reference spectrum.",
+            ],
+        }
+
+    checks: list[dict[str, Any]] = []
+
+    def add_check(
+        check_id: str,
+        title: str,
+        value: Any,
+        target: Any,
+        passed: bool,
+        critical: bool,
+        recommendation: str,
+    ) -> None:
+        checks.append(
+            {
+                "id": check_id,
+                "title": title,
+                "value": value,
+                "target": target,
+                "pass": passed,
+                "critical": critical,
+                "recommendation": recommendation,
+            }
+        )
+
+    n_points = metrics.get("calibration_n_points")
+    r2 = metrics.get("calibration_r2")
+    snr = metrics.get("mean_snr")
+    lod = metrics.get("lod_ppm")
+    loq = metrics.get("loq_ppm")
+    drift = metrics.get("drift_rate_nm_per_frame")
+
+    min_pts = int(thresholds["min_calibration_points"])
+    add_check(
+        "cal_points",
+        "Calibration points",
+        n_points,
+        f">= {min_pts}",
+        _is_finite_number(n_points) and int(float(n_points)) >= min_pts,
+        True,
+        "Acquire additional calibration concentrations across low/mid/high range.",
+    )
+    add_check(
+        "cal_r2",
+        "Calibration R²",
+        r2,
+        f">= {thresholds['min_r2']:.2f}",
+        _is_finite_number(r2) and float(r2) >= thresholds["min_r2"],
+        True,
+        "Improve baseline correction and repeat calibration with stable reference capture.",
+    )
+    add_check(
+        "mean_snr",
+        "Mean SNR",
+        snr,
+        f">= {thresholds['min_snr']:.1f}",
+        _is_finite_number(snr) and float(snr) >= thresholds["min_snr"],
+        True,
+        "Increase integration time, improve optical alignment, or reduce mechanical noise.",
+    )
+    add_check(
+        "lod_present",
+        "LOD computed",
+        lod,
+        "finite",
+        _is_finite_number(lod),
+        True,
+        "Ensure calibration includes low-concentration points and blank/noise characterization.",
+    )
+    add_check(
+        "loq_present",
+        "LOQ computed",
+        loq,
+        "finite",
+        _is_finite_number(loq),
+        True,
+        "Ensure calibration includes quantifiable response region and repeatability data.",
+    )
+    add_check(
+        "drift",
+        "Absolute drift rate (nm/frame)",
+        drift,
+        f"<= {thresholds['max_abs_drift_nm_per_frame']:.6f}",
+        _is_finite_number(drift) and abs(float(drift)) <= thresholds["max_abs_drift_nm_per_frame"],
+        False,
+        "Stabilize temperature/humidity and allow longer warm-up before measurement.",
+    )
+
+    passed = sum(1 for c in checks if c["pass"])
+    critical_failed = [c for c in checks if c["critical"] and not c["pass"]]
+    overall_pass = len(critical_failed) == 0
+    pass_rate = passed / len(checks)
+    score = int(round(pass_rate * 100))
+
+    if overall_pass and score >= 95:
+        tier = "gold"
+    elif overall_pass and score >= 80:
+        tier = "silver"
+    elif overall_pass:
+        tier = "bronze"
+    else:
+        tier = "not_qualified"
+
+    next_actions = [c["recommendation"] for c in checks if not c["pass"]]
+    if not next_actions:
+        next_actions = [
+            "Qualification criteria passed; proceed to pilot deployment and external validation package generation."
+        ]
+
+    return {
+        "status": "ok",
+        "session_id": resolved_session_id,
+        "source": source,
+        "overall_pass": overall_pass,
+        "qualification_tier": tier,
+        "score": score,
+        "criteria": thresholds,
+        "checks": checks,
+        "next_actions": next_actions,
+        "summary": metrics.get("summary_text"),
+    }
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -448,6 +662,7 @@ def create_app(simulate: bool = False) -> FastAPI:
     app.state.asyncio_loop = None
     app.state.session_running = False
     app.state.session_frame_count = 0
+    app.state.last_session_id = None
     app.state.startup_callbacks = []
     app.state.shutdown_callbacks = []
 
@@ -506,6 +721,11 @@ def create_app(simulate: bool = False) -> FastAPI:
     async def research_flow() -> JSONResponse:
         """Return guided next steps from lab workflow to commercialization readiness."""
         return JSONResponse(_build_research_flow_payload(app))
+
+    @app.get("/api/qualification/dossier")
+    async def qualification_dossier(session_id: str | None = None) -> JSONResponse:
+        """Return pass/fail qualification dossier for supplier-facing evidence."""
+        return JSONResponse(_build_qualification_dossier(app, session_id, _session_active))
 
     # ------------------------------------------------------------------
     # WebSocket: /ws/spectrum and /ws/trend
@@ -584,6 +804,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         _session_active["running"] = True
         _session_active["session_id"] = session_id
         app.state.session_running = True
+        app.state.last_session_id = session_id
         app.state.session_frame_count = 0
         # Reset per-session agent state so cross-session history doesn't bleed.
         drift_agent = getattr(app.state, "drift_agent", None)
