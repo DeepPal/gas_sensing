@@ -25,7 +25,7 @@ import time
 from typing import Any
 import zipfile
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1111,7 +1111,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         return JSONResponse({"status": "started", "session_id": session_id})
 
     @app.post("/api/acquisition/stop")
-    async def acq_stop() -> JSONResponse:
+    async def acq_stop(background_tasks: BackgroundTasks) -> JSONResponse:
         _session_active["running"] = False
         app.state.session_running = False
         frame_count = int(app.state.session_frame_count)
@@ -1119,100 +1119,100 @@ def create_app(simulate: bool = False) -> FastAPI:
         session_id = str(_session_active.get("session_id") or getattr(app.state, "last_session_id", None) or "unknown")
         if sw is not None:
             sw.stop_session(frame_count=frame_count)
-            _write_session_manifest(app, session_id)
+            # Manifest writing (runs git commands) deferred to background task below
 
-        # Auto-run SessionAnalyzer and emit results to the agent bus
-        session_events = getattr(app.state, "session_events", [])
+        # Snapshot mutable state before returning — background task runs after response
+        session_events = list(getattr(app.state, "session_events", []))
         gas_label = _acq_config.get("gas_label", "unknown")
-        analysis = None
-        try:
-            from src.inference.session_analyzer import SessionAnalyzer
-            analysis = SessionAnalyzer().analyze(session_events, frame_count)
-            app.state.last_session_analysis = analysis
+        acq_config_snapshot = dict(_acq_config)
+        app.state.session_events = []  # clear immediately so next session starts fresh
 
-            # Build the full session_complete event payload — includes all
-            # calibration metrics needed by SensorHealthAgent and context builders.
-            session_data: dict = {
-                "session_id": session_id,
-                "gas_label": gas_label,
-                "lod_ppm": analysis.lod_ppm,
-                "lob_ppm": getattr(analysis, "lob_ppm", None),
-                "lod_ci_lower": getattr(analysis, "lod_ci_lower", None),
-                "lod_ci_upper": getattr(analysis, "lod_ci_upper", None),
-                "loq_ppm": analysis.loq_ppm,
-                "calibration_r2": analysis.calibration_r2,
-                "calibration_rmse_ppm": getattr(analysis, "calibration_rmse_ppm", None),
-                "calibration_n_points": getattr(analysis, "calibration_n_points", 0),
-                "mean_snr": analysis.mean_snr,
-                "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
-                "frame_count": analysis.frame_count,
-                "summary": analysis.summary_text,
-                # Kinetics (B1)
-                "tau_63_s": getattr(analysis, "tau_63_s", None),
-                "tau_95_s": getattr(analysis, "tau_95_s", None),
-                "k_on_per_s": getattr(analysis, "k_on_per_s", None),
-                "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
-                # Environmental metadata (B5)
-                "temperature_c": _acq_config.get("temperature_c"),
-                "humidity_pct": _acq_config.get("humidity_pct"),
-            }
-            bus = getattr(app.state, "agent_bus", None)
-            if bus is not None:
-                from spectraagent.webapp.agent_bus import AgentEvent
-                bus.emit(AgentEvent(
-                    source="SessionAnalyzer",
-                    level="info",
-                    type="session_complete",
-                    data=session_data,
-                    text=analysis.summary_text,
-                ))
-        except Exception as exc:
-            log.warning("Post-session analysis failed: %s", exc)
+        def _post_session_work() -> None:
+            """Heavy post-processing runs after the HTTP response is sent.
+            Includes: reproducibility manifest (git subprocess), SessionAnalyzer,
+            SensorMemory — all deferred so /stop returns immediately.
+            """
+            _write_session_manifest(app, session_id)
+            analysis = None
+            try:
+                from src.inference.session_analyzer import SessionAnalyzer
+                analysis = SessionAnalyzer().analyze(session_events, frame_count)
+                app.state.last_session_analysis = analysis
 
-        # Wire SensorMemory: record lightweight session log regardless of
-        # whether full analysis succeeded.  Records calibration outcomes when
-        # analysis is available so SensorHealthAgent has history to reason from.
-        try:
-            memory = getattr(app.state, "sensor_memory", None)
-            if memory is not None:
-                import datetime as _dt
-                now_utc = _dt.datetime.now(_dt.timezone.utc).isoformat()
-                memory.record_session(
-                    session_id=session_id,
-                    analyte=gas_label,
-                    frame_count=frame_count,
-                    stopped_at=now_utc,
-                )
-                if analysis is not None and analysis.calibration_r2 is not None:
-                    from spectraagent.knowledge.sensor_memory import CalibrationObservation
-                    # Pull best model + sensitivity from CalibrationAgent last state
-                    cal_agent = getattr(app.state, "calibration_agent", None)
-                    best_model = "unknown"
-                    sensitivity: float | None = None
-                    if cal_agent is not None:
-                        best_model = getattr(cal_agent, "_last_best_model", "unknown") or "unknown"
-                        sensitivity = getattr(cal_agent, "_last_sensitivity_nm_per_ppm", None)
-                    memory.record_calibration(CalibrationObservation(
-                        session_id=session_id,
-                        timestamp_utc=now_utc,
-                        analyte=gas_label,
-                        sensitivity_nm_per_ppm=sensitivity,
-                        lod_ppm=analysis.lod_ppm if not _is_nan(analysis.lod_ppm) else None,
-                        loq_ppm=analysis.loq_ppm if not _is_nan(analysis.loq_ppm) else None,
-                        r_squared=analysis.calibration_r2,
-                        rmse_ppm=getattr(analysis, "calibration_rmse_ppm", None),
-                        calibration_model=best_model,
-                        n_calibration_points=getattr(analysis, "calibration_n_points", 0),
-                        reference_peak_nm=getattr(app.state, "ref_peak_nm", None),
-                        conformal_coverage=None,
-                        tau_63_s=getattr(analysis, "tau_63_s", None),
-                        reference_fwhm_nm=getattr(app.state, "ref_fwhm_nm", None),
+                session_data: dict = {
+                    "session_id": session_id,
+                    "gas_label": gas_label,
+                    "lod_ppm": analysis.lod_ppm,
+                    "lob_ppm": getattr(analysis, "lob_ppm", None),
+                    "lod_ci_lower": getattr(analysis, "lod_ci_lower", None),
+                    "lod_ci_upper": getattr(analysis, "lod_ci_upper", None),
+                    "loq_ppm": analysis.loq_ppm,
+                    "calibration_r2": analysis.calibration_r2,
+                    "calibration_rmse_ppm": getattr(analysis, "calibration_rmse_ppm", None),
+                    "calibration_n_points": getattr(analysis, "calibration_n_points", 0),
+                    "mean_snr": analysis.mean_snr,
+                    "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
+                    "frame_count": analysis.frame_count,
+                    "summary": analysis.summary_text,
+                    "tau_63_s": getattr(analysis, "tau_63_s", None),
+                    "tau_95_s": getattr(analysis, "tau_95_s", None),
+                    "k_on_per_s": getattr(analysis, "k_on_per_s", None),
+                    "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
+                    "temperature_c": acq_config_snapshot.get("temperature_c"),
+                    "humidity_pct": acq_config_snapshot.get("humidity_pct"),
+                }
+                bus = getattr(app.state, "agent_bus", None)
+                if bus is not None:
+                    from spectraagent.webapp.agent_bus import AgentEvent
+                    bus.emit(AgentEvent(
+                        source="SessionAnalyzer",
+                        level="info",
+                        type="session_complete",
+                        data=session_data,
+                        text=analysis.summary_text,
                     ))
-        except Exception as exc:
-            log.warning("SensorMemory record failed: %s", exc)
+            except Exception as exc:
+                log.warning("Post-session analysis failed: %s", exc)
 
-        # Clear events for next session
-        app.state.session_events = []
+            try:
+                memory = getattr(app.state, "sensor_memory", None)
+                if memory is not None:
+                    import datetime as _dt
+                    now_utc = _dt.datetime.now(_dt.timezone.utc).isoformat()
+                    memory.record_session(
+                        session_id=session_id,
+                        analyte=gas_label,
+                        frame_count=frame_count,
+                        stopped_at=now_utc,
+                    )
+                    if analysis is not None and analysis.calibration_r2 is not None:
+                        from spectraagent.knowledge.sensor_memory import CalibrationObservation
+                        cal_agent = getattr(app.state, "calibration_agent", None)
+                        best_model = "unknown"
+                        sensitivity: float | None = None
+                        if cal_agent is not None:
+                            best_model = getattr(cal_agent, "_last_best_model", "unknown") or "unknown"
+                            sensitivity = getattr(cal_agent, "_last_sensitivity_nm_per_ppm", None)
+                        memory.record_calibration(CalibrationObservation(
+                            session_id=session_id,
+                            timestamp_utc=now_utc,
+                            analyte=gas_label,
+                            sensitivity_nm_per_ppm=sensitivity,
+                            lod_ppm=analysis.lod_ppm if not _is_nan(analysis.lod_ppm) else None,
+                            loq_ppm=analysis.loq_ppm if not _is_nan(analysis.loq_ppm) else None,
+                            r_squared=analysis.calibration_r2,
+                            rmse_ppm=getattr(analysis, "calibration_rmse_ppm", None),
+                            calibration_model=best_model,
+                            n_calibration_points=getattr(analysis, "calibration_n_points", 0),
+                            reference_peak_nm=getattr(app.state, "ref_peak_nm", None),
+                            conformal_coverage=None,
+                            tau_63_s=getattr(analysis, "tau_63_s", None),
+                            reference_fwhm_nm=getattr(app.state, "ref_fwhm_nm", None),
+                        ))
+            except Exception as exc:
+                log.warning("SensorMemory record failed: %s", exc)
+
+        background_tasks.add_task(_post_session_work)
 
         active: dict[str, Any] = _session_active
         return JSONResponse({"status": "stopped",
