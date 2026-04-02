@@ -13,6 +13,43 @@ export interface HealthResponse {
   drift_settings: { drift_threshold_nm_per_min: number; window_frames: number }
 }
 
+export interface ResearchFlowCheckpoint {
+  id: string
+  title: string
+  done: boolean
+  impact: string
+  value?: number | string | null
+  target?: number | string | null
+}
+
+export interface ResearchFlowResponse {
+  readiness_score: number
+  session_running: boolean
+  checkpoints: ResearchFlowCheckpoint[]
+  next_steps: string[]
+  commercialization_signal: string
+}
+
+export interface QualificationCheck {
+  id: string
+  title: string
+  value: number | string | null
+  target: number | string
+  pass: boolean
+  critical: boolean
+  recommendation: string
+}
+
+export interface QualificationDossierResponse {
+  status: string
+  session_id?: string | null
+  overall_pass: boolean
+  qualification_tier?: string
+  score?: number
+  checks: QualificationCheck[]
+  next_actions: string[]
+}
+
 export interface AcquisitionConfig {
   integration_time_ms: number
   gas_label: string
@@ -114,6 +151,17 @@ export const api = {
     return r.json()
   },
 
+  async getResearchFlow(): Promise<ResearchFlowResponse> {
+    const r = await fetch(`${BASE}/api/research-flow`)
+    return r.json()
+  },
+
+  async getQualificationDossier(sessionId: string | null): Promise<QualificationDossierResponse> {
+    const q = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''
+    const r = await fetch(`${BASE}/api/qualification/dossier${q}`)
+    return r.json()
+  },
+
   async configAcquisition(cfg: AcquisitionConfig) {
     const r = await fetch(`${BASE}/api/acquisition/config`, {
       method: 'POST',
@@ -205,6 +253,10 @@ export const api = {
     })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.json()
+  },
+
+  artifactDownloadUrl(path: string): string {
+    return `${BASE}/api/artifacts/download?path=${encodeURIComponent(path)}`
   },
 
   async setAutoExplain(enabled: boolean) {

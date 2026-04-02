@@ -27,7 +27,7 @@ import zipfile
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -557,47 +557,61 @@ def _build_qualification_dossier(
 
 
 def _dossier_artifact_dir() -> Path:
-        """Directory where qualification dossier exports are written."""
-        return Path(os.environ.get("SPECTRAAGENT_DOSSIER_DIR", "output/qualification"))
+    """Directory where qualification dossier exports are written."""
+    return Path(os.environ.get("SPECTRAAGENT_DOSSIER_DIR", "output/qualification"))
+
+
+def _resolve_downloadable_path(path_str: str) -> Path:
+    """Resolve a requested artifact path and ensure it stays inside allowed roots."""
+    requested = Path(path_str).expanduser().resolve()
+    allowed_roots = [
+        _dossier_artifact_dir().resolve(),
+        Path("output/sessions").resolve(),
+    ]
+    if not any(root == requested or root in requested.parents for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="Requested path is outside allowed artifact roots")
+    if not requested.exists() or not requested.is_file():
+        raise HTTPException(status_code=404, detail="Artifact file not found")
+    return requested
 
 
 def _dossier_signature(payload_json: str) -> dict[str, Any]:
-        """Create integrity signature metadata for exported dossier payload."""
-        payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-        secret = os.environ.get("SPECTRAAGENT_DOSSIER_SIGNING_KEY", "")
-        if not secret:
-                return {
-                        "algorithm": "sha256",
-                        "payload_sha256": payload_hash,
-                        "signed": False,
-                        "message": "Set SPECTRAAGENT_DOSSIER_SIGNING_KEY for HMAC signatures.",
-                }
-        mac = hmac.new(secret.encode("utf-8"), payload_json.encode("utf-8"), hashlib.sha256)
+    """Create integrity signature metadata for exported dossier payload."""
+    payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+    secret = os.environ.get("SPECTRAAGENT_DOSSIER_SIGNING_KEY", "")
+    if not secret:
         return {
-                "algorithm": "hmac-sha256",
-                "payload_sha256": payload_hash,
-                "signature": mac.hexdigest(),
-                "signed": True,
+            "algorithm": "sha256",
+            "payload_sha256": payload_hash,
+            "signed": False,
+            "message": "Set SPECTRAAGENT_DOSSIER_SIGNING_KEY for HMAC signatures.",
         }
+    mac = hmac.new(secret.encode("utf-8"), payload_json.encode("utf-8"), hashlib.sha256)
+    return {
+        "algorithm": "hmac-sha256",
+        "payload_sha256": payload_hash,
+        "signature": mac.hexdigest(),
+        "signed": True,
+    }
 
 
 def _render_dossier_html(dossier: dict[str, Any]) -> str:
-        """Render a simple standalone HTML dossier for procurement/review workflows."""
-        session = html.escape(str(dossier.get("session_id") or "unknown"))
-        tier = html.escape(str(dossier.get("qualification_tier") or "not_qualified"))
-        score = html.escape(str(dossier.get("score") or "0"))
-        overall = "PASS" if dossier.get("overall_pass") else "FAIL"
-        checks = dossier.get("checks", [])
-        rows = []
-        for c in checks:
-                title = html.escape(str(c.get("title", "")))
-                value = html.escape(str(c.get("value", "n/a")))
-                target = html.escape(str(c.get("target", "n/a")))
-                passed = "PASS" if c.get("pass") else "FAIL"
-                rows.append(f"<tr><td>{title}</td><td>{value}</td><td>{target}</td><td>{passed}</td></tr>")
+    """Render a simple standalone HTML dossier for procurement/review workflows."""
+    session = html.escape(str(dossier.get("session_id") or "unknown"))
+    tier = html.escape(str(dossier.get("qualification_tier") or "not_qualified"))
+    score = html.escape(str(dossier.get("score") or "0"))
+    overall = "PASS" if dossier.get("overall_pass") else "FAIL"
+    checks = dossier.get("checks", [])
+    rows = []
+    for c in checks:
+        title = html.escape(str(c.get("title", "")))
+        value = html.escape(str(c.get("value", "n/a")))
+        target = html.escape(str(c.get("target", "n/a")))
+        passed = "PASS" if c.get("pass") else "FAIL"
+        rows.append(f"<tr><td>{title}</td><td>{value}</td><td>{target}</td><td>{passed}</td></tr>")
 
-        row_html = "\n".join(rows) if rows else "<tr><td colspan='4'>No checks available</td></tr>"
-        return f"""<!doctype html>
+    row_html = "\n".join(rows) if rows else "<tr><td colspan='4'>No checks available</td></tr>"
+    return f"""<!doctype html>
 <html lang=\"en\">
 <head>
     <meta charset=\"utf-8\" />
@@ -902,6 +916,12 @@ def create_app(simulate: bool = False) -> FastAPI:
                 "signature": signature,
             }
         )
+
+    @app.get("/api/artifacts/download")
+    async def artifact_download(path: str) -> FileResponse:
+        """Serve generated qualification/session artifacts from approved output roots."""
+        resolved = _resolve_downloadable_path(path)
+        return FileResponse(resolved, filename=resolved.name)
 
     # ------------------------------------------------------------------
     # WebSocket: /ws/spectrum and /ws/trend

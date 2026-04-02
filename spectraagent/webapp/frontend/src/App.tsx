@@ -8,10 +8,14 @@ import {
   Activity, Wifi, WifiOff, Play, Square, Camera, Plus,
   MessageSquare, ChevronDown, ChevronUp, Settings, Zap,
   AlertTriangle, Info, FlaskConical, FileText, History,
-  X, TrendingUp, Sliders,
+  X, TrendingUp, Sliders, CheckCircle2, Download,
 } from 'lucide-react'
 import { api, connectSpectrum, connectAgentEvents } from './api'
-import type { SpectrumFrame, AgentEvent, SessionMeta, SessionDetail, HealthResponse, AnalyteInfo, MixtureInferenceResult } from './api'
+import type {
+  SpectrumFrame, AgentEvent, SessionMeta, SessionDetail, HealthResponse,
+  AnalyteInfo, MixtureInferenceResult, ResearchFlowResponse,
+  QualificationDossierResponse, QualificationExportResponse, QualificationPackageResponse,
+} from './api'
 import './App.css'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -120,6 +124,10 @@ export default function App() {
   const [showReport, setShowReport] = useState(false)
   const [qualBusy, setQualBusy] = useState(false)
   const [qualNotice, setQualNotice] = useState<string | null>(null)
+  const [researchFlow, setResearchFlow] = useState<ResearchFlowResponse | null>(null)
+  const [qualificationDossier, setQualificationDossier] = useState<QualificationDossierResponse | null>(null)
+  const [lastExport, setLastExport] = useState<QualificationExportResponse | null>(null)
+  const [lastPackage, setLastPackage] = useState<QualificationPackageResponse | null>(null)
 
   // Anomaly / Claude explanation modal
   const [anomalyEvent, setAnomalyEvent] = useState<AgentEvent | null>(null)
@@ -168,6 +176,25 @@ export default function App() {
     const t = setInterval(poll, 10000)
     return () => clearInterval(t)
   }, [])
+
+  // ── Readiness / qualification poll ──────────────────────────────────────
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const [flow, dossier] = await Promise.all([
+          api.getResearchFlow(),
+          api.getQualificationDossier(currentSessionId),
+        ])
+        setResearchFlow(flow)
+        setQualificationDossier(dossier)
+      } catch (err) {
+        console.warn('[readiness poll]', err)
+      }
+    }
+    poll()
+    const t = setInterval(poll, 15000)
+    return () => clearInterval(t)
+  }, [currentSessionId])
 
   // ── Analyte info poll (once on mount, refreshed when session starts) ────
   useEffect(() => {
@@ -419,6 +446,7 @@ export default function App() {
     setQualNotice(null)
     try {
       const r = await api.exportQualificationDossier(currentSessionId, 'both')
+      setLastExport(r)
       const signed = r.signature?.signed ? 'signed' : 'unsigned'
       setQualNotice(`Dossier exported (${signed}). JSON: ${r.paths.json ?? 'n/a'}`)
       setEvents(prev => [{
@@ -439,6 +467,7 @@ export default function App() {
     setQualNotice(null)
     try {
       const r = await api.createResearchPackage(currentSessionId)
+      setLastPackage(r)
       const signed = r.signature?.signed ? 'signed' : 'unsigned'
       setQualNotice(`Research package created (${signed}): ${r.package_path}`)
       setEvents(prev => [{
@@ -1082,6 +1111,92 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {/* Readiness Coach */}
+          {(researchFlow || qualificationDossier) && (
+            <section className="card readiness-card">
+              <h2><CheckCircle2 size={15} /> Readiness Coach</h2>
+              {researchFlow && (
+                <div className="readiness-topline">
+                  <div className="readiness-score-block">
+                    <span className="an-label">Readiness score</span>
+                    <span className="readiness-score">{researchFlow.readiness_score}</span>
+                  </div>
+                  <div className={`coach-badge ${researchFlow.commercialization_signal}`}>
+                    {researchFlow.commercialization_signal}
+                  </div>
+                </div>
+              )}
+
+              {researchFlow && (
+                <div className="coach-grid">
+                  {researchFlow.checkpoints.slice(0, 6).map(cp => (
+                    <div key={cp.id} className={`coach-check ${cp.done ? 'done' : 'todo'}`}>
+                      <div className="coach-check-title">{cp.title}</div>
+                      <div className="coach-check-meta">{cp.done ? 'done' : 'pending'}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {qualificationDossier && qualificationDossier.status === 'ok' && (
+                <div className="coach-summary-row">
+                  <span className={`coach-pass ${qualificationDossier.overall_pass ? 'pass' : 'fail'}`}>
+                    {qualificationDossier.overall_pass ? 'Qualified' : 'Not yet qualified'}
+                  </span>
+                  {qualificationDossier.qualification_tier && (
+                    <span className="coach-tier">Tier: {qualificationDossier.qualification_tier}</span>
+                  )}
+                  {qualificationDossier.score !== undefined && (
+                    <span className="coach-tier">Score: {qualificationDossier.score}</span>
+                  )}
+                </div>
+              )}
+
+              {researchFlow && researchFlow.next_steps.length > 0 && (
+                <div className="coach-list-block">
+                  <div className="coach-list-title">Next steps</div>
+                  {researchFlow.next_steps.slice(0, 4).map((step, idx) => (
+                    <div key={idx} className="coach-list-item">{step}</div>
+                  ))}
+                </div>
+              )}
+
+              {qualificationDossier && qualificationDossier.next_actions.length > 0 && (
+                <div className="coach-list-block">
+                  <div className="coach-list-title">Qualification actions</div>
+                  {qualificationDossier.next_actions.slice(0, 3).map((step, idx) => (
+                    <div key={idx} className="coach-list-item">{step}</div>
+                  ))}
+                </div>
+              )}
+
+              {(lastExport || lastPackage) && (
+                <div className="artifact-links">
+                  {lastExport?.paths?.json && (
+                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.json)} target="_blank" rel="noopener noreferrer">
+                      <Download size={12} /> Dossier JSON
+                    </a>
+                  )}
+                  {lastExport?.paths?.html && (
+                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.html)} target="_blank" rel="noopener noreferrer">
+                      <Download size={12} /> Dossier HTML
+                    </a>
+                  )}
+                  {lastExport?.paths?.signature && (
+                    <a className="artifact-link" href={api.artifactDownloadUrl(lastExport.paths.signature)} target="_blank" rel="noopener noreferrer">
+                      <Download size={12} /> Signature JSON
+                    </a>
+                  )}
+                  {lastPackage?.package_path && (
+                    <a className="artifact-link" href={api.artifactDownloadUrl(lastPackage.package_path)} target="_blank" rel="noopener noreferrer">
+                      <Download size={12} /> Research Package ZIP
+                    </a>
+                  )}
+                </div>
+              )}
             </section>
           )}
 

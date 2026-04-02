@@ -196,6 +196,26 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
         assert any(name.startswith("qualification/") and name.endswith(".sig.json") for name in names)
 
 
+def test_artifact_download_serves_exported_file(client, tmp_path, monkeypatch):
+    """Download route should serve a generated dossier artifact from allowed roots."""
+    monkeypatch.setenv("SPECTRAAGENT_DOSSIER_DIR", str(tmp_path))
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=8,
+        calibration_r2=0.985,
+        mean_snr=4.2,
+        lod_ppm=0.012,
+        loq_ppm=0.040,
+        drift_rate_nm_per_frame=0.001,
+        summary_text="Downloadable session.",
+    )
+
+    export_resp = client.post("/api/qualification/dossier/export?artifact=json")
+    path = export_resp.json()["paths"]["json"]
+    resp = client.get("/api/artifacts/download", params={"path": path})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+
+
 # ---------------------------------------------------------------------------
 # Task 10: WebSocket / Broadcaster
 # ---------------------------------------------------------------------------
