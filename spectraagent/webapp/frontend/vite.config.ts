@@ -8,6 +8,18 @@ export default defineConfig({
     // Output directly into the directory the FastAPI server serves
     outDir: '../static/dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('recharts')) return 'charts'
+          if (id.includes('react-markdown')) return 'markdown'
+          if (id.includes('lucide-react')) return 'icons'
+          if (id.includes('react')) return 'react-vendor'
+          return 'vendor'
+        },
+      },
+    },
   },
   server: {
     proxy: {

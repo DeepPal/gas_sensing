@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { Suspense, lazy, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -17,6 +16,8 @@ import type {
   QualificationDossierResponse, QualificationExportResponse, QualificationPackageResponse,
 } from './api'
 import './App.css'
+
+const LazyReactMarkdown = lazy(() => import('react-markdown'))
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -927,8 +928,10 @@ export default function App() {
                 </button>
                 {askAnswer && (
                   <div className="ask-answer">
-                    <ReactMarkdown>{askAnswer}</ReactMarkdown>
-                    {askStreaming && <span className="blink">▋</span>}
+                    <Suspense fallback={<div>Loading formatted response…</div>}>
+                      <LazyReactMarkdown>{askAnswer}</LazyReactMarkdown>
+                    </Suspense>
+                    {askStreaming && <span className="blink">▍</span>}
                   </div>
                 )}
               </div>
@@ -1248,7 +1251,9 @@ export default function App() {
             </button>
           </div>
           <div className="report-md">
-            <ReactMarkdown>{reportContent}</ReactMarkdown>
+            <Suspense fallback={<div>Loading formatted report…</div>}>
+              <LazyReactMarkdown>{reportContent}</LazyReactMarkdown>
+            </Suspense>
           </div>
         </Modal>
       )}
@@ -1259,7 +1264,9 @@ export default function App() {
           onClose={() => setAnomalyEvent(null)}
         >
           <div className="anomaly-md">
-            <ReactMarkdown>{anomalyEvent.text}</ReactMarkdown>
+            <Suspense fallback={<div>Loading anomaly details…</div>}>
+              <LazyReactMarkdown>{anomalyEvent.text}</LazyReactMarkdown>
+            </Suspense>
           </div>
           {anomalyEvent.data && Object.keys(anomalyEvent.data).length > 0 && (
             <pre className="anomaly-data">{JSON.stringify(anomalyEvent.data, null, 2)}</pre>
