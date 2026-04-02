@@ -1,7 +1,7 @@
 # SpectraAgent
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-1305%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Ruff](https://img.shields.io/badge/linter-ruff-orange)](https://docs.astral.sh/ruff/)
 [![mypy](https://img.shields.io/badge/type--checked-mypy-blue)](https://mypy.readthedocs.io/)
@@ -98,7 +98,7 @@ SpectraAgent has two complementary runtimes:
 │  streamlit run dashboard/app.py                                 │
 │                                                                  │
 │  Tab 1: Guided Calibration   — step-by-step calibration workflow  │
-│  Tab 2: Experiments          — session browser + cross-session   │
+│  Tab 2: Experiment (Guided)  — session browser + cross-session   │
 │  Tab 3: Batch Analysis       — load data, heatmaps, curves       │
 │  Tab 4: Live Sensor          — real-time CCS200 feed             │
 │  Tab 5: Data-Driven Science  — ML training, figures, publishing  │
@@ -332,7 +332,7 @@ spectraagent/
 ├── gas_analysis/               ← Hardware acquisition layer
 │   └── acquisition/            ← CCS200 DLL/VISA/Serial drivers
 │
-├── tests/                      ← 1187 tests, 0 failures
+├── tests/                      ← 1796 tests, 0 failures
 │   ├── spectraagent/           ← SpectraAgent runtime tests
 │   └── src/                    ← Scientific library tests
 │
@@ -382,7 +382,7 @@ Pipeline parameters (preprocessing, calibration, quality) live in [`config/confi
 ### Run tests
 
 ```bash
-make test                   # full suite (1187 tests)
+make test                   # full suite (1796 tests)
 make test-fast              # fast lane (exclude reliability tests)
 make test-reliability       # lifecycle/stability tests
 make coverage               # with HTML coverage report

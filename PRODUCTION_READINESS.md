@@ -2,7 +2,7 @@
 
 **Status:** 🟢 **Deployment-ready for single-machine research lab use**
 
-**Last Updated:** March 2026
+**Last Updated:** 2026-04-02
 
 ---
 
@@ -300,7 +300,7 @@ $ python scripts/quality_gate.py --lane fast
 
 [quality] REQUIRED checks:
   ✓ Ruff correctness (E9, F63, F7, F82)
-  ✓ Fast pytest (859 tests, <60s)
+  ✓ Fast pytest (859 fast-lane / 1796 total tests, <60s)
   ✓ Mypy src/ (0 errors)
 
 [quality] ADVISORY checks (optional):
@@ -356,8 +356,8 @@ $ python -c "from dashboard.startup_validation import run_startup_validation; ru
 ### High Priority (Before Release)
 | Task | Effort | Impact |
 |------|--------|--------|
-| Implement HTTPS cert generation (security.py) | 1 hour | Critical (encrypted LAN access) |
-| Hook reproducibility manifest into export pipeline | 2 hours | High (scientific reproducibility) |
+| ✅ HTTPS cert generation (security.py) | Done | Encrypted LAN access |
+| ✅ Reproducibility manifest hooked into export pipeline | Done | Scientific reproducibility |
 | Expose uncertainty bounds in UI | 1 hour | High (scientist-first communication) |
 | Integrate backup scheduler (hourly/daily) | 1.5 hours | High (data protection) |
 
@@ -455,15 +455,15 @@ $ python -c "from dashboard.startup_validation import run_startup_validation; ru
 | Health status update | <1 second | ✅ Responsive |
 | Disk space check | <500ms | ✅ Responsive |
 | Hardware probe timeout | 5 seconds (safe) | ✅ Reasonable |
-| Test suite run time | ~60 seconds (859 tests) | ✅ Fast |
+| Test suite run time | ~60 seconds (859 fast-lane / 1796 total) | ✅ Fast |
 | Mypy type checking | <10 seconds | ✅ Fast |
 
 ---
 
 ## Technical Debt (Tracked, Not Blocking)
 
-- HTTPS cert generation: `dashboard/security.py` scaffolded, not yet integrated
-- Reproducibility manifest: `dashboard/reproducibility.py` scaffolded, not yet hooked into pipeline
+- ✅ HTTPS cert generation: `dashboard/security.py` complete — self-signed certs generated on first run
+- ✅ Reproducibility manifest: `dashboard/reproducibility.py` complete and integrated into export pipeline
 - Backup scheduler: `dashboard/backups.py` complete, scheduling pending
 - Uncertainty UI: Computed internally, not yet exposed in frontend
 - Quality gates: Logic ready, not yet blocking export
@@ -509,7 +509,7 @@ All deferred work is properly documented, scaffolded, and ready for implementati
 
 ---
 
-**Last Updated:** March 2026  
+**Last Updated:** 2026-04-02  
 **Status:** Production Grade  
 **Maintenance:** No breaking changes scheduled  
 **Next Review:** Q2 2026

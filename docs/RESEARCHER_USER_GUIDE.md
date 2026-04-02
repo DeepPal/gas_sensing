@@ -69,9 +69,11 @@ These are not bugs — they are known limitations you must understand before tru
 
 `config/config.yaml` ships with `calibration_slope: 0.116 nm/ppm`. This is a literature value for ethanol on a generic Au nanoparticle chip. **If you have not run a real calibration session, every concentration estimate produced by the platform is computed from this fixed number.**
 
+The problem is deeper than just the config file: 0.116 is also hardcoded as a fallback in the live pipeline source files (`src/inference/realtime_pipeline.py`, `src/models/registry.py`, `gas_analysis/core/realtime_pipeline.py`, and others). Changing only the config YAML may not be sufficient — a full calibration session that writes a fitted slope to `output/models/calibration_params.json` is the only reliable way to replace this default throughout the system.
+
 If your chip's true sensitivity differs from 0.116 nm/ppm, all your concentration readings will be proportionally wrong — and you will not see an error message. The pipeline will run normally and produce confident-looking numbers.
 
-**Action required**: Run at minimum one linearity session with a traceable gas standard before trusting any concentration output. Check Tab 1 of the Streamlit Dashboard to confirm a calibration curve has been fitted from your own data.
+**Action required**: Run at minimum one linearity session with a traceable gas standard before trusting any concentration output. Check Tab 1 of the Streamlit Dashboard to confirm a calibration curve has been fitted from your own data and written to `output/models/calibration_params.json`.
 
 ### L2 — Simulation models cannot be used with real hardware
 
