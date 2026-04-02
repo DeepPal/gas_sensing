@@ -85,10 +85,15 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
 
       # Optional: publish to PyPI when PYPI_API_TOKEN secret is configured.
-      # Remove the `if:` condition once you're ready to publish.
+      # Safely no-op when token is not configured.
       - name: Publish to PyPI
-        if: ${{ secrets.PYPI_API_TOKEN != '' }}
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "${PYPI_API_TOKEN:-}" ]; then
+            echo "PYPI_API_TOKEN is not set; skipping publish."
+            exit 0
+          fi
+          export TWINE_USERNAME=__token__
+          export TWINE_PASSWORD="$PYPI_API_TOKEN"
+          twine upload dist/*
