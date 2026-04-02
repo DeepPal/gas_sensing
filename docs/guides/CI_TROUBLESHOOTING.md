@@ -61,6 +61,14 @@ Use it when a gate fails and you need a fast, deterministic recovery path.
 1. Confirm tag format is valid for release automation.
 2. Confirm release token/secret exists in repository settings.
 3. Ensure publish logic uses shell-guard checks, not `if:` secret expressions.
+4. Confirm `dist/sha256sums.txt` is generated and attached with the release artifacts.
+
+### Local Reproduction
+```bash
+.venv/Scripts/python.exe -m build
+.venv/Scripts/python.exe scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
+.venv/Scripts/python.exe -m twine check dist/*
+```
 
 ## 4) Deploy Smoke Failed
 
@@ -100,3 +108,17 @@ Use it when a gate fails and you need a fast, deterministic recovery path.
 4. Run pytest fast lane.
 5. Run preflight and integrity self-checks.
 6. Push only after all required gates pass locally.
+
+## 7) CI Diagnostics Artifact
+
+When `quality-fast` or `reliability` fails, CI now uploads a diagnostics markdown artifact.
+
+Use it to quickly verify:
+- exact Python executable and version used in the failing runner
+- relevant GitHub context (`GITHUB_JOB`, `GITHUB_REF`, run id/attempt)
+- a compact dependency snapshot (`pip freeze`, truncated)
+
+Local equivalent:
+```bash
+.venv/Scripts/python.exe scripts/collect_ci_diagnostics.py --output output/test-results/ci-diagnostics-local.md
+```

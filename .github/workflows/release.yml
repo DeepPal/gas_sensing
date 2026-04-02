@@ -56,8 +56,19 @@ jobs:
       - name: Build wheel and sdist
         run: python -m build
 
+      - name: Generate artifact checksums
+        run: python scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
+
       - name: Verify distributions
         run: twine check dist/*
+
+      - name: Publish release checksums in workflow summary
+        run: |
+          echo "## Release Artifact Checksums" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat dist/sha256sums.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Extract changelog section for this release
         id: changelog
@@ -96,4 +107,4 @@ jobs:
           fi
           export TWINE_USERNAME=__token__
           export TWINE_PASSWORD="$PYPI_API_TOKEN"
-          twine upload dist/*
+          twine upload dist/*.whl dist/*.tar.gz

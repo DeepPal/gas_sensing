@@ -54,6 +54,8 @@ help:
 	@echo ""
 	@echo "  Maintenance"
 	@echo "    make clean            Remove build artefacts and caches"
+	@echo "    make release-checksums Generate SHA-256 checksums for dist artifacts"
+	@echo "    make ci-diagnostics   Collect local CI-style diagnostics markdown"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────
@@ -181,3 +183,11 @@ clean:
 	find . -name "*.pyc" -not -path "./.venv/*" -delete 2>/dev/null || true
 	rm -rf output/coverage .coverage
 	@echo "Clean complete."
+
+.PHONY: release-checksums
+release-checksums:
+	$(PYTHON) scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
+
+.PHONY: ci-diagnostics
+ci-diagnostics:
+	$(PYTHON) scripts/collect_ci_diagnostics.py --output output/test-results/ci-diagnostics-local.md
