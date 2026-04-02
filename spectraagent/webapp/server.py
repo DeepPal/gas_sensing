@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import json
 import logging
+import os
 from pathlib import Path
 import time
 from typing import Any
@@ -79,23 +80,54 @@ class _RateLimiter:
         return True
 
 
+def _int_from_env(name: str, default: int, minimum: int) -> int:
+    """Read an integer env var safely, clamped to a lower bound."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    with contextlib.suppress(ValueError):
+        return max(int(raw), minimum)
+    return default
+
+
 # One limiter instance per policy; shared across all requests.
-_claude_limiter = _RateLimiter(max_calls=10, window_s=60)    # 10 Claude calls/min
-_report_limiter = _RateLimiter(max_calls=3, window_s=60)     # 3 reports/min
+_CLAUDE_RATE_MAX = _int_from_env("SPECTRAAGENT_CLAUDE_RATE_MAX", default=10, minimum=1)
+_CLAUDE_RATE_WINDOW_S = _int_from_env(
+    "SPECTRAAGENT_CLAUDE_RATE_WINDOW_S", default=60, minimum=1
+)
+_REPORT_RATE_MAX = _int_from_env("SPECTRAAGENT_REPORT_RATE_MAX", default=3, minimum=1)
+_REPORT_RATE_WINDOW_S = _int_from_env(
+    "SPECTRAAGENT_REPORT_RATE_WINDOW_S", default=60, minimum=1
+)
+
+_claude_limiter = _RateLimiter(max_calls=_CLAUDE_RATE_MAX, window_s=_CLAUDE_RATE_WINDOW_S)
+_report_limiter = _RateLimiter(max_calls=_REPORT_RATE_MAX, window_s=_REPORT_RATE_WINDOW_S)
 
 
 def _rate_limit_claude(request: Request) -> None:
     """FastAPI dependency — raises 429 when Claude rate limit is exceeded."""
     client = request.client.host if request.client else "unknown"
     if not _claude_limiter.is_allowed(client):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 10 Claude calls per minute.")
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded: max {_CLAUDE_RATE_MAX} Claude calls "
+                f"per {_CLAUDE_RATE_WINDOW_S} seconds."
+            ),
+        )
 
 
 def _rate_limit_report(request: Request) -> None:
     """FastAPI dependency — raises 429 when report rate limit is exceeded."""
     client = request.client.host if request.client else "unknown"
     if not _report_limiter.is_allowed(client):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 3 reports per minute.")
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded: max {_REPORT_RATE_MAX} reports "
+                f"per {_REPORT_RATE_WINDOW_S} seconds."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +335,17 @@ def create_app(simulate: bool = False) -> FastAPI:
         plugin = app.state.plugin
         quality_agent = getattr(app.state, "quality_agent", None)
         drift_agent = getattr(app.state, "drift_agent", None)
+        knowledge_status: dict[str, Any] = {
+            "knowledge_base_available": False,
+            "knowledge_context_mode": "unknown",
+            "knowledge_status": "unknown",
+        }
+        with contextlib.suppress(Exception):
+            from spectraagent.webapp.agents.claude_agents import knowledge_backend_status
+
+            knowledge_status = knowledge_backend_status()
+
+        claude_api_key_configured = bool(os.environ.get("ANTHROPIC_API_KEY"))
         return JSONResponse({
             "status": "ok",
             "version": spectraagent.__version__,
@@ -312,6 +355,18 @@ def create_app(simulate: bool = False) -> FastAPI:
             "integration_time_ms": driver.integration_time_ms if driver is not None and hasattr(driver, "integration_time_ms") else None,
             "quality_settings": quality_agent.settings if quality_agent is not None else {},
             "drift_settings": drift_agent.settings if drift_agent is not None else {},
+            "claude_api_key_configured": claude_api_key_configured,
+            "rate_limits": {
+                "claude": {
+                    "max_calls": _CLAUDE_RATE_MAX,
+                    "window_seconds": _CLAUDE_RATE_WINDOW_S,
+                },
+                "report": {
+                    "max_calls": _REPORT_RATE_MAX,
+                    "window_seconds": _REPORT_RATE_WINDOW_S,
+                },
+            },
+            **knowledge_status,
         })
 
     # ------------------------------------------------------------------

@@ -49,6 +49,12 @@ def test_health_response_schema(client):
     assert data["status"] == "ok"
     assert "hardware" in data
     assert "version" in data
+    assert "claude_api_key_configured" in data
+    assert "knowledge_base_available" in data
+    assert "knowledge_context_mode" in data
+    assert "rate_limits" in data
+    assert "claude" in data["rate_limits"]
+    assert "report" in data["rate_limits"]
 
 
 def test_cors_header_present(client):

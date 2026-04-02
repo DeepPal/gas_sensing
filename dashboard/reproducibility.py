@@ -15,8 +15,10 @@ This ensures every result can be traced back to exact code, config, and data.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime, timezone
 import hashlib
+import importlib.metadata
 import json
 import logging
 from pathlib import Path
@@ -97,6 +99,47 @@ class ReproducibilityManifest:
             "processor": platform.processor() or "unknown",
         }
 
+    def get_dependency_snapshot(self) -> dict[str, Any]:
+        """Collect installed dependency metadata for stronger reproducibility."""
+        snapshot: dict[str, Any] = {
+            "status": "ok",
+            "package_count": 0,
+            "freeze_hash": "",
+            "core_packages": {},
+        }
+
+        try:
+            distributions = sorted(
+                (
+                    f"{dist.metadata['Name']}=={dist.version}"
+                    for dist in importlib.metadata.distributions()
+                    if dist.metadata.get("Name")
+                ),
+                key=str.lower,
+            )
+            freeze_blob = "\n".join(distributions)
+            snapshot["package_count"] = len(distributions)
+            snapshot["freeze_hash"] = hashlib.sha256(freeze_blob.encode("utf-8")).hexdigest()
+        except Exception as exc:
+            snapshot["status"] = "error"
+            snapshot["error"] = f"distribution_scan_failed: {exc}"
+
+        core_versions: dict[str, str] = {}
+        for pkg in (
+            "numpy",
+            "pandas",
+            "scipy",
+            "scikit-learn",
+            "fastapi",
+            "uvicorn",
+            "pydantic",
+            "torch",
+        ):
+            with contextlib.suppress(Exception):
+                core_versions[pkg] = importlib.metadata.version(pkg)
+        snapshot["core_packages"] = core_versions
+        return snapshot
+
     def get_config_snapshot(self, config_path: Path | None = None) -> dict[str, Any]:
         """Get snapshot of active configuration."""
         config_path = config_path or self.app_root / "config" / "config.yaml"
@@ -104,7 +147,7 @@ class ReproducibilityManifest:
         try:
             import yaml
 
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             return {
                 "config_file": str(config_path),
@@ -132,6 +175,7 @@ class ReproducibilityManifest:
             },
             "version_control": self.get_git_info(),
             "environment": self.get_environment_info(),
+            "dependencies": self.get_dependency_snapshot(),
             "configuration": self.get_config_snapshot(),
             "notes": (
                 "This manifest uniquely identifies the code, configuration, "

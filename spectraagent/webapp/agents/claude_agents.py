@@ -66,6 +66,25 @@ except ImportError:
     log.debug("claude_agents: spectraagent.knowledge not available — using generic prompts")
 
 
+def knowledge_backend_status() -> dict[str, str | bool]:
+    """Return whether domain knowledge context builders are available.
+
+    This is used by health/status endpoints so researchers can see whether
+    Claude responses are grounded in sensor-specific knowledge or generic mode.
+    """
+    if _KB_AVAILABLE:
+        return {
+            "knowledge_base_available": True,
+            "knowledge_context_mode": "domain",
+            "knowledge_status": "ok",
+        }
+    return {
+        "knowledge_base_available": False,
+        "knowledge_context_mode": "generic",
+        "knowledge_status": "fallback",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Client factory — patchable in tests
 # ---------------------------------------------------------------------------

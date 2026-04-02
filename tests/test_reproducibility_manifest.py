@@ -37,6 +37,9 @@ def test_reproducibility_manifest_contains_environment_and_config_hash(tmp_path:
     assert payload["operator"] == "tester"
     assert "environment" in payload
     assert "python_version" in payload["environment"]
+    assert "dependencies" in payload
+    assert "package_count" in payload["dependencies"]
+    assert "core_packages" in payload["dependencies"]
     assert "configuration" in payload
     assert payload["configuration"]["hash"]
 
