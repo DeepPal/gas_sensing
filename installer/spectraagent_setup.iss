@@ -97,6 +97,10 @@ Source: "first_run_wizard.py"; DestDir: "{app}\installer"; Flags: ignoreversion
 ; Resources
 Source: "resources\icon.ico"; DestDir: "{app}\resources"; Flags: ignoreversion
 
+; Unified launcher
+Source: "..\launch.bat";       DestDir: "{app}"; Flags: ignoreversion
+Source: "..\launcher.py";      DestDir: "{app}"; Flags: ignoreversion
+
 ; Setup helper scripts
 Source: "install_deps.bat";    DestDir: "{app}\installer"; Flags: ignoreversion
 

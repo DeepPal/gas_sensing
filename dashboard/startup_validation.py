@@ -100,7 +100,7 @@ class StartupValidator:
         try:
             import yaml
 
-            with open(config_file) as f:
+            with open(config_file, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             if config is None or not isinstance(config, dict):
                 raise ValueError("Config is empty or invalid")
