@@ -35,6 +35,9 @@ def _signature(payload: str, signing_key: str | None) -> dict[str, str | bool]:
 
 
 def _html_report(payload: dict) -> str:
+    shipment_label = html.escape(str(payload.get("shipment_label", "QUALIFIED FOR EXTERNAL REVIEW")))
+    shipment_notice = html.escape(str(payload.get("shipment_notice", "")))
+    banner_class = "pass" if payload.get("overall_pass") else "fail"
     checks = payload.get("checks", [])
     rows = []
     for c in checks:
@@ -54,6 +57,9 @@ def _html_report(payload: dict) -> str:
   <title>CI Qualification Dossier</title>
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #142; }}
+        .banner {{ margin: 16px 0; padding: 12px 14px; border-radius: 8px; font-weight: 700; }}
+        .banner.pass {{ background: #edf7ed; color: #14532d; border: 1px solid #86efac; }}
+        .banner.fail {{ background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }}
     table {{ border-collapse: collapse; width: 100%; }}
     th, td {{ border: 1px solid #b7c3ce; padding: 8px; text-align: left; }}
     th {{ background: #edf4f9; }}
@@ -65,6 +71,7 @@ def _html_report(payload: dict) -> str:
   <p>Tier: <strong>{html.escape(str(payload.get('qualification_tier', 'not_qualified')))}</strong> |
      Score: <strong>{html.escape(str(payload.get('score', 0)))}</strong> |
      Overall: <strong>{'PASS' if payload.get('overall_pass') else 'FAIL'}</strong></p>
+    <div class="banner {banner_class}">{shipment_label}: {shipment_notice}</div>
   <table>
     <thead><tr><th>Check</th><th>Value</th><th>Target</th><th>Status</th></tr></thead>
     <tbody>{table_rows}</tbody>
@@ -95,6 +102,8 @@ def main() -> None:
         "overall_pass": True,
         "qualification_tier": "silver",
         "score": 100,
+        "shipment_label": "QUALIFIED FOR EXTERNAL REVIEW",
+        "shipment_notice": "CI qualification gates passed. Artifact is suitable for external release review.",
         "summary": "CI gates passed for release candidate.",
         "checks": [
             {"id": "workflow_validation", "title": "Workflow validation", "value": "pass", "target": "pass", "pass": True},

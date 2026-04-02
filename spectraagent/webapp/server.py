@@ -542,6 +542,13 @@ def _build_qualification_dossier(
             "Qualification criteria passed; proceed to pilot deployment and external validation package generation."
         ]
 
+    shipment_label = "QUALIFIED FOR EXTERNAL REVIEW" if overall_pass else "RESEARCH ONLY - NOT QUALIFIED"
+    shipment_notice = (
+        "Qualification gates passed. Artifact is suitable for external pilot review and supplier discussion."
+        if overall_pass
+        else "Critical qualification gates remain open. Do not use this artifact as evidence of supplier readiness."
+    )
+
     return {
         "status": "ok",
         "session_id": resolved_session_id,
@@ -553,6 +560,8 @@ def _build_qualification_dossier(
         "checks": checks,
         "next_actions": next_actions,
         "summary": metrics.get("summary_text"),
+        "shipment_label": shipment_label,
+        "shipment_notice": shipment_notice,
     }
 
 
@@ -601,6 +610,9 @@ def _render_dossier_html(dossier: dict[str, Any]) -> str:
     tier = html.escape(str(dossier.get("qualification_tier") or "not_qualified"))
     score = html.escape(str(dossier.get("score") or "0"))
     overall = "PASS" if dossier.get("overall_pass") else "FAIL"
+    shipment_label = html.escape(str(dossier.get("shipment_label") or "RESEARCH ONLY"))
+    shipment_notice = html.escape(str(dossier.get("shipment_notice") or ""))
+    banner_class = "pass" if dossier.get("overall_pass") else "fail"
     checks = dossier.get("checks", [])
     rows = []
     for c in checks:
@@ -620,6 +632,9 @@ def _render_dossier_html(dossier: dict[str, Any]) -> str:
         body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #122; }}
         h1 {{ margin-bottom: 0; }}
         .meta {{ margin: 8px 0 20px; color: #334; }}
+        .banner {{ margin: 16px 0; padding: 12px 14px; border-radius: 8px; font-weight: 700; }}
+        .banner.pass {{ background: #edf7ed; color: #14532d; border: 1px solid #86efac; }}
+        .banner.fail {{ background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }}
         table {{ border-collapse: collapse; width: 100%; }}
         th, td {{ border: 1px solid #b9c6d1; padding: 8px; text-align: left; }}
         th {{ background: #eaf1f6; }}
@@ -629,6 +644,7 @@ def _render_dossier_html(dossier: dict[str, Any]) -> str:
 <body>
     <h1>Qualification Dossier</h1>
     <div class=\"meta\">Session: <strong>{session}</strong> | Overall: <strong>{overall}</strong> | Tier: <strong>{tier}</strong> | Score: <strong>{score}</strong></div>
+    <div class="banner {banner_class}">{shipment_label}: {shipment_notice}</div>
     <table>
         <thead><tr><th>Check</th><th>Value</th><th>Target</th><th>Status</th></tr></thead>
         <tbody>{row_html}</tbody>

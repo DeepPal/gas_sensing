@@ -121,7 +121,28 @@ def test_qualification_dossier_passes_with_strong_metrics(client):
     assert data["status"] == "ok"
     assert data["overall_pass"] is True
     assert data["qualification_tier"] in {"bronze", "silver", "gold"}
+    assert data["shipment_label"] == "QUALIFIED FOR EXTERNAL REVIEW"
     assert isinstance(data["checks"], list)
+
+
+def test_qualification_dossier_marks_failed_sessions_as_research_only(client):
+    """Failed qualification dossiers should be explicitly labeled as research-only."""
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=3,
+        calibration_r2=0.81,
+        mean_snr=2.1,
+        lod_ppm=0.020,
+        loq_ppm=0.070,
+        drift_rate_nm_per_frame=0.010,
+        summary_text="Not yet qualification-ready session.",
+    )
+
+    resp = client.get("/api/qualification/dossier")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["overall_pass"] is False
+    assert data["shipment_label"] == "RESEARCH ONLY - NOT QUALIFIED"
+    assert "supplier readiness" in data["shipment_notice"].lower()
 
 
 def test_qualification_dossier_export_writes_artifacts(client, tmp_path, monkeypatch):
@@ -145,6 +166,8 @@ def test_qualification_dossier_export_writes_artifacts(client, tmp_path, monkeyp
     assert os.path.exists(data["paths"]["json"])
     assert os.path.exists(data["paths"]["html"])
     assert os.path.exists(data["paths"]["signature"])
+    html_payload = Path(data["paths"]["html"]).read_text(encoding="utf-8")
+    assert "QUALIFIED FOR EXTERNAL REVIEW" in html_payload
 
 
 def test_qualification_dossier_export_signs_with_hmac_key(client, tmp_path, monkeypatch):
