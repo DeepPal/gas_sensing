@@ -606,7 +606,7 @@ def _normalise(
         return _msc(X)
 
     if method == "area":
-        areas = np.trapz(X, wavelengths, axis=1)[:, np.newaxis]
+        areas = np.trapezoid(X, wavelengths, axis=1)[:, np.newaxis]
         areas = np.where(np.abs(areas) < 1e-12, 1.0, areas)
         return X / areas
 

@@ -79,6 +79,7 @@ nav:
     - CCS200 Setup: hardware/CCS200_SETUP.md
   - Guides:
     - Calibration Workflow: guides/CALIBRATION_WORKFLOW.md
+    - CI Troubleshooting: guides/CI_TROUBLESHOOTING.md
   - Validation:
     - ICH Q2 Report: ICH_Q2_VALIDATION.md
     - Validation Strategy: VALIDATION_STRATEGY.md

@@ -181,7 +181,7 @@ class MLPipeline:
             peak_idx  = int(np.argmax(np.abs(d)))
             delta_lam = float(wl[peak_idx]) - self._ref_peak_wl
             return np.array([delta_lam, float(d[peak_idx]),
-                             float(np.trapz(d, wl)), float(np.std(d))])
+                             float(np.trapezoid(d, wl)), float(np.std(d))])
         else:
             return sig  # full spectrum; PCA compresses in the sklearn pipeline
 

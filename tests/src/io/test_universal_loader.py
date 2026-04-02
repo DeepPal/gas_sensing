@@ -214,8 +214,8 @@ class TestLoadDirectory:
     def test_normalisation_area(self, spectrum_directory):
         ds = load_dataset(spectrum_directory, normalisation="area")
         # Each spectrum's trapezoid integral ≈ 1.0
-        from numpy import trapz
-        areas = [trapz(ds.spectra[i], ds.wavelengths) for i in range(ds.n_samples)]
+        from numpy import trapezoid
+        areas = [trapezoid(ds.spectra[i], ds.wavelengths) for i in range(ds.n_samples)]
         np.testing.assert_allclose(areas, 1.0, rtol=0.01)
 
     def test_normalisation_minmax(self, spectrum_directory):

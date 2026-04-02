@@ -191,7 +191,7 @@ def normalize_spectrum(intensity: np.ndarray, method: str = "minmax") -> np.ndar
         return (intensity - mean) / std
 
     elif method == "area":
-        area = np.trapz(intensity)
+        area = np.trapezoid(intensity)
         if abs(area) < 1e-10:
             return np.zeros_like(intensity)
         return intensity / area
