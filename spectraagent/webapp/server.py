@@ -691,6 +691,43 @@ def _write_dossier_artifacts(
     return out_dir, stamp, paths, signature
 
 
+def _build_package_status_readme(
+    dossier: dict[str, Any],
+    session_id: str,
+    signature: dict[str, Any],
+) -> str:
+    """Create a plain-text package overview that explains shipment status."""
+    overall = "PASS" if dossier.get("overall_pass") else "FAIL"
+    shipment_label = str(dossier.get("shipment_label") or "RESEARCH ONLY")
+    shipment_notice = str(dossier.get("shipment_notice") or "")
+    tier = str(dossier.get("qualification_tier") or "not_qualified")
+    score = str(dossier.get("score") or "0")
+    next_actions = dossier.get("next_actions") or []
+    action_lines = "\n".join(f"- {action}" for action in next_actions[:5]) or "- None"
+    signing_mode = (
+        str(signature.get("algorithm")) if signature.get("signed") else "unsigned-sha256"
+    )
+    return (
+        "SPECTRAAGENT QUALIFICATION PACKAGE\n"
+        "=================================\n\n"
+        f"Session ID: {session_id}\n"
+        f"Overall Qualification: {overall}\n"
+        f"Tier: {tier}\n"
+        f"Score: {score}\n"
+        f"Shipment Label: {shipment_label}\n"
+        f"Shipment Notice: {shipment_notice}\n"
+        f"Signature Mode: {signing_mode}\n\n"
+        "How to interpret this package\n"
+        "-----------------------------\n"
+        "- qualification/: exported dossier, HTML review copy, and signature metadata\n"
+        "- session/: captured machine-readable session evidence when available\n"
+        "- A RESEARCH ONLY label means the session did not satisfy supplier-facing qualification gates\n\n"
+        "Immediate actions\n"
+        "-----------------\n"
+        f"{action_lines}\n"
+    )
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -906,6 +943,10 @@ def create_app(simulate: bool = False) -> FastAPI:
         bundle_path = out_dir / f"research_package_{stamp}.zip"
         included: list[str] = []
         with zipfile.ZipFile(bundle_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            status_readme = _build_package_status_readme(dossier, resolved_session_id, signature)
+            zf.writestr("README_STATUS.txt", status_readme)
+            included.append("README_STATUS.txt")
+
             for k in ("json", "html", "signature"):
                 p = paths.get(k)
                 if not p:
@@ -915,12 +956,20 @@ def create_app(simulate: bool = False) -> FastAPI:
                 zf.write(src, arcname=arc)
                 included.append(arc)
 
-            session_root = Path("output/sessions") / resolved_session_id
+            sw = getattr(app.state, "session_writer", None)
+            session_base = getattr(sw, "_dir", Path("output/sessions"))
+            session_root = Path(session_base) / resolved_session_id
             for name in ("session_meta.json", "agent_events.jsonl", "pipeline_results.csv"):
                 src = session_root / name
                 if src.exists() and src.is_file():
                     arc = f"session/{name}"
                     zf.write(src, arcname=arc)
+                    included.append(arc)
+
+            for manifest_path in sorted(session_root.glob("*_manifest.json")):
+                if manifest_path.is_file():
+                    arc = f"session/{manifest_path.name}"
+                    zf.write(manifest_path, arcname=arc)
                     included.append(arc)
 
         return JSONResponse(

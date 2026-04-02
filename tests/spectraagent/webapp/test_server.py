@@ -195,6 +195,13 @@ def test_qualification_dossier_export_signs_with_hmac_key(client, tmp_path, monk
 def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
     """Package endpoint should create a zip with dossier artifacts."""
     monkeypatch.setenv("SPECTRAAGENT_DOSSIER_DIR", str(tmp_path))
+    client.app.state.session_writer = SessionWriter(tmp_path / "sessions")
+    session_dir = (tmp_path / "sessions" / "unknown")
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "session_meta.json").write_text('{"session_id": "unknown"}', encoding="utf-8")
+    (session_dir / "agent_events.jsonl").write_text('{"type": "session_complete"}\n', encoding="utf-8")
+    (session_dir / "pipeline_results.csv").write_text('frame,timestamp\n1,now\n', encoding="utf-8")
+    (session_dir / "unknown_manifest.json").write_text('{"session_id": "unknown"}', encoding="utf-8")
     client.app.state.last_session_analysis = SimpleNamespace(
         calibration_n_points=7,
         calibration_r2=0.97,
@@ -214,9 +221,13 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
 
     with zipfile.ZipFile(package_path, "r") as zf:
         names = zf.namelist()
+        assert "README_STATUS.txt" in names
         assert any(name.startswith("qualification/") and name.endswith(".json") for name in names)
         assert any(name.startswith("qualification/") and name.endswith(".html") for name in names)
         assert any(name.startswith("qualification/") and name.endswith(".sig.json") for name in names)
+        assert "session/unknown_manifest.json" in names
+        readme = zf.read("README_STATUS.txt").decode("utf-8")
+        assert "Shipment Label: QUALIFIED FOR EXTERNAL REVIEW" in readme
 
 
 def test_artifact_download_serves_exported_file(client, tmp_path, monkeypatch):
