@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
 
     steps:
       - name: Checkout
@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,ml]"
 
       - name: Setup Node.js for frontend checks
         if: matrix.python-version == '3.11'
@@ -186,9 +186,11 @@ jobs:
       - name: Publish reliability summary
         if: always()
         run: |
-          cat output/test-results/reliability-summary.md >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          cat output/test-results/reliability-budget.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            cat output/test-results/reliability-summary.md
+            echo ""
+            cat output/test-results/reliability-budget.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload reliability test report
         if: always()

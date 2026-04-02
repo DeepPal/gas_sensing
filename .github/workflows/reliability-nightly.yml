@@ -44,9 +44,11 @@ jobs:
       - name: Publish nightly reliability summary
         if: always()
         run: |
-          cat output/test-results/reliability-nightly-summary.md >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          cat output/test-results/reliability-nightly-budget.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            cat output/test-results/reliability-nightly-summary.md
+            echo ""
+            cat output/test-results/reliability-nightly-budget.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload reliability test report
         if: always()

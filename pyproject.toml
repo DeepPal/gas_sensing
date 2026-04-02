@@ -10,7 +10,7 @@ name = "spectraagent"
 version = "1.0.0"
 description = "Universal agentic spectroscopy platform — AI-native sensor analysis"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "Chula Research Team", email = "research@example.com" },
@@ -36,7 +36,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Chemistry",

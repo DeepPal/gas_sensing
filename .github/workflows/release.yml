@@ -43,7 +43,7 @@ jobs:
           echo "Version check passed: $TAG == $EXPECTED"
 
       - name: Install package (for import check above to work)
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,ml]"
 
       - name: Run fast test lane (release gate)
         run: pytest -q --tb=short -m "not reliability"
@@ -77,17 +77,19 @@ jobs:
 
       - name: Publish release checksums in workflow summary
         run: |
-          echo "## Release Artifact Checksums" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat dist/sha256sums.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "## Sigstore Attestation" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifacts are signed via [Sigstore](https://sigstore.dev). Verify with:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
-          echo "gh attestation verify <artifact.whl> --repo DeepPal/gas_sensing" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Release Artifact Checksums"
+            echo ""
+            echo '```text'
+            cat dist/sha256sums.txt
+            echo '```'
+            echo ""
+            echo "## Sigstore Attestation"
+            echo "Artifacts are signed via [Sigstore](https://sigstore.dev). Verify with:"
+            echo '```bash'
+            echo "gh attestation verify <artifact.whl> --repo DeepPal/gas_sensing"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Extract changelog section for this release
         id: changelog

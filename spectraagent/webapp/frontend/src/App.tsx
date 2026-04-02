@@ -153,6 +153,7 @@ export default function App() {
   const userScrolledRef = useRef(false)
   const settingsSeededRef = useRef(false)
   const eventIdRef = useRef(0)
+  const healthReachableRef = useRef(false)
 
   // ── Health poll (seeds settings sliders on first successful response only) ─
   useEffect(() => {
@@ -160,6 +161,7 @@ export default function App() {
       try {
         const h = await api.health()
         setHealth(h)
+        healthReachableRef.current = true
         if (!settingsSeededRef.current) {
           settingsSeededRef.current = true
           setSatThreshold(h.quality_settings.saturation_threshold)
@@ -170,7 +172,7 @@ export default function App() {
         }
       } catch (err) {
         // Suppress during startup warmup; log if server was previously reachable
-        if (health !== null) console.warn('[health poll] server unreachable:', err)
+        if (healthReachableRef.current) console.warn('[health poll] server unreachable:', err)
       }
     }
     poll()
@@ -765,7 +767,6 @@ export default function App() {
                         <div key={name} className="analyte-row">
                           <span className="analyte-name">{name}</span>
                           <div className="analyte-bar-bg">
-                            {/* eslint-disable-next-line @typescript-eslint/consistent-type-assertions */}
                             <div className="analyte-bar-fill" {...{ style: { '--bar-pct': `${pct}%` } as React.CSSProperties }} />
                           </div>
                           <span className="analyte-conc">{c.toFixed(3)} ppm</span>
@@ -776,7 +777,6 @@ export default function App() {
                       <div key={name} className="analyte-row">
                         <span className="analyte-name">{name}</span>
                         <div className="analyte-bar-bg">
-                          {/* eslint-disable-next-line @typescript-eslint/consistent-type-assertions */}
                           <div className="analyte-bar-fill" {...{ style: { '--bar-pct': '0%' } as React.CSSProperties }} />
                         </div>
                         <span className="analyte-conc">— ppm</span>
