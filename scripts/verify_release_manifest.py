@@ -10,8 +10,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
-import sys
-
 
 LINE_RE = re.compile(r"^[0-9a-f]{64}\s{2}(.+)$")
 

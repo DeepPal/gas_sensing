@@ -143,6 +143,12 @@ include = ["src*", "config*", "dashboard*", "gas_analysis*", "spectraagent*"]
 "src" = ["py.typed"]
 "spectraagent" = ["webapp/static/dist/**/*"]
 
+[tool.setuptools.exclude-package-data]
+"spectraagent" = [
+    "webapp/frontend/node_modules/**",
+    "webapp/frontend/**/node_modules/**",
+]
+
 # ---------------------------------------------------------------------------
 # Tool: ruff (linter + formatter)
 # ---------------------------------------------------------------------------
