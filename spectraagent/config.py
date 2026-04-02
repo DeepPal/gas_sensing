@@ -82,11 +82,53 @@ class SpectraAgentConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
 
 
+class ConfigError(ValueError):
+    """Raised when spectraagent.toml contains an invalid value."""
+
+
+def _validate(cfg: SpectraAgentConfig, path: Path) -> None:
+    """Raise ConfigError with a clear message for any out-of-range value."""
+    errors: list[str] = []
+
+    it = cfg.hardware.integration_time_ms
+    if it <= 0 or it > 60_000:
+        errors.append(f"[hardware] integration_time_ms={it} must be in (0, 60000] ms")
+
+    mn = cfg.physics.search_min_nm
+    mx = cfg.physics.search_max_nm
+    if mn <= 0:
+        errors.append(f"[physics] search_min_nm={mn} must be > 0")
+    if mx <= 0:
+        errors.append(f"[physics] search_max_nm={mx} must be > 0")
+    if mn >= mx:
+        errors.append(f"[physics] search_min_nm={mn} must be < search_max_nm={mx}")
+
+    port = cfg.server.port
+    if not (1 <= port <= 65535):
+        errors.append(f"[server] port={port} must be in 1–65535")
+
+    t = cfg.claude.timeout_s
+    if t <= 0:
+        errors.append(f"[claude] timeout_s={t} must be > 0")
+
+    if errors:
+        bullet = "\n  • ".join(errors)
+        raise ConfigError(
+            f"Invalid spectraagent.toml ({path}):\n  • {bullet}\n"
+            "Fix these values and restart."
+        )
+
+
 def load_config(path: Path | None = None) -> SpectraAgentConfig:
     """Load config from *path* (default: ``spectraagent.toml`` in CWD).
 
     If the file does not exist it is created with defaults and the defaults
     are returned — so first run always succeeds.
+
+    Raises
+    ------
+    ConfigError
+        If any config value is out of the valid range.
     """
     if path is None:
         path = Path("spectraagent.toml")
@@ -100,7 +142,7 @@ def load_config(path: Path | None = None) -> SpectraAgentConfig:
     cl = raw.get("claude", {})
     sv = raw.get("server", {})
 
-    return SpectraAgentConfig(
+    cfg = SpectraAgentConfig(
         hardware=HardwareConfig(
             default_driver=hw.get("default_driver", "thorlabs_ccs"),
             integration_time_ms=float(hw.get("integration_time_ms", 50.0)),
@@ -125,3 +167,5 @@ def load_config(path: Path | None = None) -> SpectraAgentConfig:
             open_browser=bool(sv.get("open_browser", True)),
         ),
     )
+    _validate(cfg, path)
+    return cfg

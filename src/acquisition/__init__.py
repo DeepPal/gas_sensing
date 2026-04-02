@@ -1,7 +1,7 @@
 """
 src.acquisition
 ===============
-Hardware acquisition layer for the Au-MIP LSPR gas sensing platform.
+Hardware acquisition layer for the the sensor LSPR gas sensing platform.
 
 Provides a unified re-export point for both the low-level
 :class:`CCS200Spectrometer` (single-shot / blocking) and the high-level
@@ -28,7 +28,7 @@ Usage
 
     from src.acquisition import RealtimeAcquisitionService
 
-    svc = RealtimeAcquisitionService(integration_time_ms=50, target_wavelength=717.9)
+    svc = RealtimeAcquisitionService(integration_time_ms=50)  # target_wavelength set from reference
     svc.connect(interface="auto")
     svc.register_callback(my_callback)
     svc.start()

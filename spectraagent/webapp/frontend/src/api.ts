@@ -8,6 +8,7 @@ export interface HealthResponse {
   hardware: string
   simulate: boolean
   physics_plugin: string
+  integration_time_ms?: number
   quality_settings: { saturation_threshold: number; snr_warn_threshold: number }
   drift_settings: { drift_threshold_nm_per_min: number; window_frames: number }
 }
@@ -68,6 +69,29 @@ export interface DriftSettings {
   window_frames?: number
 }
 
+// Multi-analyte types
+export interface AnalyteInfo {
+  analytes: string[]
+  n_peaks: number
+  peak_wavelengths_nm: number[]
+  S_matrix: number[][] | null
+}
+
+export interface MixtureInferenceResult {
+  concentrations_ppm: Record<string, number>
+  residual_nm: number
+  solver: string
+  success: boolean
+  predicted_shifts_nm: number[]
+}
+
+export interface SimCalibrationSummaryRow {
+  concentration_ppm: number
+  mean_shift_nm: number
+  std_shift_nm: number
+  n: number
+}
+
 export const api = {
   async health(): Promise<HealthResponse> {
     const r = await fetch(`${BASE}/api/health`)
@@ -93,7 +117,14 @@ export const api = {
     return r.json()
   },
 
-  async captureReference() {
+  async captureReference(): Promise<{
+    status: string
+    peak_wavelength: number | null
+    peak_wavelengths: number[]
+    n_peaks: number
+    fwhm_nm: number | null
+    error?: string
+  }> {
     const r = await fetch(`${BASE}/api/acquisition/reference`, { method: 'POST' })
     return r.json()
   },
@@ -128,7 +159,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId }),
     })
-    if (!r.ok) throw new Error(`Report generation failed: ${r.status}`)
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`
+      try { const body = await r.json(); detail = body.detail ?? detail } catch { /* ignore */ }
+      throw new Error(detail)
+    }
     return r.json()
   },
 
@@ -159,6 +194,68 @@ export const api = {
     return r.json()
   },
 
+  // ── Multi-analyte API ──────────────────────────────────────────────────
+
+  async listAnalytes(): Promise<AnalyteInfo> {
+    const r = await fetch(`${BASE}/api/analytes`)
+    return r.json()
+  },
+
+  async inferMixture(payload: {
+    delta_lambda: number[]
+    analytes: string[]
+    S_matrix: number[][]
+    Kd_matrix?: number[][] | null
+    use_nonlinear?: boolean
+  }): Promise<MixtureInferenceResult> {
+    const r = await fetch(`${BASE}/api/inference/mixture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return r.json()
+  },
+
+  async fitSensitivityMatrix(payload: {
+    analytes: string[]
+    n_peaks: number
+    calibration_data: Array<{
+      analyte: string
+      peak_idx: number
+      conc_ppm: number[]
+      shifts_nm: number[]
+    }>
+  }) {
+    const r = await fetch(`${BASE}/api/calibration/sensitivity-matrix/fit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return r.json()
+  },
+
+  async generateSimulation(payload: {
+    peak_nm?: number
+    fwhm_nm?: number
+    analyte_name?: string
+    sensitivity_nm_per_ppm?: number
+    tau_s?: number
+    kd_ppm?: number
+    concentrations?: number[]
+    n_sessions?: number
+    random_seed?: number
+  }): Promise<{ status: string; analyte: string; calibration_summary: SimCalibrationSummaryRow[] }> {
+    const r = await fetch(`${BASE}/api/simulation/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return r.json()
+  },
+
   /** Stream Claude answer via SSE; calls onChunk with each text chunk, resolves when done. */
   async ask(query: string, onChunk: (text: string) => void): Promise<void> {
     const r = await fetch(`${BASE}/api/agents/ask`, {
@@ -181,7 +278,7 @@ export const api = {
           const payload = JSON.parse(line.slice(6))
           if (payload.text) onChunk(payload.text)
           if (payload.done) return
-        } catch {/* ignore malformed */}
+        } catch (err) { console.warn('[sse/ask] malformed chunk:', err) }
       }
     }
   },
@@ -191,7 +288,8 @@ export function connectSpectrum(onFrame: (f: SpectrumFrame) => void): WebSocket 
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${protocol}://${location.host}/ws/spectrum`)
   ws.onmessage = (e) => {
-    try { onFrame(JSON.parse(e.data)) } catch {/* ignore */}
+    try { onFrame(JSON.parse(e.data)) }
+    catch (err) { console.warn('[ws/spectrum] malformed frame:', err) }
   }
   return ws
 }
@@ -200,7 +298,8 @@ export function connectAgentEvents(onEvent: (e: AgentEvent) => void): WebSocket 
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${protocol}://${location.host}/ws/agent-events`)
   ws.onmessage = (e) => {
-    try { onEvent(JSON.parse(e.data)) } catch {/* ignore */}
+    try { onEvent(JSON.parse(e.data)) }
+    catch (err) { console.warn('[ws/agent-events] malformed event:', err) }
   }
   return ws
 }

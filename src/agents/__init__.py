@@ -1,7 +1,7 @@
 """
 src.agents
 ==========
-Autonomous monitoring agents for the Au-MIP LSPR gas sensing platform.
+Autonomous monitoring agents for the the sensor LSPR gas sensing platform.
 
 Each agent runs independently and can be composed into an agentic pipeline
 (see ``md_specs/AGENTS.md`` for the full architecture).

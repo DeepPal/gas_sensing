@@ -5,7 +5,7 @@ Cross-reactivity and selectivity analysis for LSPR gas sensors.
 
 Background
 ----------
-An LSPR sensor responds to any gas that adsorbs on the Au-MIP surface.
+An LSPR sensor responds to any gas that adsorbs on the sensor surface.
 For a sensor targeting Ethanol, the response to CO₂ or humidity constitutes
 a cross-reactivity that degrades specificity.  ICH Q2(R1) §5.3 and IUPAC
 2012 require selectivity characterisation for any claimed analytical method.

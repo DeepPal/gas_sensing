@@ -1,7 +1,7 @@
 """
 src.agents.quality
 ==================
-Data Quality Agent for the Au-MIP LSPR gas sensing pipeline.
+Data Quality Agent for the gas sensing pipeline.
 
 Responsibility
 --------------

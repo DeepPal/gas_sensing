@@ -5,7 +5,7 @@ Sub-pixel peak detection for LSPR spectral data.
 
 Background
 ----------
-The Au-MIP LSPR peak sits at ~717.9 nm for the reference spectrum.  Gas
+The the sensor LSPR peak sits at ~717.9 nm for the reference spectrum.  Gas
 adsorption causes a wavelength *shift* of order −10 nm at 0.1 ppm Ethanol.
 Accurate shift measurement requires sub-pixel peak localisation; the CCS200
 pixel spacing is ~0.2 nm so a naive argmax gives ±0.1 nm error, comparable

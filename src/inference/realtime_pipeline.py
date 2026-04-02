@@ -33,7 +33,6 @@ import uuid
 import numpy as np
 
 from src.features.lspr_features import (
-    LSPR_SENSITIVITY_NM_PER_PPM,
     LSPRReference,
     compute_lspr_reference,
     concentration_from_shift,
@@ -47,6 +46,7 @@ from src.preprocessing import (
     compute_snr,
     is_valid_spectrum,
     smooth_spectrum,
+    spike_rejection,
 )
 
 log = logging.getLogger(__name__)
@@ -76,6 +76,9 @@ class PipelineConfig:
     denoising_poly: int = 2
     apply_baseline: bool = False  # For LSPR peak-shift: usually False
     baseline_method: str = "als"
+    spike_rejection: bool = True   # Hampel identifier before smoothing
+    spike_window: int = 7          # local neighbourhood half-width (pixels)
+    spike_threshold: float = 3.0   # rejection threshold (× local σ_MAD)
 
     # Stage 2: Feature extraction
     # ── SENSOR-SPECIFIC — must be set for your sensor ──────────────────────
@@ -99,7 +102,7 @@ class PipelineConfig:
     # calibration_slope sign convention:
     #   Negative (e.g. -0.116 nm/ppm) → sensor peak blue-shifts on gas exposure.
     #   Positive                       → sensor peak red-shifts on gas exposure.
-    calibration_slope: float = LSPR_SENSITIVITY_NM_PER_PPM  # nm/ppm
+    calibration_slope: float = 0.0  # nm/ppm — must be set from calibration; sign depends on sensor
     calibration_intercept: float = 0.0
 
     # Stage 4: Quality control
@@ -195,8 +198,22 @@ class PreprocessingStage:
             return spectrum, results
 
         try:
+            # Spike rejection must run BEFORE smoothing.
+            # Savitzky-Golay cannot flatten single-pixel spikes (Lorentzian fit
+            # will return wrong FWHM if even one spike pixel is in the fit window).
+            cleaned = (
+                spike_rejection(
+                    raw,
+                    window=self.config.spike_window,
+                    threshold=self.config.spike_threshold,
+                )
+                if self.config.spike_rejection
+                else raw
+            )
+            results["spike_rejection"] = self.config.spike_rejection
+
             smoothed = smooth_spectrum(
-                raw,
+                cleaned,
                 window=self.config.denoising_window,
                 poly_order=self.config.denoising_poly,
                 method=self.config.denoising_method,
@@ -235,7 +252,9 @@ class FeatureExtractionStage:
         reference_intensities: np.ndarray | None = None,
     ) -> None:
         self.config = config
-        self._reference: np.ndarray | None = reference_intensities
+        self._reference: np.ndarray | None = (
+            None if reference_intensities is None else reference_intensities.copy()
+        )
 
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Update the reference spectrum used for shift calculation."""

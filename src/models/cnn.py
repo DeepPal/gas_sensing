@@ -1,7 +1,7 @@
 """
 src.models.cnn
 ==============
-1-D CNN gas classifier for Au-MIP LSPR spectra.
+1-D CNN gas classifier for LSPR spectra.
 
 Architecture
 ------------

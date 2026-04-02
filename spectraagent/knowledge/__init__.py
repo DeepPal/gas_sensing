@@ -1,7 +1,7 @@
 """
 spectraagent.knowledge
 =======================
-Domain knowledge base for Au-MIP LSPR optical gas sensors.
+Domain knowledge base for optical gas sensors.
 
 This package provides structured, physics-grounded knowledge that is injected
 into Claude agent prompts at runtime — enabling agents to reason like a domain
@@ -25,9 +25,9 @@ context_builders
     Functions that select and format relevant knowledge for agent prompts,
     adapting the depth and focus based on the specific measurement context.
 """
-from spectraagent.knowledge.analytes import AnalyteReference, ANALYTE_REGISTRY, lookup_analyte
+from spectraagent.knowledge.analytes import AnalyteProperties, ANALYTE_REGISTRY, lookup_analyte
 from spectraagent.knowledge.failure_modes import FailureMode, FAILURE_TAXONOMY, match_failure_modes
-from spectraagent.knowledge.protocols import ValidationRequirement, ICH_Q2_PROTOCOL, assess_validation_status
+from spectraagent.knowledge.protocols import ValidationRequirement, ICH_Q2_PROTOCOL, ValidationTracker, ValidationStatus
 from spectraagent.knowledge.context_builders import (
     build_anomaly_context,
     build_calibration_narration_context,
@@ -37,7 +37,7 @@ from spectraagent.knowledge.context_builders import (
 )
 
 __all__ = [
-    "AnalyteReference",
+    "AnalyteProperties",
     "ANALYTE_REGISTRY",
     "lookup_analyte",
     "FailureMode",
@@ -45,7 +45,8 @@ __all__ = [
     "match_failure_modes",
     "ValidationRequirement",
     "ICH_Q2_PROTOCOL",
-    "assess_validation_status",
+    "ValidationTracker",
+    "ValidationStatus",
     "build_anomaly_context",
     "build_calibration_narration_context",
     "build_report_context",

@@ -1,7 +1,7 @@
 """
 tests/conftest.py
 =================
-Shared pytest fixtures for the Au-MIP LSPR gas sensing platform.
+Shared pytest fixtures for the the sensor LSPR gas sensing platform.
 
 All fixtures in this file are available automatically to every test
 module in the ``tests/`` directory — no explicit import needed.
@@ -10,7 +10,7 @@ Fixture quick-reference
 -----------------------
 - ``minimal_config_yaml``  — write a minimal valid config.yaml to tmp_path
 - ``full_config_path``     — real config/config.yaml resolved from project root
-- ``synthetic_spectrum``   — realistic Au-MIP LSPR intensity spectrum (np arrays)
+- ``synthetic_spectrum``   — realistic the sensor LSPR intensity spectrum (np arrays)
 - ``canonical_spectra``    — dict mapping concentration → DataFrame (for batch tests)
 - ``gaussian``             — helper function for building Gaussian peaks
 
@@ -60,7 +60,7 @@ def wavelengths_400_700() -> np.ndarray:
 
 @pytest.fixture
 def wavelengths_lspr() -> np.ndarray:
-    """200-point axis centred on the Au-MIP LSPR region (480–600 nm)."""
+    """200-point axis centred on the LSPR region (480–600 nm)."""
     return np.linspace(480.0, 600.0, 200)
 
 
@@ -71,7 +71,7 @@ def wavelengths_lspr() -> np.ndarray:
 
 @pytest.fixture
 def synthetic_spectrum(wavelengths_400_700: np.ndarray) -> dict:
-    """Realistic synthetic Au-MIP LSPR spectrum.
+    """Realistic synthetic the sensor LSPR spectrum.
 
     Returns a dict with keys:
         - ``wavelengths``: 1-D ndarray (nm)
@@ -101,7 +101,7 @@ def canonical_spectra(wavelengths_400_700: np.ndarray) -> dict[float, pd.DataFra
     """Dict mapping concentration (ppm) → spectrum DataFrame.
 
     Simulates 5 concentration levels with a linear shift in the LSPR peak
-    wavelength (−0.116 nm/ppm) matching the Au-MIP literature sensitivity.
+    wavelength (−0.116 nm/ppm) matching the the sensor literature sensitivity.
     """
     rng = np.random.default_rng(0)
     wl = wavelengths_400_700

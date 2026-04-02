@@ -9,7 +9,7 @@ logspace candidates and space-filling fallback for sparse early-session data.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from spectraagent.webapp.agent_bus import AgentBus, AgentEvent
 
@@ -48,13 +48,23 @@ class ExperimentPlannerAgent:
         self._n_candidates = n_candidates
         self._gpr = None
         self._measured: list[float] = []
+        self._designer: Optional[Any] = None  # BayesianExperimentDesigner or None
 
-        from src.calibration.active_learning import BayesianExperimentDesigner
-        self._designer = BayesianExperimentDesigner(
-            min_conc=min_conc,
-            max_conc=max_conc,
-            n_candidates=n_candidates,
-        )
+        try:
+            from src.calibration.active_learning import BayesianExperimentDesigner
+            self._designer = BayesianExperimentDesigner(
+                min_conc=min_conc,
+                max_conc=max_conc,
+                n_candidates=n_candidates,
+            )
+        except ImportError:
+            log.warning("planner: src.calibration.active_learning unavailable — Bayesian suggest disabled")
+            self._designer = None
+
+    def reset(self) -> None:
+        """Clear session-scoped state. Call at the start of each new session."""
+        self._measured.clear()
+        self._gpr = None
 
     def set_gpr(self, gpr) -> None:
         """Inject a fitted GPRCalibration (or PhysicsInformedGPR) instance."""
@@ -70,6 +80,9 @@ class ExperimentPlannerAgent:
         Returns None only if an unexpected internal error occurs.
         Emits an ``experiment_suggestion`` event on success.
         """
+        if self._designer is None:
+            log.warning("planner: BayesianExperimentDesigner unavailable — cannot suggest")
+            return None
         try:
             suggestion = self._designer.suggest_next(self._gpr, self._measured)
             self._bus.emit(AgentEvent(
@@ -84,7 +97,7 @@ class ExperimentPlannerAgent:
                 },
                 text=f"Suggested next concentration: {suggestion:.4f} ppm (BED logspace)",
             ))
-            return suggestion
+            return float(suggestion)
         except Exception as exc:
             log.warning("ExperimentPlannerAgent.suggest() failed: %s", exc)
             return None

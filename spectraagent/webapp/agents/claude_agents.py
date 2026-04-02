@@ -13,6 +13,21 @@ ClaudeAgentRunner subscribes to AgentBus and dispatches events to the three
 event-driven agents. ReportWriter is called directly by route handlers.
 
 _get_client() is the single point of anthropic import — patch this in tests.
+
+Knowledge integration
+---------------------
+When ``spectraagent.knowledge`` is available, agents build their prompts using
+context builders that assemble:
+  - Sensor physics background (sensor-type-aware)
+  - Ranked failure mode candidates (for anomaly events)
+  - SensorMemory history (accumulated observed values, never hardcoded literature)
+  - ICH Q2(R1) compliance readiness (for calibration events)
+  - Analyte chemistry properties (sensor-independent facts)
+
+This transforms generic "you are a spectroscopy expert" prompts into deeply
+domain-informed reasoning grounded in what *this specific sensor* has actually
+measured. If the knowledge package is unavailable, agents fall back gracefully
+to the previous generic prompts.
 """
 from __future__ import annotations
 
@@ -21,12 +36,28 @@ import json
 import logging
 import os
 import time
-from typing import Any, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 log = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_TIMEOUT_S = 30.0
+
+# ---------------------------------------------------------------------------
+# Optional knowledge base — graceful fallback when unavailable
+# ---------------------------------------------------------------------------
+
+try:
+    from spectraagent.knowledge.context_builders import (
+        build_anomaly_context as _build_anomaly_context,
+        build_calibration_narration_context as _build_calibration_narration_context,
+        build_hardware_diagnostics_context as _build_hardware_diagnostics_context,
+        build_report_context as _build_report_context,
+    )
+    _KB_AVAILABLE = True
+except ImportError:
+    _KB_AVAILABLE = False
+    log.debug("claude_agents: spectraagent.knowledge not available — using generic prompts")
 
 
 # ---------------------------------------------------------------------------
@@ -73,11 +104,13 @@ class _BaseClaude:
         bus: Any,
         model: str = _DEFAULT_MODEL,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
+        memory: Optional[Any] = None,
     ) -> None:
         from spectraagent.webapp.agent_bus import AgentEvent
         self._bus = bus
         self._model = model
         self._timeout_s = timeout_s
+        self._memory = memory   # SensorMemory instance (or None — no history yet)
         self._AgentEvent = AgentEvent
         self._client: Optional[Any] = None
 
@@ -86,6 +119,10 @@ class _BaseClaude:
 
     async def _call(self, prompt: str) -> Optional[str]:
         """Call Claude with the given prompt. Returns text or None.
+
+        Uses the streaming API (messages.stream) so that the call works with
+        local API proxies (e.g. the VS Code Claude extension) that only
+        proxy SSE streaming, not the standard blocking messages.create endpoint.
 
         On failure (no key, timeout, API error) emits a claude_unavailable
         event (level="info") onto the bus and returns None.  Never raises.
@@ -103,15 +140,20 @@ class _BaseClaude:
             ))
             return None
         try:
-            msg = await asyncio.wait_for(
-                client.messages.create(
+            chunks: list[str] = []
+
+            async def _stream_collect() -> str:
+                async with client.messages.stream(
                     model=self._model,
                     max_tokens=1024,
                     messages=[{"role": "user", "content": prompt}],
-                ),
-                timeout=self._timeout_s,
-            )
-            return cast(str, msg.content[0].text)  # type: ignore[union-attr]
+                ) as stream:
+                    async for text in stream.text_stream:
+                        chunks.append(text)
+                return "".join(chunks)
+
+            result = await asyncio.wait_for(_stream_collect(), timeout=self._timeout_s)
+            return result if result else None
         except asyncio.TimeoutError:
             log.warning("%s: Claude API timed out after %.1fs", self.source, self._timeout_s)
             self._bus.emit(self._AgentEvent(
@@ -142,6 +184,13 @@ class _BaseClaude:
 class AnomalyExplainer(_BaseClaude):
     """Explains drift_warn events using Claude.
 
+    When ``spectraagent.knowledge`` is available, each prompt includes:
+    - Sensor physics preamble (sensor-type-aware: lspr, spr, fluorescence, optical)
+    - Top-3 failure mode candidates ranked against observed drift/SNR symptoms
+    - SensorMemory history: past LOD, drift stats, recurrence alert if this
+      failure type has appeared before
+    - Analyte chemistry (interferents, vapour pressure, functional group)
+
     Parameters
     ----------
     bus:
@@ -154,6 +203,14 @@ class AnomalyExplainer(_BaseClaude):
         Minimum seconds between successive calls (default: 300.0).
     auto_explain:
         Whether to auto-fire on drift_warn (default: False — opt-in).
+    memory:
+        SensorMemory instance for sensor history context (default: None).
+    sensor_type:
+        Sensor modality hint for physics preamble: "lspr", "spr",
+        "fluorescence", or "optical" (generic, default).
+    get_analyte:
+        Callable returning current analyte name (or None).  Called at event
+        time so it always reflects the active session's analyte.
     """
 
     source = "AnomalyExplainer"
@@ -165,10 +222,15 @@ class AnomalyExplainer(_BaseClaude):
         timeout_s: float = _DEFAULT_TIMEOUT_S,
         cooldown_s: float = 300.0,
         auto_explain: bool = False,
+        memory: Optional[Any] = None,
+        sensor_type: str = "optical",
+        get_analyte: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
-        super().__init__(bus, model, timeout_s)
+        super().__init__(bus, model, timeout_s, memory=memory)
         self._cooldown_s = cooldown_s
         self._auto_explain = auto_explain
+        self._sensor_type = sensor_type
+        self._get_analyte = get_analyte
         self._last_called: float = float("-inf")  # "never called" → first call always fires
 
     def set_auto_explain(self, enabled: bool) -> None:
@@ -196,16 +258,33 @@ class AnomalyExplainer(_BaseClaude):
             meas_lines += f"  Peak wavelength shift (Δλ): {data['peak_shift_nm']:.4f} nm\n"
         if data.get("snr") is not None:
             meas_lines += f"  Signal-to-noise ratio: {data['snr']:.1f}\n"
-        prompt = (
-            "You are a spectroscopy expert advising on an LSPR biosensor experiment.\n"
-            f"The sensor shows wavelength drift.\n"
-            f"  Drift rate: {data.get('drift_rate_nm_per_min', '?')} nm/min\n"
-            f"  Peak wavelength: {data.get('peak_wavelength', '?')} nm\n"
-            f"  Window: {data.get('window_frames', '?')} frames\n"
-            + meas_lines
-            + "In exactly 2–3 sentences: (1) most likely cause of this drift rate "
-            "and (2) recommended corrective action. Be specific and actionable."
-        )
+
+        if _KB_AVAILABLE:
+            analyte = self._get_analyte() if self._get_analyte is not None else None
+            ctx = _build_anomaly_context(data, analyte, self._memory, self._sensor_type)
+            prompt = (
+                ctx
+                + "\n\n---\n"
+                "**Current event measurements:**\n"
+                f"  Drift rate: {data.get('drift_rate_nm_per_min', '?')} nm/min\n"
+                f"  Peak wavelength: {data.get('peak_wavelength', '?')} nm\n"
+                f"  Window: {data.get('window_frames', '?')} frames\n"
+                + meas_lines
+                + "\nIn exactly 2–3 sentences: (1) most likely cause of this drift rate, "
+                "citing the failure mode evidence above, and (2) recommended corrective "
+                "action. Be specific and actionable."
+            )
+        else:
+            prompt = (
+                "You are a spectroscopy expert advising on an optical sensor experiment.\n"
+                f"The sensor shows wavelength drift.\n"
+                f"  Drift rate: {data.get('drift_rate_nm_per_min', '?')} nm/min\n"
+                f"  Peak wavelength: {data.get('peak_wavelength', '?')} nm\n"
+                f"  Window: {data.get('window_frames', '?')} frames\n"
+                + meas_lines
+                + "In exactly 2–3 sentences: (1) most likely cause of this drift rate "
+                "and (2) recommended corrective action. Be specific and actionable."
+            )
         text = await self._call(prompt)
         if text:
             self._bus.emit(self._AgentEvent(
@@ -225,6 +304,12 @@ class AnomalyExplainer(_BaseClaude):
 class ExperimentNarrator(_BaseClaude):
     """Narrates calibration model selection events using Claude.
 
+    When ``spectraagent.knowledge`` is available, each prompt includes:
+    - Current calibration result summary (R², LOD, LOQ, RMSE, model, AICc)
+    - Historical comparison from SensorMemory (LOD trend, sensitivity drift)
+    - ICH Q2(R1) compliance readiness checklist
+    - Analyte chemistry context
+
     Fires at most once per unique n_points value — i.e. once per new
     calibration data point added, not on every re-emission of the same count.
 
@@ -238,6 +323,10 @@ class ExperimentNarrator(_BaseClaude):
         API call timeout in seconds (default: 30.0).
     auto_explain:
         Whether to auto-fire on model_selected (default: False — opt-in).
+    memory:
+        SensorMemory instance for historical comparison (default: None).
+    get_analyte:
+        Callable returning current analyte name (or None).
     """
 
     source = "ExperimentNarrator"
@@ -248,9 +337,12 @@ class ExperimentNarrator(_BaseClaude):
         model: str = _DEFAULT_MODEL,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
         auto_explain: bool = False,
+        memory: Optional[Any] = None,
+        get_analyte: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
-        super().__init__(bus, model, timeout_s)
+        super().__init__(bus, model, timeout_s, memory=memory)
         self._auto_explain = auto_explain
+        self._get_analyte = get_analyte
         self._last_n_points: int = 0
 
     def set_auto_explain(self, enabled: bool) -> None:
@@ -279,17 +371,31 @@ class ExperimentNarrator(_BaseClaude):
             stat_lines += f"  LOQ: {data['loq_ppm']:.4f} ppm\n"
         if data.get("rmse_ppm") is not None:
             stat_lines += f"  Calibration RMSE: {data['rmse_ppm']:.4f} ppm\n"
-        prompt = (
-            "You are a scientific instrument advisor for an LSPR calibration experiment.\n"
-            f"The calibration system just fitted {n} data points.\n"
-            f"  Best model: {best_model}\n"
-            f"  AICc: {best_aic}\n"
-            f"  R²: {r_squared:.4f}\n"
-            + stat_lines
-            + "In exactly 2–3 sentences: (1) what this model selection tells you about "
-            "the sensor response mechanism and (2) what the experimenter should do next. "
-            "Use scientific language appropriate for a journal methods section."
-        )
+
+        if _KB_AVAILABLE:
+            analyte = self._get_analyte() if self._get_analyte is not None else None
+            ctx = _build_calibration_narration_context(data, analyte, self._memory)
+            prompt = (
+                ctx
+                + "\n\n---\n"
+                "In exactly 2–3 sentences using scientific journal language: "
+                "(1) what this model selection reveals about the sensor's response "
+                "mechanism and the analyte–surface interaction, and (2) what "
+                "measurement the experimenter should run next to advance toward "
+                "ICH Q2(R1) compliance. Cite the R² and LOD values."
+            )
+        else:
+            prompt = (
+                "You are a scientific instrument advisor for a calibration experiment.\n"
+                f"The calibration system just fitted {n} data points.\n"
+                f"  Best model: {best_model}\n"
+                f"  AICc: {best_aic}\n"
+                f"  R²: {r_squared:.4f}\n"
+                + stat_lines
+                + "In exactly 2–3 sentences: (1) what this model selection tells you about "
+                "the sensor response mechanism and (2) what the experimenter should do next. "
+                "Use scientific language appropriate for a journal methods section."
+            )
         text = await self._call(prompt)
         if text:
             self._bus.emit(self._AgentEvent(
@@ -309,6 +415,14 @@ class ExperimentNarrator(_BaseClaude):
 class ReportWriter(_BaseClaude):
     """Generates a Methods + Results prose report. User-triggered only.
 
+    When ``spectraagent.knowledge`` is available, the prompt includes:
+    - Full session data (JSON)
+    - Sensor health summary from SensorMemory (total sessions, drift stats)
+    - Historical performance comparison (is this session's LOD better or worse
+      than the sensor's typical performance?)
+    - Analyte chemistry properties for the Methods section
+    - ICH Q2(R1) compliance readiness
+
     Never auto-fires. Called directly via route handler:
         text = await app.state.report_writer.write(context)
 
@@ -320,9 +434,25 @@ class ReportWriter(_BaseClaude):
         Claude model ID (default: claude-sonnet-4-6).
     timeout_s:
         API call timeout in seconds (default: 30.0).
+    memory:
+        SensorMemory instance for historical context (default: None).
+    get_analyte:
+        Callable returning current analyte name.  Falls back to
+        ``context.get("gas_label")`` when not provided.
     """
 
     source = "ReportWriter"
+
+    def __init__(
+        self,
+        bus: Any,
+        model: str = _DEFAULT_MODEL,
+        timeout_s: float = _DEFAULT_TIMEOUT_S,
+        memory: Optional[Any] = None,
+        get_analyte: Optional[Callable[[], Optional[str]]] = None,
+    ) -> None:
+        super().__init__(bus, model, timeout_s, memory=memory)
+        self._get_analyte = get_analyte
 
     async def write(self, context: dict[str, Any]) -> Optional[str]:
         """Generate Methods + Results prose for the given session context.
@@ -340,17 +470,40 @@ class ReportWriter(_BaseClaude):
             Two-paragraph report (Methods then Results) in journal style,
             or None if Claude is unavailable.
         """
-        prompt = (
-            "You are a scientific journal author specializing in biosensor research.\n"
-            "Write exactly two paragraphs of Methods + Results prose.\n"
-            f"Session context:\n{json.dumps(context, indent=2, default=str)}\n\n"
-            "Paragraph 1 — Methods: describe the sensor setup, spectral acquisition "
-            "parameters, and calibration procedure using only the information provided.\n"
-            "Paragraph 2 — Results: summarize peak shift observations, best-fit "
-            "calibration model, and any limit-of-detection estimates.\n"
-            "Write in past tense, third person. Journal style. "
-            "NEVER invent numbers not present in the context."
-        )
+        # Analyte: prefer explicit context key, fall back to callable
+        analyte: Optional[str] = context.get("gas_label")
+        if not analyte and self._get_analyte is not None:
+            analyte = self._get_analyte()
+
+        if _KB_AVAILABLE:
+            ctx_block = _build_report_context(context, analyte, self._memory)
+            prompt = (
+                "You are a scientific journal author specializing in optical chemical "
+                "sensor research.\n"
+                "Write exactly two paragraphs of Methods + Results prose.\n\n"
+                + ctx_block
+                + "\n\n"
+                "Paragraph 1 — Methods: describe the sensor setup, spectral acquisition "
+                "parameters, and calibration procedure using only the information provided.\n"
+                "Paragraph 2 — Results: summarize peak shift observations, best-fit "
+                "calibration model, LOD/LOQ estimates, and — where sensor memory history "
+                "is provided — note whether this session's performance is better or worse "
+                "than the sensor's typical baseline.\n"
+                "Write in past tense, third person. Journal style. "
+                "NEVER invent numbers not present in the context."
+            )
+        else:
+            prompt = (
+                "You are a scientific journal author specializing in biosensor research.\n"
+                "Write exactly two paragraphs of Methods + Results prose.\n"
+                f"Session context:\n{json.dumps(context, indent=2, default=str)}\n\n"
+                "Paragraph 1 — Methods: describe the sensor setup, spectral acquisition "
+                "parameters, and calibration procedure using only the information provided.\n"
+                "Paragraph 2 — Results: summarize peak shift observations, best-fit "
+                "calibration model, and any limit-of-detection estimates.\n"
+                "Write in past tense, third person. Journal style. "
+                "NEVER invent numbers not present in the context."
+            )
         return await self._call(prompt)
 
 
@@ -361,6 +514,11 @@ class ReportWriter(_BaseClaude):
 
 class DiagnosticsAgent(_BaseClaude):
     """Diagnoses hardware errors using Claude. Always fires — no auto_explain gate.
+
+    When ``spectraagent.knowledge`` is available, the prompt includes:
+    - Known error code database with physical mechanism explanations
+      (VISA VI_ERROR_TMO, device not powered, SCAN_PENDING, etc.)
+    - General hardware diagnostic checklist (power, USB, driver, stale state)
 
     Uses per-error-code cooldown so the same error code does not spam Claude.
 
@@ -408,19 +566,37 @@ class DiagnosticsAgent(_BaseClaude):
             meas_lines += f"  Last SNR: {data['snr']:.1f}\n"
         if data.get("peak_shift_nm") is not None:
             meas_lines += f"  Last peak shift (Δλ): {data['peak_shift_nm']:.4f} nm\n"
-        prompt = (
-            "You are an expert spectrometer hardware technician.\n"
-            f"A hardware error occurred on the instrument.\n"
-            f"  Error code:    {data.get('error_code', '?')}\n"
-            f"  Error message: {data.get('error_message', '?')}\n"
-            f"  Hardware:      {data.get('hardware_model', '?')}\n"
-            f"  Last success:  {data.get('last_successful_frame_ago_s', '?')}s ago\n"
-            + meas_lines
-            + "Respond in under 80 words:\n"
-            "(1) Most likely root cause of this specific error code.\n"
-            "(2) Step-by-step troubleshooting procedure (numbered list, max 3 steps).\n"
-            "Be precise. Do not repeat the error message."
-        )
+
+        if _KB_AVAILABLE:
+            hw_ctx = _build_hardware_diagnostics_context(data)
+            prompt = (
+                hw_ctx
+                + "\n\n---\n"
+                "**Current error instance:**\n"
+                f"  Error code:    {data.get('error_code', '?')}\n"
+                f"  Error message: {data.get('error_message', '?')}\n"
+                f"  Hardware:      {data.get('hardware_model', '?')}\n"
+                f"  Last success:  {data.get('last_successful_frame_ago_s', '?')}s ago\n"
+                + meas_lines
+                + "\nRespond in under 80 words:\n"
+                "(1) Confirm the root cause, citing the known-code explanation above.\n"
+                "(2) Step-by-step troubleshooting procedure (numbered list, max 3 steps).\n"
+                "Do not repeat the error message."
+            )
+        else:
+            prompt = (
+                "You are an expert spectrometer hardware technician.\n"
+                f"A hardware error occurred on the instrument.\n"
+                f"  Error code:    {data.get('error_code', '?')}\n"
+                f"  Error message: {data.get('error_message', '?')}\n"
+                f"  Hardware:      {data.get('hardware_model', '?')}\n"
+                f"  Last success:  {data.get('last_successful_frame_ago_s', '?')}s ago\n"
+                + meas_lines
+                + "Respond in under 80 words:\n"
+                "(1) Most likely root cause of this specific error code.\n"
+                "(2) Step-by-step troubleshooting procedure (numbered list, max 3 steps).\n"
+                "Be precise. Do not repeat the error message."
+            )
         text = await self._call(prompt)
         if text:
             self._bus.emit(self._AgentEvent(
@@ -463,6 +639,15 @@ class ClaudeAgentRunner:
         self._q: Optional[asyncio.Queue] = None
         self._task: Optional[asyncio.Task] = None
 
+    def add_agent(self, agent: _BaseClaude) -> None:
+        """Register an additional agent to receive dispatched events.
+
+        Must be called before :meth:`start` — agents added after start are
+        silently ignored because the dispatch loop holds a reference to the
+        list at the time start() was called.
+        """
+        self._agents.append(agent)
+
     def start(self) -> None:
         """Subscribe to the bus and start the dispatch coroutine.
 
@@ -471,7 +656,7 @@ class ClaudeAgentRunner:
         """
         self._q = self._bus.subscribe()
         self._task = asyncio.ensure_future(self._run())
-        log.info("ClaudeAgentRunner started")
+        log.info("ClaudeAgentRunner started (agents: %s)", [a.source for a in self._agents])
 
     def stop(self) -> None:
         """Unsubscribe from bus and cancel the dispatch task."""

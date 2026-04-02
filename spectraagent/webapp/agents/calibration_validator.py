@@ -109,6 +109,7 @@ class CalibrationValidationOrchestrator(_BaseClaude):
         """React to session_complete events."""
         if event.type == "session_complete":
             await self._update_validation_state(event)
+            await self._update_selectivity(event)
 
     async def _update_validation_state(self, event: Any) -> None:
         """Update ICH Q2(R1) state and emit validation status."""
@@ -251,6 +252,88 @@ class CalibrationValidationOrchestrator(_BaseClaude):
             ))
 
     # ------------------------------------------------------------------
+    # Selectivity coefficient estimation (B3 / ICH Q2(R1) §4.1)
+    # ------------------------------------------------------------------
+
+    async def _update_selectivity(self, event: Any) -> None:
+        """Compute selectivity matrix from SensorMemory when ≥2 analytes exist.
+
+        Uses the mean sensitivity (nm/ppm) stored in memory for each calibrated
+        analyte.  Emits ``selectivity_updated`` with the full K-matrix whenever
+        a new analyte is added or sensitivities change meaningfully.
+
+        ICH Q2(R1) §4.1 Specificity requirement:
+            K = |sensitivity_interferent| / |sensitivity_target| < 0.1
+            (the interferent should produce < 10% of the target signal at the
+            same concentration to be considered non-interfering).
+        """
+        if self._memory is None:
+            return
+
+        try:
+            sensitivities = self._memory.get_sensitivities_by_analyte()
+        except Exception as exc:
+            log.debug("get_sensitivities_by_analyte() failed: %s", exc)
+            return
+
+        if len(sensitivities) < 2:
+            return  # need at least target + one interferent
+
+        try:
+            from src.scientific.selectivity import selectivity_matrix as _sel_matrix
+        except ImportError:
+            log.debug("selectivity module unavailable")
+            return
+
+        try:
+            sel = _sel_matrix(sensitivities)
+        except Exception as exc:
+            log.debug("selectivity_matrix() failed: %s", exc)
+            return
+
+        # Determine which analyte is the current session's target
+        analyte = self._get_analyte() if self._get_analyte is not None else None
+        if not analyte:
+            analyte = event.data.get("gas_label", "")
+
+        worst = sel.worst_interferents.get(analyte)
+        summary = sel.to_dict()
+
+        # Derive overall assessment from max K across all targets
+        all_k = [k for _, k in sel.worst_interferents.values()]
+        max_k = max(all_k) if all_k else 0.0
+        if max_k > 0.5:
+            overall_assessment = f"PROBLEMATIC — max K = {max_k:.3f} (> 0.5 threshold)"
+        elif max_k > 0.1:
+            overall_assessment = f"SIGNIFICANT — max K = {max_k:.3f} (> 0.1 threshold)"
+        else:
+            overall_assessment = f"GOOD — all K < 0.1 (ICH Q2(R1) §4.1 passed)"
+
+        self._bus.emit(self._AgentEvent(
+            source=self.source,
+            level="info",
+            type="selectivity_updated",
+            data={
+                "target_analyte": analyte,
+                "n_analytes": len(sensitivities),
+                "selectivity_matrix": summary["matrix"],
+                "worst_interferents": summary["worst_interferents"],
+                "overall_assessment": overall_assessment,
+            },
+            text=(
+                f"Selectivity for {analyte}: "
+                + (
+                    f"worst interferent = {worst[0]} (K={worst[1]:.3f})"
+                    if worst else "no interferents calibrated yet"
+                )
+            ),
+        ))
+        log.info(
+            "CalibrationValidationOrchestrator: selectivity updated (%d analytes)",
+            len(sensitivities),
+        )
+
+    # ------------------------------------------------------------------
     # Tracker management
     # ------------------------------------------------------------------
 
@@ -267,9 +350,8 @@ class CalibrationValidationOrchestrator(_BaseClaude):
                     tracker.infer_from_calibration_data({
                         "lod_ppm": history.get("lod_ppm"),
                         "loq_ppm": history.get("loq_ppm"),
-                        "calibration_r2": history.get("r_squared"),
-                        "calibration_n_points": history.get("n_calibration_points", 0),
-                        "n_sessions": summary.get("n_sessions", 0),
+                        "r_squared": history.get("r_squared"),
+                        "n_points": history.get("n_calibration_points", 0),
                     })
             self._trackers[analyte] = tracker
         return self._trackers[analyte]

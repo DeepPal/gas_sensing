@@ -1,6 +1,6 @@
-# Au-MIP LSPR Platform: Production Lab Deployment Status
+# LSPR Platform: Production Lab Deployment Status
 
-**Status:** 🟢 **95% Production-Ready for Single-Machine Research Lab Deployment**
+**Status:** 🟢 **Deployment-ready for single-machine research lab use**
 
 **Last Updated:** March 2026
 
@@ -8,15 +8,25 @@
 
 ## Executive Summary
 
-The Au-MIP LSPR gas sensing platform is now configured for production deployment on a dedicated research laboratory computer. The system includes:
+The SpectraAgent sensing platform is now configured for production deployment on a dedicated research laboratory computer. The system includes:
 
-- ✅ **Password-protected authentication** (PBKDF2 SHA256)
+- ✅ **Password-protected authentication** (PBKDF2-SHA256 verifier support)
 - ✅ **Real-time health monitoring** (disk, hardware, logs status)
 - ✅ **Startup validation checks** (7 critical system checks)
 - ✅ **Secure defaults** (XSRF protection, CORS disabled)
 - ✅ **Scientist-first design** (reproducibility, data integrity, uncertainty quantification)
 
-All code is **type-safe** (mypy: 0 errors), **well-tested** (859 fast-lane + 20 reliability tests passing), and documented for operational use.
+All code is **type-safe** (mypy: 0 errors), **well-tested** (fast-lane and reliability CI), and documented for operational use.
+
+### Canonical Status Tracking
+
+To avoid inconsistent deployment status across docs, keep these files aligned in
+the same change set:
+
+- `PRODUCTION_READINESS.md`
+- `REMAINING_WORK.md`
+- `CHANGELOG.md`
+- `.github/workflows/security.yml`
 
 ---
 
@@ -28,8 +38,8 @@ All code is **type-safe** (mypy: 0 errors), **well-tested** (859 fast-lane + 20 
 │  Streamlit Dashboard (app.py)       │
 ├─────────────────────────────────────┤
 │  Authentication Gate (auth.py)      │
-│  - PBKDF2 SHA256 password check    │
-│  - Env var or ~/.streamlit_au...   │
+│  - PBKDF2 verifier or env secret   │
+│  - ~/.streamlit_au_mip_password... │
 │  - Session state caching            │
 └─────────────────────────────────────┘
 ```
@@ -64,7 +74,7 @@ App Startup Sequence:
 
 3. check_password() — Authentication
    ├─ Display login prompt
-   ├─ Verify password (PBKDF2)
+  ├─ Verify password (PBKDF2 or env secret)
    └─ Grant access to dashboard
 ```
 
@@ -79,9 +89,9 @@ App Startup Sequence:
 | `dashboard/auth.py` | 120 | Password authentication (PBKDF2) | ✅ Complete |
 | `dashboard/health.py` | 250 | System health monitoring | ✅ Complete |
 | `dashboard/startup_validation.py` | 280 | Pre-flight checks | ✅ Complete |
-| `dashboard/security.py` | 180 | HTTPS cert generation | 🟡 Scaffolded |
-| `dashboard/reproducibility.py` | 200 | Experiment metadata tracking | 🟡 Scaffolded |
-| `dashboard/backups.py` | 250 | Automated backup management | 🟡 Scaffolded |
+| `dashboard/security.py` | 180 | HTTPS cert generation | ✅ Complete |
+| `dashboard/reproducibility.py` | 200 | Experiment metadata tracking | ✅ Complete |
+| `dashboard/backups.py` | 250 | Automated backup management | ✅ Complete |
 | `.streamlit/config.toml` | 50 | Secure Streamlit config | ✅ New |
 
 ### Deployment Scripts
@@ -118,11 +128,11 @@ App Startup Sequence:
 
 ### Authentication
 - **Algorithm:** PBKDF2-HMAC-SHA256 with 100,000 iterations
-- **Salt:** `au-mip-salt-2024` (fixed for reproducibility across restarts)
+- **Salt:** Stored with each verifier entry in the hash string
 - **Storage:** 
-  - Primary: Environment variable `DASHBOARD_PASSWORD`
-  - Secondary: User home directory `~/.streamlit_au_mip_password`
-  - Fallback: Hardcoded constant (for testing only)
+  - Primary: Environment variable `DASHBOARD_PASSWORD_HASH`
+  - Secondary: User home directory `~/.streamlit_au_mip_password_hash`
+  - Compatibility: `DASHBOARD_PASSWORD` or legacy plaintext file
 - **Comparison:** Constant-time to prevent timing attacks
 
 ### Configuration Security
@@ -130,12 +140,19 @@ App Startup Sequence:
 - **CORS:** Disabled (local-only network access)
 - **Cookies:** Secure flag set
 - **Error Details:** Shown to operators (trusted environment)
-- **Secrets:** Never hardcoded in source; always env var or user file
+- **Secrets:** No hardcoded fallback password; deployable setups can use hashed password files
 
 ### Network Security (Ready for HTTPS)
 - **Self-Signed Certificates:** Generated on first deployment (`dashboard/security.py`)
 - **Certificate Validation:** Checks expiry, hostname match
-- **TLS Configuration:** Integrated into Streamlit config (pending implementation)
+- **TLS Configuration:** Secure launch scripts attach the generated cert/key when available
+
+### CI Security Gates (Automated)
+- **Workflow:** `.github/workflows/security.yml`
+- **Code Scanning:** CodeQL for Python and JavaScript
+- **Dependency Scanning:** `pip-audit` on `requirements.txt`
+- **Source Security Lint:** Bandit on `src`, `spectraagent`, `dashboard`, `gas_analysis`
+- **PR Supply-Chain Review:** dependency diff gating via `actions/dependency-review-action`
 
 ---
 

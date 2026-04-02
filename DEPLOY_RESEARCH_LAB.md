@@ -1,8 +1,8 @@
 # Research Lab Deployment Guide
 
-## 🎯 Single-Machine Lab Deployment (95% Ready)
+## 🎯 Single-Machine Lab Deployment
 
-This guide covers deploying the Au-MIP LSPR platform to a single research lab machine with basic security and monitoring.
+This guide covers deploying the LSPR platform to a single research lab machine with basic security and monitoring.
 
 ---
 
@@ -37,20 +37,21 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### Step 2: Set Lab Password
+### Step 2: Configure the Dashboard Password
 
 ```bash
-# Option A: Set environment variable (session-specific)
-set DASHBOARD_PASSWORD=my-lab-password
+# Option A: ephemeral password for this shell session
+set DASHBOARD_PASSWORD=my-lab-password        # Windows
+export DASHBOARD_PASSWORD=my-lab-password     # macOS/Linux
 
-# Option B: Create persistent password file (recommended)
-# Windows: Save password to C:\Users\%USERNAME%\.streamlit_au_mip_password
-# macOS/Linux: Save to ~/.streamlit_au_mip_password
-# Then: chmod 600 ~/.streamlit_au_mip_password
-
-echo "my-lab-password" > ~/.streamlit_au_mip_password
-chmod 600 ~/.streamlit_au_mip_password
+# Option B: persistent hashed password file (recommended)
+python -m dashboard.auth --set-password
 ```
+
+The recommended path writes a PBKDF2-SHA256 verifier to:
+
+- Windows: `%USERPROFILE%\.streamlit_au_mip_password_hash`
+- macOS/Linux: `~/.streamlit_au_mip_password_hash`
 
 ---
 
@@ -69,7 +70,7 @@ bash run_dashboard_secure.sh
 This will:
 - ✅ Prompt for password on first access
 - ✅ Show health check status in sidebar
-- ✅ Disable CSRF attacks & enforce HTTPS locally
+- ✅ Disable CSRF attacks and use HTTPS automatically when local certs are available
 - ✅ Log all interactions to `logs/dashboard.log`
 
 **Access:**
@@ -83,7 +84,7 @@ http://localhost:8501  (or your machine's IP address)
 streamlit run dashboard/app.py
 ```
 
-⚠️ **Note:** This skips authentication — only use on isolated lab networks.
+Authentication is still enforced by `dashboard/app.py`; this bypasses only the secure launcher conveniences.
 
 ---
 
@@ -104,12 +105,12 @@ python -m dashboard.health
 Output:
 ```
 ======================================================================
-Au-MIP LSPR HEALTH CHECK REPORT
+LSPR HEALTH CHECK REPORT
 ======================================================================
 Timestamp:  2026-03-28T10:45:32.123456
 Hostname:   lab-machine-01
 
-Application: Au-MIP LSPR Gas Sensing Platform v1.0.0
+Application: LSPR Gas Sensing Platform v1.0.0
 
 📦 Disk Space:
   Available: 45.32 GB / 100.00 GB
@@ -131,11 +132,16 @@ Application: Au-MIP LSPR Gas Sensing Platform v1.0.0
 
 ## Troubleshooting
 
+### "No dashboard password configured"
+
+- **Check:** `DASHBOARD_PASSWORD`, `DASHBOARD_PASSWORD_HASH`, or the hashed password file exists
+- **Action:** Run `python -m dashboard.auth --set-password`
+
 ### "Incorrect password" on first launch
 
 - **Check:** Environment variable or password file is set correctly
 - **Action:** Restart the dashboard and re-enter password
-- **Default password:** `research-lab-default` (change immediately from environment)
+- **Recommendation:** Prefer the hashed password file over plaintext env vars for persistent deployments
 
 ### "Disk space: LOW" warning
 
@@ -197,6 +203,7 @@ ssh -L 8501:localhost:8501 lab_user@lab_machine
 ### ✅ What's Secured
 
 - Password-protected dashboard (prevents unauthorized access)
+- PBKDF2-SHA256 hashed password file support for persistent deployments
 - CSRF protection enabled (prevents cross-site attacks)
 - CORS disabled (only same-machine access by default)
 - Session-based authentication (logged out after inactivity)
@@ -204,9 +211,32 @@ ssh -L 8501:localhost:8501 lab_user@lab_machine
 
 ### ⚠️ Limitations
 
-- Password sent over HTTP locally (acceptable for lab network)
-- No encryption of data in transit (add reverse proxy + HTTPS for production)
+- Passwords supplied through `DASHBOARD_PASSWORD` remain plaintext process secrets
+- Self-signed HTTPS still requires operators to trust the local certificate
 - File upload accepts CSV files (validate filenames in prod)
+
+---
+
+## Docker Deployment
+
+Use Docker Compose when you want the Streamlit dashboard and the live SpectraAgent runtime together:
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- `spectraagent` on `http://localhost:8765`
+- `dashboard` on `http://localhost:8501`
+
+Optional environment variables:
+
+```bash
+export DASHBOARD_PASSWORD=my-lab-password
+export ANTHROPIC_API_KEY=...
+export SPECTRAAGENT_BASE_URL=http://localhost:8765
+```
 
 ### 🔐 Recommendations
 

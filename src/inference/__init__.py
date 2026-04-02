@@ -1,7 +1,7 @@
 """
 src.inference
 =============
-Real-time inference layer for the Au-MIP LSPR gas sensing platform.
+Real-time inference layer for the the sensor LSPR gas sensing platform.
 
 Modules
 -------

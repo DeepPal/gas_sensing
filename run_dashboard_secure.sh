@@ -2,12 +2,11 @@
 # run_dashboard_secure.sh - Launch the dashboard with authentication
 # 
 # Usage:
-#   bash run_dashboard_secure.sh                 # Uses env var or default password
+#   bash run_dashboard_secure.sh                 # Uses env var or hashed password file
 #   DASHBOARD_PASSWORD="my-lab-pwd" bash run_dashboard_secure.sh
 #
 # For persistent password:
-#   echo "my-secure-password" > ~/.streamlit_au_mip_password
-#   chmod 600 ~/.streamlit_au_mip_password
+#   python -m dashboard.auth --set-password
 
 set -e
 
@@ -24,19 +23,25 @@ fi
 # Print startup info
 echo ""
 echo "=========================================="
-echo "🔬 Au-MIP LSPR Gas Sensing Platform"
+echo "🔬 SpectraAgent — Spectrometer-Based Sensing Platform"
 echo "=========================================="
 echo "Dashboard URL: http://localhost:8501"
 echo "---"
 
-# Show password status
+# Show password status / fail closed when no secret is configured.
 if [ -n "$DASHBOARD_PASSWORD" ]; then
     echo "✓ Using DASHBOARD_PASSWORD from environment"
+elif [ -n "$DASHBOARD_PASSWORD_HASH" ]; then
+    echo "✓ Using DASHBOARD_PASSWORD_HASH from environment"
+elif [ -f "$HOME/.streamlit_au_mip_password_hash" ]; then
+    echo "✓ Using password hash from ~/.streamlit_au_mip_password_hash"
 elif [ -f "$HOME/.streamlit_au_mip_password" ]; then
-    echo "✓ Using password from ~/.streamlit_au_mip_password"
+    echo "⚠️  Using legacy plaintext password file ~/.streamlit_au_mip_password"
 else
-    echo "⚠️  Using default password 'research-lab-default'"
-    echo "   Set env var or create ~/.streamlit_au_mip_password to customize"
+    echo "✗ No dashboard password configured"
+    echo "  Run: python -m dashboard.auth --set-password"
+    echo "  Or set DASHBOARD_PASSWORD for this shell session"
+    exit 1
 fi
 
 echo "---"

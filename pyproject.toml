@@ -16,22 +16,24 @@ authors = [
     { name = "Chula Research Team", email = "research@example.com" },
 ]
 keywords = [
-    "LSPR",
-    "surface-plasmon-resonance",
-    "gas-sensor",
     "spectroscopy",
+    "spectrometer",
+    "optical-sensor",
     "calibration",
     "machine-learning",
     "real-time",
-    "au-nanoparticle",
-    "molecularly-imprinted-polymer",
+    "gas-sensor",
     "VOC",
+    "LSPR",
+    "surface-plasmon-resonance",
     "SPR",
-    "spectrometer",
     "agentic-ai",
+    "conformal-prediction",
+    "FastAPI",
+    "plugin-architecture",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -41,6 +43,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: FastAPI",
+    "Typing :: Typed",
 ]
 
 # Core dependencies — required for ALL modes (batch, real-time, API)
@@ -284,4 +288,4 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 60                         # 60% achieved as of 339-test suite; raise as coverage grows
+fail_under = 70                         # 1187 tests as of 2026-03-30; raise further as legacy modules are migrated

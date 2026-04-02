@@ -54,6 +54,9 @@ class DriftAgent:
         self._history: deque[float] = deque(maxlen=window_frames)
         # Pending undelivered emit handles; cancelled by reset() to suppress stale alerts.
         self._pending: list[asyncio.Handle] = []
+        # Cooldown: emit at most one drift_warn per 30 frames to avoid flooding the event log.
+        self._warn_cooldown_frames: int = 30
+        self._last_warn_frame: int = -9999
 
     def configure(
         self,
@@ -92,10 +95,19 @@ class DriftAgent:
 
         history = np.array(self._history)
         x = np.arange(len(history), dtype=float)
-        slope_nm_per_frame = float(np.polyfit(x, history, 1)[0])
+        # Theil-Sen estimator: median of all pairwise slopes.
+        # Breakdown point 29% — one outlier frame in 60 cannot skew the result.
+        # np.polyfit (least-squares) has 0% breakdown: a single cosmic-ray spike
+        # frame producing a wrong peak detection would give spurious drift alerts.
+        try:
+            from scipy.stats import theilslopes
+            slope_nm_per_frame = float(theilslopes(history, x)[0])
+        except Exception:
+            slope_nm_per_frame = float(np.polyfit(x, history, 1)[0])
         drift_rate = slope_nm_per_frame * self._frames_per_minute
 
-        if abs(drift_rate) > self._threshold:
+        if abs(drift_rate) > self._threshold and (frame_num - self._last_warn_frame) >= self._warn_cooldown_frames:
+            self._last_warn_frame = frame_num
             handle = self._bus.emit(AgentEvent(
                 source="DriftAgent",
                 level="warn",
@@ -128,3 +140,4 @@ class DriftAgent:
         for handle in self._pending:
             handle.cancel()
         self._pending.clear()
+        self._last_warn_frame = -9999

@@ -48,7 +48,7 @@ except ImportError:
 
 
 class ModelRegistry:
-    """Loads and manages all inference models for the Au-MIP LSPR pipeline.
+    """Loads and manages all inference models for the sensing pipeline.
 
     Usage
     -----

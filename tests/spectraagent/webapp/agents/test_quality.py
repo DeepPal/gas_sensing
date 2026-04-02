@@ -76,7 +76,7 @@ def test_normal_frame_returns_true(wl, normal_spectrum):
 def test_normal_frame_emits_ok_event(wl, normal_spectrum):
     bus, loop = _bus()
     q = bus.subscribe()
-    QualityAgent(bus).process(1, wl, normal_spectrum)
+    QualityAgent(bus, ok_emit_every=1).process(1, wl, normal_spectrum)
     _flush(loop)
     event = q.get_nowait()
     assert event.level == "ok"
@@ -118,7 +118,7 @@ def test_low_snr_frame_returns_true_with_warn(wl, flat_noise_spectrum):
 def test_event_contains_frame_number(wl, normal_spectrum):
     bus, loop = _bus()
     q = bus.subscribe()
-    QualityAgent(bus).process(42, wl, normal_spectrum)
+    QualityAgent(bus, ok_emit_every=1).process(42, wl, normal_spectrum)
     _flush(loop)
     assert q.get_nowait().data["frame"] == 42
     loop.close()
@@ -127,7 +127,23 @@ def test_event_contains_frame_number(wl, normal_spectrum):
 def test_event_contains_snr(wl, normal_spectrum):
     bus, loop = _bus()
     q = bus.subscribe()
-    QualityAgent(bus).process(1, wl, normal_spectrum)
+    QualityAgent(bus, ok_emit_every=1).process(1, wl, normal_spectrum)
     _flush(loop)
     assert q.get_nowait().data["snr"] > 0.0
+    loop.close()
+
+
+def test_ok_throttle_emits_on_interval(wl, normal_spectrum):
+    """ok events are suppressed below the interval, emitted at the interval."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    agent = QualityAgent(bus, ok_emit_every=3)
+    for i in range(1, 4):
+        agent.process(i, wl, normal_spectrum)
+    _flush(loop)
+    # Only 1 event should be in queue (on frame 3)
+    assert not q.empty()
+    ev = q.get_nowait()
+    assert ev.data["frame"] == 3
+    assert q.empty()
     loop.close()

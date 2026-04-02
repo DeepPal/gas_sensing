@@ -1,5 +1,5 @@
 """
-Au-MIP LSPR Gas Sensing Platform — Public API
+SpectraAgent — Spectrometer-Based Sensing Platform — Public API
 ===============================================
 
 This module is the **stable import surface** for library consumers.

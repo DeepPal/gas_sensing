@@ -125,6 +125,7 @@ except Exception:
 def _check_calibration_quality(
     sensor_metrics: dict,
     r2: float | None,
+    r2_cv: float | None = None,
     min_r2: float = 0.95,
     max_lod_ppm: float | None = None,
 ) -> tuple[bool, list[str], list[str]]:
@@ -150,11 +151,14 @@ def _check_calibration_quality(
     errors: list[str] = []
     warnings: list[str] = []
 
-    # R² check (hard gate)
-    if r2 is not None:
-        if r2 < min_r2:
+    # Prefer cross-validated R² when available.
+    # This avoids accepting overfit calibrations on in-sample fit quality.
+    eff_r2 = r2_cv if r2_cv is not None else r2
+    if eff_r2 is not None:
+        if eff_r2 < min_r2:
+            metric_name = "R²_LOOCV" if r2_cv is not None else "R²"
             errors.append(
-                f"R²={r2:.4f} is below the minimum threshold of {min_r2:.2f}. "
+                f"{metric_name}={eff_r2:.4f} is below the minimum threshold of {min_r2:.2f}. "
                 "Retrain with more or better-quality calibration data."
             )
     else:
@@ -167,10 +171,10 @@ def _check_calibration_quality(
             errors.append(
                 f"LOD={lod:.4f} ppm exceeds the allowed maximum of {max_lod_ppm:.4f} ppm."
             )
-        # Advisory: LOD > LOQ would indicate a logic error
+        # Hard gate: LOD >= LOQ violates IUPAC ordering.
         loq = sensor_metrics.get("loq_ppm")
         if loq is not None and lod >= loq:
-            warnings.append(
+            errors.append(
                 f"LOD ({lod:.4f}) ≥ LOQ ({loq:.4f}) — check noise estimate."
             )
 
@@ -1142,12 +1146,12 @@ def render() -> None:
                     """
 | Feature | Symbol | Physical meaning | Why it matters |
 |---|---|---|---|
-| **Peak wavelength shift** | Δλ (nm) | Change in LSPR resonance position vs blank | Primary sensing signal — shifts negative as analyte binds to Au-MIP surface |
+| **Peak wavelength shift** | Δλ (nm) | Change in LSPR resonance position vs blank | Primary sensing signal — shifts negative as analyte binds to sensor surface |
 | **Differential peak intensity** | ΔI peak | Intensity change at the shifted peak | Reflects binding-induced plasmon damping |
 | **Differential spectral area** | ΔI area | Integrated area under difference spectrum | Captures broad spectral redistribution, not just peak tip |
 | **Differential std** | ΔI std | Spread of difference signal across wavelengths | Sensitive to lineshape changes — increases with stronger binding |
 
-**Why Δλ is the most important:** The LSPR peak wavelength shifts because analyte molecules in the MIP cavities change the local refractive index around the Au nanoparticles. This shift is directly proportional to surface coverage (and therefore concentration) in the linear range.
+**Why Δλ is the most important:** The LSPR peak wavelength shifts because analyte molecules in the MIP cavities change the local refractive index around the nanoparticles. This shift is directly proportional to surface coverage (and therefore concentration) in the linear range.
 
 **Tip:** If Δλ values are near zero across all concentrations, check that your reference spectrum was recorded in clean air/blank — not in the presence of any analyte.
                     """
@@ -1244,6 +1248,7 @@ def render() -> None:
                 sens = _sm.get("sensitivity", float("nan"))
                 se   = _sm.get("sensitivity_se", float("nan"))
                 r2   = _sm.get("r_squared", float("nan"))
+                r2_cv = _sm.get("r2_cv")
                 rmse = _sm.get("rmse")
 
                 r2c1.metric(
@@ -1252,7 +1257,10 @@ def render() -> None:
                     delta=f"±{se:.4f} SE" if se is not None else None,
                     delta_color="off",
                 )
-                r2c2.metric("R² (Linearity)", f"{r2:.4f}")
+                if r2_cv is not None and np.isfinite(float(r2_cv)):
+                    r2c2.metric("R² (LOOCV)", f"{float(r2_cv):.4f}")
+                else:
+                    r2c2.metric("R² (Linearity)", f"{r2:.4f}")
                 r2c3.metric(
                     "RMSE",
                     f"{rmse:.4f} a.u." if rmse is not None else "N/A",
@@ -1282,6 +1290,11 @@ def render() -> None:
                 ss["ap_sensor_metrics"] = _sm
                 ss["ap_lod"] = lod_val
                 ss["ap_r2"] = r2
+                ss["ap_r2_cv"] = (
+                    float(r2_cv)
+                    if r2_cv is not None and np.isfinite(float(r2_cv))
+                    else None
+                )
 
                 # ── Interpretation & Next Steps ───────────────────────────
                 st.markdown("---")
@@ -1290,14 +1303,14 @@ def render() -> None:
 
                 with _interp_col:
                     st.markdown("**What your results mean:**")
-                    # LOD context vs published Au-MIP LSPR literature (0.5–5 ppm for VOCs)
+                    # LOD context vs published the sensor LSPR literature (0.5–5 ppm for VOCs)
                     if lod_val is not None:
                         if lod_val < 0.5:
-                            st.success(f"🏆 LOD {lod_val:.2f} ppm — **excellent**, below typical Au-MIP LSPR range (0.5–5 ppm). Publishable.")
+                            st.success(f"🏆 LOD {lod_val:.2f} ppm — **excellent**, below typical LSPR range (0.5–5 ppm). Publishable.")
                         elif lod_val < 2.0:
-                            st.success(f"✅ LOD {lod_val:.2f} ppm — **competitive** with published Au-MIP LSPR sensors (0.5–5 ppm).")
+                            st.success(f"✅ LOD {lod_val:.2f} ppm — **competitive** with published LSPR sensors (0.5–5 ppm).")
                         elif lod_val < 5.0:
-                            st.info(f"📊 LOD {lod_val:.2f} ppm — **within range** for Au-MIP LSPR sensors. Consider more replicates or optimising MIP layer.")
+                            st.info(f"📊 LOD {lod_val:.2f} ppm — **within range** for LSPR sensors. Consider more replicates or optimising MIP layer.")
                         else:
                             st.warning(f"⚠️ LOD {lod_val:.2f} ppm — **above typical range**. Check reference spectrum quality and MIP surface condition.")
                     # R² context
@@ -1436,6 +1449,29 @@ def render() -> None:
                 x_fit = np.linspace(concs_arr_plot.min(), concs_arr_plot.max(), 80)
                 y_fit = slope_c * x_fit + intercept_c
 
+                # Build a 95% uncertainty band (GPR when available, linear-residual fallback).
+                y_ci_low = None
+                y_ci_high = None
+                try:
+                    from sklearn.gaussian_process import GaussianProcessRegressor
+                    from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+
+                    x_train_gp = concs_arr_plot.reshape(-1, 1)
+                    x_pred_gp = x_fit.reshape(-1, 1)
+                    gpr_curve = GaussianProcessRegressor(
+                        kernel=RBF(length_scale=10.0) + WhiteKernel(noise_level=0.01),
+                        normalize_y=True,
+                        n_restarts_optimizer=2,
+                    )
+                    gpr_curve.fit(x_train_gp, responses)
+                    y_gp_mean, y_gp_std = gpr_curve.predict(x_pred_gp, return_std=True)
+                    y_ci_low = y_gp_mean - 1.96 * y_gp_std
+                    y_ci_high = y_gp_mean + 1.96 * y_gp_std
+                except Exception:
+                    resid_std = float(np.std(responses - (slope_c * concs_arr_plot + intercept_c)))
+                    y_ci_low = y_fit - 1.96 * resid_std
+                    y_ci_high = y_fit + 1.96 * resid_std
+
                 fig_calib = go.Figure()
                 fig_calib.add_trace(
                     go.Scatter(
@@ -1455,6 +1491,28 @@ def render() -> None:
                         line=dict(color="royalblue", dash="dash"),
                     )
                 )
+                if y_ci_low is not None and y_ci_high is not None:
+                    fig_calib.add_trace(
+                        go.Scatter(
+                            x=x_fit,
+                            y=y_ci_high,
+                            mode="lines",
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip",
+                        )
+                    )
+                    fig_calib.add_trace(
+                        go.Scatter(
+                            x=x_fit,
+                            y=y_ci_low,
+                            mode="lines",
+                            fill="tonexty",
+                            fillcolor="rgba(65, 105, 225, 0.18)",
+                            line=dict(width=0),
+                            name="95% CI band",
+                        )
+                    )
                 fig_calib.update_layout(
                     title=title_calib,
                     xaxis_title="Concentration (ppm)",
@@ -1731,6 +1789,7 @@ def render() -> None:
                             _qc_ok_pls, _qc_errs_pls, _qc_wrns_pls = _check_calibration_quality(
                                 sensor_metrics=ss.get("ap_sensor_metrics", {}),
                                 r2=pls_result.r2_calibration,
+                                r2_cv=pls_result.q2,
                             )
                             for _w in _qc_wrns_pls:
                                 st.warning(f"⚠️ QC warning: {_w}")
@@ -1781,6 +1840,7 @@ def render() -> None:
                         _qc_ok2, _qc_errs2, _qc_wrns2 = _check_calibration_quality(
                             sensor_metrics=ss.get("ap_sensor_metrics", {}),
                             r2=ss.get("ap_r2"),
+                            r2_cv=ss.get("ap_r2_cv"),
                         )
                         for _w2 in _qc_wrns2:
                             st.warning(f"⚠️ QC warning: {_w2}")
@@ -1813,6 +1873,7 @@ def render() -> None:
                     _qc_ok, _qc_errors, _qc_warns = _check_calibration_quality(
                         sensor_metrics=ss.get("ap_sensor_metrics", {}),
                         r2=ss.get("ap_r2"),
+                        r2_cv=ss.get("ap_r2_cv"),
                     )
                     for _w in _qc_warns:
                         st.warning(f"⚠️ QC warning: {_w}")
@@ -2100,7 +2161,7 @@ def render() -> None:
 
             ca, cb, cc = st.columns(3)
             ca.metric("Predicted (ppm)", f"{conc_val:.2f}")
-            cb.metric("Uncertainty (±1σ)", f"{conc_std:.2f} ppm")
+            cb.metric("Estimate (mean ±1σ)", f"{conc_val:.2f} ± {conc_std:.2f} ppm")
             cc.metric("Confidence", f"{confidence:.1%}")
             if conformal_lo is not None and conformal_hi is not None:
                 st.info(
@@ -2225,15 +2286,61 @@ def render() -> None:
 
         # ── Session report ────────────────────────────────────────────────
         st.markdown("---")
-        # QC advisory banner — warn if calibration quality is below threshold
+        # QC gate before export actions
         _sm_export = ss.get("ap_sensor_metrics", {})
-        _r2_export = _sm_export.get("r_squared")
-        if _r2_export is not None and float(_r2_export) < 0.95:
-            st.warning(
-                f"⚠️ **Export advisory:** Calibration R²={_r2_export:.4f} is below the 0.95 "
-                "research-grade threshold. The report and archive will contain this warning. "
-                "Consider retraining before submission."
-            )
+        _r2_export = None
+        if _sm_export.get("r2_cv") is not None:
+            _r2_export = float(_sm_export.get("r2_cv"))
+        elif _sm_export.get("r_squared") is not None:
+            _r2_export = float(_sm_export.get("r_squared"))
+        _snr_export = None
+        _pp_export = ss.get("ap_preprocessed", [])
+        if _pp_export:
+            try:
+                _snr_export = float(compute_snr(np.asarray(_pp_export[-1]["processed"])))
+            except Exception:
+                _snr_export = None
+
+        # Drift check: replicate peak spread within each label group (nm).
+        _drift_export = None
+        if _pp_export:
+            _group_peaks: dict[str, list[float]] = {}
+            for _it in _pp_export:
+                _lbl = str(_it.get("label", "unknown"))
+                _wl_arr = np.asarray(_it.get("wl"))
+                _sig_arr = np.asarray(_it.get("processed"))
+                if _wl_arr.size == 0 or _sig_arr.size == 0:
+                    continue
+                _pk = float(_wl_arr[int(np.argmax(_sig_arr))])
+                _group_peaks.setdefault(_lbl, []).append(_pk)
+            _spreads = [max(v) - min(v) for v in _group_peaks.values() if len(v) >= 2]
+            if _spreads:
+                _drift_export = float(max(_spreads))
+
+        _quality_flags = {
+            "r2_fail": _r2_export is not None and _r2_export < 0.95,
+            "snr_fail": _snr_export is not None and _snr_export < 3.0,
+            "drift_fail": _drift_export is not None and _drift_export > 2.0,
+        }
+        _gate_failed = any(_quality_flags.values())
+        _export_override = st.checkbox(
+            "Export anyway (override quality gates)",
+            key="ap_export_override",
+            value=False,
+        )
+
+        if _gate_failed:
+            st.error("🚫 Export blocked by quality gates (R² ≥ 0.95, SNR ≥ 3, drift ≤ 2 nm).")
+            if _quality_flags["r2_fail"]:
+                st.caption(f"- R² gate failed: {_r2_export:.4f} < 0.95")
+            if _quality_flags["snr_fail"]:
+                st.caption(f"- SNR gate failed: {_snr_export:.2f} < 3.0")
+            if _quality_flags["drift_fail"]:
+                st.caption(f"- Drift gate failed: {_drift_export:.3f} nm > 2.0 nm")
+            if not _export_override:
+                st.info("Enable override checkbox to export with explicit quality flags.")
+                st.stop()
+            st.warning("⚠️ Override enabled — exports will include quality flags metadata.")
         elif not ss.get("ap_model_trained"):
             st.info("ℹ️ No model trained yet — report and archive will not contain calibration metrics.")
 
@@ -2248,8 +2355,11 @@ def render() -> None:
             report += f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             report += f"**Gas:** {meta.get('gas', 'N/A')}  \n"
             report += f"**Concentration:** {meta.get('concentration_ppm', 'N/A')} ppm  \n\n"
+            report += f"**Export override used:** {'Yes' if _export_override else 'No'}  \n"
+            report += f"**Quality gate failed:** {'Yes' if _gate_failed else 'No'}  \n"
+            report += f"**Quality flags:** `{_quality_flags}`  \n\n"
             # QC status line for traceability
-            _r2_rpt = _sm_rep.get("r_squared")
+            _r2_rpt = _sm_rep.get("r2_cv") if _sm_rep.get("r2_cv") is not None else _sm_rep.get("r_squared")
             if _r2_rpt is not None:
                 _qc_label = "PASS" if float(_r2_rpt) >= 0.95 else "ADVISORY — below 0.95 threshold"
                 report += f"**Calibration QC:** {_qc_label} (R²={_r2_rpt:.4f})  \n\n"
@@ -2271,7 +2381,9 @@ def render() -> None:
             report += f"| LOQ | {_fmt(_sm_rep.get('loq_ppm'))} ppm{_loq_ci} | 10σ/S (IUPAC 2012) |\n"
             report += f"| LOL | {_fmt(_sm_rep.get('lol_ppm'))} ppm | Mandel F-test (ICH Q2 §4.2) |\n"
             report += f"| Sensitivity | {_fmt(_sm_rep.get('sensitivity'))} a.u./ppm | OLS slope |\n"
-            report += f"| R² | {_fmt(_sm_rep.get('r_squared'))} | Linear regression |\n"
+            _r2_tbl = _sm_rep.get("r2_cv") if _sm_rep.get("r2_cv") is not None else _sm_rep.get("r_squared")
+            _r2_method = "LOOCV" if _sm_rep.get("r2_cv") is not None else "Linear regression"
+            report += f"| R² | {_fmt(_r2_tbl)} | {_r2_method} |\n"
             report += f"| RMSE | {_fmt(_sm_rep.get('rmse'))} a.u. | Calibration residuals |\n"
             _lin_rep = _sm_rep.get("mandel_linearity")
             if _lin_rep:
@@ -2294,6 +2406,20 @@ def render() -> None:
             rep_dir.mkdir(exist_ok=True)
             rep_path = rep_dir / f"session_{ts}.md"
             rep_path.write_text(report, encoding="utf-8")
+
+            # Sidecar metadata for traceable quality-gate state at export time.
+            meta_path = rep_dir / f"session_{ts}_metadata.json"
+            meta_payload = {
+                "generated_at": datetime.now().isoformat(),
+                "meta": meta,
+                "quality_flags": _quality_flags,
+                "quality_gate_failed": _gate_failed,
+                "override_used": _export_override,
+                "r2": _r2_export,
+                "snr": _snr_export,
+                "drift_nm": _drift_export,
+            }
+            meta_path.write_text(json.dumps(meta_payload, indent=2), encoding="utf-8")
             st.download_button(
                 "⬇️ Download Report", report, file_name=rep_path.name, mime="text/markdown"
             )

@@ -47,6 +47,12 @@ jobs:
       - name: Run fast test lane (release gate)
         run: pytest -q --tb=short -m "not reliability"
 
+      - name: Run research preflight self-check (release gate)
+        run: python scripts/research_preflight.py --self-check
+
+      - name: Run research integrity self-check
+        run: python scripts/research_integrity_gate.py --self-check
+
       - name: Build wheel and sdist
         run: python -m build
 

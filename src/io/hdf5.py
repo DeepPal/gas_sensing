@@ -1,7 +1,7 @@
 """
 src.io.hdf5
 ===========
-HDF5 session archiving for the Au-MIP LSPR Gas Sensing Platform.
+HDF5 session archiving for the SpectraAgent — Spectrometer-Based Sensing Platform.
 
 Writes complete measurement sessions to a self-describing HDF5 file
 following a versioned schema.  The file is readable by:

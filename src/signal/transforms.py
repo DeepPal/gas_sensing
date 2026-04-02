@@ -8,7 +8,7 @@ They have no dependency on config files or I/O — safe to import anywhere.
 
 Background
 ----------
-The Au-MIP LSPR sensor workflow operates in three signal spaces:
+The LSPR sensor workflow operates in three signal spaces:
 
 * **Intensity** (raw photon counts from CCS200)
 * **Transmittance** T = I_sample / I_ref  (range [0, 1])

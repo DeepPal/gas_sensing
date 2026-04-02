@@ -4,7 +4,7 @@ REM
 REM Usage:
 REM   run_dashboard_secure.bat
 REM
-REM To set password:
+REM To set password for this session:
 REM   set DASHBOARD_PASSWORD=my-lab-password
 REM   run_dashboard_secure.bat
 
@@ -22,17 +22,25 @@ if exist ".venv\Scripts\activate.bat" (
 REM Print startup info
 echo.
 echo ==========================================
-echo 🔬 Au-MIP LSPR Gas Sensing Platform
+echo 🔬 SpectraAgent — Spectrometer-Based Sensing Platform
 echo ==========================================
 echo Dashboard URL: http://localhost:8501
 echo ---
 
-REM Show password status
+REM Show password status / fail closed when no secret is configured.
 if defined DASHBOARD_PASSWORD (
-    echo ✓ Using DASHBOARD_PASSWORD from environment
+    echo [OK] Using DASHBOARD_PASSWORD from environment
+) else if defined DASHBOARD_PASSWORD_HASH (
+    echo [OK] Using DASHBOARD_PASSWORD_HASH from environment
+) else if exist "%USERPROFILE%\.streamlit_au_mip_password_hash" (
+    echo [OK] Using hashed password file %USERPROFILE%\.streamlit_au_mip_password_hash
+) else if exist "%USERPROFILE%\.streamlit_au_mip_password" (
+    echo [WARN] Using legacy plaintext password file %USERPROFILE%\.streamlit_au_mip_password
 ) else (
-    echo ⚠️  Using default password 'research-lab-default'
-    echo    Set DASHBOARD_PASSWORD env var to customize
+    echo [ERROR] No dashboard password configured.
+    echo         Run: python -m dashboard.auth --set-password
+    echo         Or set DASHBOARD_PASSWORD for this session.
+    exit /b 1
 )
 
 echo ---

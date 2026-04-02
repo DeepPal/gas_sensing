@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 
 class HealthCheck:
-    """Health status of the Au-MIP LSPR dashboard application."""
+    """Health status of the the sensor LSPR dashboard application."""
 
     def __init__(self, app_root: Path | None = None) -> None:
         self.app_root = app_root or Path(__file__).resolve().parents[1]
@@ -111,7 +111,7 @@ class HealthCheck:
             "timestamp": self.timestamp,
             "hostname": self.hostname,
             "application": {
-                "name": "Au-MIP LSPR Gas Sensing Platform",
+                "name": "SpectraAgent — Spectrometer-Based Sensing Platform",
                 "version": "1.0.0",
                 "status": "running",
             },
@@ -135,7 +135,7 @@ class HealthCheck:
         status = self.get_status()
 
         print("\n" + "=" * 70)
-        print("Au-MIP LSPR HEALTH CHECK REPORT")
+        print("the sensor LSPR HEALTH CHECK REPORT")
         print("=" * 70)
         print(f"Timestamp:  {status['timestamp']}")
         print(f"Hostname:   {status['hostname']}")

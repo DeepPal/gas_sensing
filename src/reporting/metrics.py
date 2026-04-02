@@ -533,6 +533,35 @@ def compute_comprehensive_sensor_characterization(
     residuals = r - (slope * c + intercept)
     rmse = float(np.sqrt(np.mean(residuals**2)))
 
+    # Out-of-sample linearity check (LOOCV), used by quality gates.
+    r2_cv: float | None = None
+    rmse_cv: float | None = None
+    if len(c) >= 4:
+        from sklearn.model_selection import LeaveOneOut
+
+        loo = LeaveOneOut()
+        preds = np.full_like(r, np.nan, dtype=float)
+        for train_idx, test_idx in loo.split(c):
+            c_tr = c[train_idx]
+            r_tr = r[train_idx]
+            if len(np.unique(c_tr)) < 2:
+                continue
+            try:
+                m_i, b_i, _r2_i, _se_i = calculate_sensitivity(c_tr, r_tr)
+                preds[test_idx[0]] = float(m_i * c[test_idx[0]] + b_i)
+            except Exception:
+                continue
+
+        valid = np.isfinite(preds)
+        if np.count_nonzero(valid) >= 2:
+            r_true = r[valid]
+            r_pred = preds[valid]
+            ss_res = float(np.sum((r_true - r_pred) ** 2))
+            ss_tot = float(np.sum((r_true - np.mean(r_true)) ** 2))
+            if ss_tot > 0:
+                r2_cv = 1.0 - ss_res / ss_tot
+            rmse_cv = float(np.sqrt(np.mean((r_true - r_pred) ** 2)))
+
     # σ_blank and μ_blank
     # For LSPR the wavelength shift signal is defined relative to the
     # reference spectrum, so the true blank mean is 0 nm by construction.
@@ -592,7 +621,9 @@ def compute_comprehensive_sensor_characterization(
         "sensitivity_se": round(slope_se, 8),
         "intercept": round(intercept, 6),
         "r_squared": round(r2, 6),
+        "r2_cv": round(r2_cv, 6) if r2_cv is not None and np.isfinite(r2_cv) else None,
         "rmse": round(rmse, 8),
+        "rmse_cv": round(rmse_cv, 8) if rmse_cv is not None and np.isfinite(rmse_cv) else None,
         "noise_std": round(float(baseline_noise_std), 8),
         "sigma_source": sigma_source,
         "n_calibration_points": int(len(c)),

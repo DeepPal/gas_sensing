@@ -1,0 +1,954 @@
+{
+  "schema_version": 2,
+  "sensor_id": "Simulation",
+  "created_utc": "2026-03-31T10:00:17.746585+00:00",
+  "updated_utc": "2026-04-01T13:38:34.605850+00:00",
+  "analytes": {
+    "unknown": {
+      "canonical_name": "unknown",
+      "calibration_history": [],
+      "session_count": 132
+    },
+    "ethanol": {
+      "canonical_name": "Ethanol",
+      "calibration_history": [],
+      "session_count": 1
+    }
+  },
+  "failure_events": [],
+  "drift_observations": [],
+  "model_performance": [],
+  "session_log": [
+    {
+      "session_id": "20260331_170018",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:00:19.557144+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170024",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:00:26.092228+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170031",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-03-31T10:00:34.128074+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170040",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:00:41.693722+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170042",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:00:43.480237+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170043",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:00:45.216159+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170521",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:05:22.173449+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170527",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:05:28.532892+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170533",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-03-31T10:05:36.638591+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170541",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:05:43.006930+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170543",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:05:44.677054+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_170545",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:05:46.428096+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171040",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:10:41.837784+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171048",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:10:49.874438+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171056",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-03-31T10:10:59.350812+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171106",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:11:07.818693+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171108",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:11:09.744789+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_171110",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:11:11.959537+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173246",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:32:47.319246+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173252",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:32:53.688181+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173258",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-03-31T10:33:01.743018+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173306",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:33:08.150728+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173308",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:33:09.835769+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173310",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:33:11.463942+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_173958",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-03-31T10:39:59.771704+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174006",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-03-31T10:40:07.550933+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174013",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-03-31T10:40:16.810671+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174023",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:40:24.398567+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174024",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:40:26.154227+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174026",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-03-31T10:40:27.926343+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260331_174256",
+      "analyte": "Ethanol",
+      "frame_count": 19,
+      "stopped_at": "2026-03-31T10:43:00.644061+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111349",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T04:13:50.814376+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111355",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T04:13:56.472782+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111400",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T04:14:03.716803+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111408",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:14:09.408192+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111409",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T04:14:11.013769+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111411",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T04:14:12.544525+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111613",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T04:16:14.917489+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111619",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:16:21.313703+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111626",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T04:16:29.286975+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111634",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:16:35.448257+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111635",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:16:37.055922+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111637",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:16:38.659131+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_111919",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T04:19:20.475431+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112318",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T04:23:19.709893+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112324",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T04:23:26.090419+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112330",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T04:23:33.436650+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112337",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:23:39.124393+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112339",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T04:23:40.722404+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112341",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T04:23:42.323884+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_112652",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T04:26:53.630265+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130109",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T06:01:10.907764+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130115",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T06:01:16.716676+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130121",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T06:01:24.731383+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130129",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T06:01:30.898166+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130131",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T06:01:32.488010+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_130132",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T06:01:34.163218+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154002",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T08:40:03.280286+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154007",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:40:09.147117+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154013",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T08:40:16.443376+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154020",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:40:22.055375+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154022",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:40:23.719636+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154024",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:40:25.358095+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154608",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T08:46:09.648062+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154614",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:46:15.413814+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154620",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T08:46:23.198552+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154637",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:46:39.204335+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154639",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:46:40.807942+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154641",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:46:42.459538+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154916",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T08:49:17.465078+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154922",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:49:23.747010+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154928",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T08:49:31.224704+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154935",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:49:36.742800+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154937",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:49:38.428186+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_154938",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:49:40.005756+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155420",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T08:54:21.615518+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155426",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:54:27.958504+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155432",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T08:54:35.853911+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155440",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:54:41.657766+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155442",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:54:43.356670+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155443",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:54:45.099180+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155932",
+      "analyte": "unknown",
+      "frame_count": 3,
+      "stopped_at": "2026-04-01T08:59:33.144776+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155939",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T08:59:40.734602+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155945",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T08:59:48.599296+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155954",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:59:55.957341+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155956",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:59:57.700577+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_155958",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T08:59:59.372731+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160621",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T09:06:22.087146+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160626",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T09:06:27.932923+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160632",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T09:06:35.889782+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160640",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:06:42.071038+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160642",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:06:43.707793+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_160644",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:06:45.285176+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163936",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T09:39:37.122281+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163942",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T09:39:43.435025+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163948",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T09:39:51.364224+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163956",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T09:39:57.617112+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163958",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:39:59.264717+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_163959",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:40:00.894295+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164317",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T09:43:18.118790+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164323",
+      "analyte": "unknown",
+      "frame_count": 7,
+      "stopped_at": "2026-04-01T09:43:24.504820+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164329",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T09:43:32.467464+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164337",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T09:43:38.730150+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164339",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:43:40.383281+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164340",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:43:41.990541+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164642",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T09:46:43.474049+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164648",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T09:46:49.982734+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164654",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T09:46:57.379420+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164701",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:47:03.216971+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164703",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:47:04.797149+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_164705",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T09:47:06.408317+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175838",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T10:58:39.319430+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175844",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T10:58:45.659595+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175851",
+      "analyte": "unknown",
+      "frame_count": 13,
+      "stopped_at": "2026-04-01T10:58:54.866599+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175859",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T10:59:00.447050+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175900",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T10:59:02.003461+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_175902",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T10:59:03.626610+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_202855",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T13:28:56.253204+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_202900",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:29:02.179519+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_202902",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:29:03.830968+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_202904",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T13:29:05.486487+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203531",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T13:35:32.856234+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203538",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:35:39.695514+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203544",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T13:35:47.458592+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203552",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:35:54.113380+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203554",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:35:55.923591+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203556",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:35:57.762968+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203807",
+      "analyte": "unknown",
+      "frame_count": 4,
+      "stopped_at": "2026-04-01T13:38:08.173849+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203813",
+      "analyte": "unknown",
+      "frame_count": 6,
+      "stopped_at": "2026-04-01T13:38:15.021904+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203820",
+      "analyte": "unknown",
+      "frame_count": 12,
+      "stopped_at": "2026-04-01T13:38:23.205501+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203829",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:38:30.832850+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203831",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:38:32.716465+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260401_203833",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-01T13:38:34.605824+00:00",
+      "notes": ""
+    }
+  ]
+}

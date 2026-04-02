@@ -4,8 +4,26 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pytest
 
-from spectraagent.webapp.server import Broadcaster, create_app
+from spectraagent.webapp.server import Broadcaster, _RateLimiter, create_app
 from spectraagent.webapp.session_writer import SessionWriter
+
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limiters():
+    """Reset module-level rate limiter state before and after every test.
+
+    The limiters are module-level singletons — without this fixture their
+    sliding-window history accumulates across tests sharing the same process,
+    causing the 4th call to /api/reports/generate to return 429 even in tests
+    that don't intend to trigger the limit.
+    """
+    import spectraagent.webapp.server as srv
+
+    srv._claude_limiter._history.clear()
+    srv._report_limiter._history.clear()
+    yield
+    srv._claude_limiter._history.clear()
+    srv._report_limiter._history.clear()
 
 
 @pytest.fixture
@@ -338,7 +356,7 @@ def test_reports_generate_success_returns_200(client):
     from unittest.mock import AsyncMock, MagicMock
 
     mock_writer = MagicMock()
-    mock_writer.write = AsyncMock(return_value="Methods: Au-MIP LSPR sensor...")
+    mock_writer.write = AsyncMock(return_value="Methods: LSPR sensor...")
     client.app.state.report_writer = mock_writer
 
     resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
@@ -363,3 +381,99 @@ def test_agents_settings_requires_auto_explain(client):
     """PUT /api/agents/settings without auto_explain returns 422."""
     resp = client.put("/api/agents/settings", json={})
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _RateLimiter unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limiter_allows_up_to_max():
+    rl = _RateLimiter(max_calls=3, window_s=60)
+    assert rl.is_allowed("c") is True
+    assert rl.is_allowed("c") is True
+    assert rl.is_allowed("c") is True
+
+
+def test_rate_limiter_blocks_over_max():
+    rl = _RateLimiter(max_calls=3, window_s=60)
+    for _ in range(3):
+        rl.is_allowed("c")
+    assert rl.is_allowed("c") is False
+
+
+def test_rate_limiter_independent_keys():
+    rl = _RateLimiter(max_calls=1, window_s=60)
+    assert rl.is_allowed("a") is True
+    assert rl.is_allowed("b") is True  # different key → not blocked
+
+
+def test_rate_limiter_window_eviction():
+    """Calls outside the window no longer count against the limit."""
+    import time as _time
+
+    rl = _RateLimiter(max_calls=1, window_s=0.05)
+    assert rl.is_allowed("x") is True
+    assert rl.is_allowed("x") is False  # blocked within window
+    _time.sleep(0.1)
+    assert rl.is_allowed("x") is True   # window expired → allowed again
+
+
+# ---------------------------------------------------------------------------
+# Rate limit endpoint integration: 429 after limit exceeded
+# ---------------------------------------------------------------------------
+
+
+def test_ask_rate_limit_returns_429(client):
+    """POST /api/agents/ask returns 429 after exceeding the per-minute limit."""
+    import spectraagent.webapp.server as srv
+
+    tight = _RateLimiter(max_calls=1, window_s=60)
+    with patch.object(srv, "_claude_limiter", tight), \
+            patch("spectraagent.webapp.server._get_ask_client", return_value=None):
+        resp1 = client.post("/api/agents/ask", json={"query": "first"})
+        resp2 = client.post("/api/agents/ask", json={"query": "second"})
+
+    assert resp1.status_code == 200
+    assert resp2.status_code == 429
+    assert "Rate limit" in resp2.json()["detail"]
+
+
+def test_report_rate_limit_returns_429(client):
+    """POST /api/reports/generate returns 429 after exceeding the per-minute limit."""
+    from unittest.mock import AsyncMock, MagicMock
+    import spectraagent.webapp.server as srv
+
+    tight = _RateLimiter(max_calls=1, window_s=60)
+    mock_writer = MagicMock()
+    mock_writer.write = AsyncMock(return_value="some report text")
+    client.app.state.report_writer = mock_writer
+
+    try:
+        with patch.object(srv, "_report_limiter", tight):
+            resp1 = client.post("/api/reports/generate", json={"session_id": "20260101_120000"})
+            resp2 = client.post("/api/reports/generate", json={"session_id": "20260101_120000"})
+
+        assert resp1.status_code == 200
+        assert resp2.status_code == 429
+        assert "Rate limit" in resp2.json()["detail"]
+    finally:
+        client.app.state.report_writer = None
+
+
+# ---------------------------------------------------------------------------
+# Health endpoint: integration_time_ms field
+# ---------------------------------------------------------------------------
+
+
+def test_health_includes_integration_time_ms(client):
+    """GET /api/health schema includes the integration_time_ms field.
+
+    The value is None when no hardware driver is connected (test-client state).
+    A numeric value is only present when a driver is attached at startup.
+    """
+    resp = client.get("/api/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Field must be present in the schema; None is valid when driver is absent
+    assert "integration_time_ms" in data

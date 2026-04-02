@@ -1,6 +1,6 @@
 # ============================================================
-#  Au-MIP LSPR Gas Sensing Platform — Developer Makefile
-#  Usage: make <target>
+#  SpectraAgent — Universal Agentic Spectroscopy Platform
+#  Developer Makefile  |  Usage: make <target>
 # ============================================================
 
 PYTHON  := .venv/Scripts/python.exe
@@ -15,41 +15,44 @@ MLFLOW  := $(PYTHON) -m mlflow
 .PHONY: help
 help:
 	@echo ""
-	@echo "  Au-MIP LSPR Gas Sensing Platform"
+	@echo "  SpectraAgent — Universal Agentic Spectroscopy Platform"
 	@echo ""
 	@echo "  Setup"
-	@echo "    make install        Install all dependencies into .venv"
-	@echo "    make install-ml     Install + PyTorch (CNN support)"
+	@echo "    make install          Install all dependencies into .venv"
+	@echo "    make install-ml       Install + PyTorch (CNN support)"
+	@echo "    make build-frontend   Build React frontend into static/dist"
 	@echo ""
 	@echo "  Quality"
-	@echo "    make lint           Run ruff linter"
-	@echo "    make format         Auto-format with ruff"
-	@echo "    make test           Run full test suite"
-	@echo "    make test-fast      Run fast lane tests (excludes reliability)"
+	@echo "    make lint             Run ruff linter"
+	@echo "    make format           Auto-format with ruff"
+	@echo "    make test             Run full test suite (1187 tests)"
+	@echo "    make test-fast        Run fast lane tests (excludes reliability)"
 	@echo "    make test-reliability Run reliability/integration lifecycle tests"
 	@echo "    make test-reliability-report Run reliability tests with JUnit report"
 	@echo "    make test-reliability-summary Run reliability tests + markdown summary"
 	@echo "    make test-reliability-budget Run reliability tests + budget check"
-	@echo "    make quality-gate   Run local fast + reliability lanes with reports"
-	@echo "    make coverage       Run tests with coverage report"
-	@echo "    make check          lint + test (CI equivalent)"
+	@echo "    make quality-gate     Run local fast + reliability lanes with reports"
+	@echo "    make coverage         Run tests with coverage report"
+	@echo "    make check            lint + test (CI equivalent)"
 	@echo ""
 	@echo "  Run"
-	@echo "    make dashboard      Launch Streamlit dashboard"
-	@echo "    make serve          Launch FastAPI inference server"
-	@echo "    make simulate       Run pipeline in simulation mode"
+	@echo "    make spectraagent     Start SpectraAgent server (simulation mode)"
+	@echo "    make spectraagent-hw  Start SpectraAgent server (real hardware)"
+	@echo "    make dashboard        Launch Streamlit scientific dashboard"
+	@echo "    make serve            Launch legacy FastAPI inference server"
+	@echo "    make simulate         Run legacy pipeline in simulation mode"
 	@echo ""
 	@echo "  MLflow"
-	@echo "    make mlflow-ui      Open MLflow experiment tracking UI"
+	@echo "    make mlflow-ui        Open MLflow experiment tracking UI"
 	@echo ""
 	@echo "  Training"
-	@echo "    make train-gpr      Train GPR calibration model"
-	@echo "    make train-cnn      Train CNN gas classifier"
-	@echo "    make cross-eval     Leave-one-gas-out cross-validation"
-	@echo "    make ablation       Preprocessing ablation study"
+	@echo "    make train-gpr        Train GPR calibration model"
+	@echo "    make train-cnn        Train CNN gas classifier"
+	@echo "    make cross-eval       Leave-one-gas-out cross-validation"
+	@echo "    make ablation         Preprocessing ablation study"
 	@echo ""
 	@echo "  Maintenance"
-	@echo "    make clean          Remove build artefacts and caches"
+	@echo "    make clean            Remove build artefacts and caches"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────
@@ -62,6 +65,11 @@ install:
 .PHONY: install-ml
 install-ml: install
 	$(PIP) install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+.PHONY: build-frontend
+build-frontend:
+	cd spectraagent/webapp/frontend && npm install && npm run build
+	@echo "Frontend built → spectraagent/webapp/static/dist/"
 
 # ── Quality ──────────────────────────────────────────────────
 .PHONY: lint
@@ -114,6 +122,16 @@ quality-gate:
 check: lint test
 
 # ── Run ──────────────────────────────────────────────────────
+.PHONY: spectraagent
+spectraagent:
+	$(PYTHON) -m spectraagent start --simulate
+	@echo "SpectraAgent → http://localhost:8765"
+
+.PHONY: spectraagent-hw
+spectraagent-hw:
+	$(PYTHON) -m spectraagent start
+	@echo "SpectraAgent (hardware) → http://localhost:8765"
+
 .PHONY: dashboard
 dashboard:
 	$(PYTHON) -m streamlit run dashboard/app.py

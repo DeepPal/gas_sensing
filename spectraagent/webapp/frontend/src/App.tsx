@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -10,7 +11,7 @@ import {
   X, TrendingUp, Sliders,
 } from 'lucide-react'
 import { api, connectSpectrum, connectAgentEvents } from './api'
-import type { SpectrumFrame, AgentEvent, SessionMeta, SessionDetail, HealthResponse } from './api'
+import type { SpectrumFrame, AgentEvent, SessionMeta, SessionDetail, HealthResponse, AnalyteInfo, MixtureInferenceResult } from './api'
 import './App.css'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -31,6 +32,9 @@ interface TrendPoint {
   ciLow?: number
   ciHigh?: number
 }
+
+// Agent events stamped with a client-side ID so we don't use array index as key
+type StampedEvent = AgentEvent & { _id: number }
 
 interface SessionAnalysis {
   lod_ppm?: number
@@ -66,11 +70,12 @@ function Modal({ title, onClose, children }: {
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [wsConnected, setWsConnected] = useState(false)
+  const [wsReconnecting, setWsReconnecting] = useState(false)
   const [spectrum, setSpectrum] = useState<{ wl: number[]; i: number[] } | null>(null)
   const [frameNum, setFrameNum] = useState(0)
   const [latestResult, setLatestResult] = useState<Partial<SpectrumFrame>>({})
   const [trend, setTrend] = useState<TrendPoint[]>([])
-  const [events, setEvents] = useState<AgentEvent[]>([])
+  const [events, setEvents] = useState<StampedEvent[]>([])
   const [sessionRunning, setSessionRunning] = useState(false)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [gasLabel, setGasLabel] = useState('Ethanol')
@@ -117,34 +122,102 @@ export default function App() {
   // Anomaly / Claude explanation modal
   const [anomalyEvent, setAnomalyEvent] = useState<AgentEvent | null>(null)
 
+  // Reference peak positions — discovered at runtime from reference capture.
+  // Supports multi-peak sensors: one entry per detected spectral peak.
+  const [refPeakWls, setRefPeakWls] = useState<number[]>([])
+
   // Planner suggestions from events
   const [plannerSuggestions, setPlannerSuggestions] = useState<string[]>([])
 
+  // Multi-analyte sensor info (polled from /api/analytes)
+  const [analyteInfo, setAnalyteInfo] = useState<AnalyteInfo | null>(null)
+  // Latest mixture inference result
+  const [mixtureResult, setMixtureResult] = useState<MixtureInferenceResult | null>(null)
+  // Kinetic phase per peak: 'association' | 'equilibrium' | 'dissociation'
+  const [kineticPhase, setKineticPhase] = useState<string>('waiting')
+
   const specWs = useRef<WebSocket | null>(null)
   const agentWs = useRef<WebSocket | null>(null)
-  const eventsBottomRef = useRef<HTMLDivElement>(null)
+  const eventsListRef = useRef<HTMLDivElement>(null)
+  const userScrolledRef = useRef(false)
+  const settingsSeededRef = useRef(false)
+  const eventIdRef = useRef(0)
 
-  // ── Health poll (also seeds settings sliders) ────────────────────────────
+  // ── Health poll (seeds settings sliders on first successful response only) ─
   useEffect(() => {
     const poll = async () => {
       try {
         const h = await api.health()
         setHealth(h)
-        setSatThreshold(h.quality_settings.saturation_threshold)
-        setSnrThreshold(h.quality_settings.snr_warn_threshold)
-        setDriftThreshold(h.drift_settings.drift_threshold_nm_per_min)
-        setDriftWindow(h.drift_settings.window_frames)
-      } catch { /* server warming up */ }
+        if (!settingsSeededRef.current) {
+          settingsSeededRef.current = true
+          setSatThreshold(h.quality_settings.saturation_threshold)
+          setSnrThreshold(h.quality_settings.snr_warn_threshold)
+          setDriftThreshold(h.drift_settings.drift_threshold_nm_per_min)
+          setDriftWindow(h.drift_settings.window_frames)
+          if (h.integration_time_ms) setIntegrationMs(h.integration_time_ms)
+        }
+      } catch (err) {
+        // Suppress during startup warmup; log if server was previously reachable
+        if (health !== null) console.warn('[health poll] server unreachable:', err)
+      }
     }
     poll()
     const t = setInterval(poll, 10000)
     return () => clearInterval(t)
   }, [])
 
+  // ── Analyte info poll (once on mount, refreshed when session starts) ────
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const info = await api.listAnalytes()
+        if (info.analytes.length > 0) setAnalyteInfo(info)
+      } catch { /* suppress */ }
+    }
+    poll()
+    const t = setInterval(poll, 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ── Mixture inference — run when latestResult has multi-peak shifts ──────
+  useEffect(() => {
+    if (!analyteInfo || !analyteInfo.S_matrix || analyteInfo.analytes.length < 2) return
+    // Collect peak shifts from latestResult if available
+    const shift = latestResult.peak_shift_nm
+    if (shift === undefined) return
+    // Build shift vector (single shift for now; extend when multi-peak WS is added)
+    const deltaLambda = [shift]
+    if (deltaLambda.length !== analyteInfo.n_peaks) return
+    api.inferMixture({
+      delta_lambda: deltaLambda,
+      analytes: analyteInfo.analytes,
+      S_matrix: analyteInfo.S_matrix,
+      use_nonlinear: false,
+    }).then(r => setMixtureResult(r)).catch(() => {/* suppress */})
+  }, [latestResult.peak_shift_nm, analyteInfo])
+
+  // ── Kinetic phase from trend data ────────────────────────────────────────
+  useEffect(() => {
+    if (trendData.length < 3) { setKineticPhase('waiting'); return }
+    const recent = trendData.slice(-10)
+    const shifts = recent.map(d => Math.abs(d.shift ?? 0))
+    if (shifts.every(s => s < 0.02)) { setKineticPhase('baseline'); return }
+    const last3 = shifts.slice(-3)
+    const delta = last3[2] - last3[0]
+    if (delta > 0.005) setKineticPhase('association')
+    else if (delta < -0.005) setKineticPhase('dissociation')
+    else setKineticPhase('equilibrium')
+  }, [trendData])
+
   // ── Spectrum WebSocket ───────────────────────────────────────────────────
   useEffect(() => {
+    let unmounted = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
     const connect = () => {
       const ws = connectSpectrum((frame) => {
+        if (unmounted) return
         setSpectrum({ wl: frame.wl, i: frame.i })
         setFrameNum(frame.frame)
         setLatestResult(prev => ({
@@ -168,20 +241,34 @@ export default function App() {
           }].slice(-300))
         }
         setWsConnected(true)
+        setWsReconnecting(false)
       })
-      ws.onclose = () => { setWsConnected(false); setTimeout(connect, 2000) }
+      ws.onclose = () => {
+        if (unmounted) return
+        setWsConnected(false)
+        setWsReconnecting(true)
+        reconnectTimer = setTimeout(connect, 2000)
+      }
       ws.onerror = () => ws.close()
       specWs.current = ws
     }
     connect()
-    return () => specWs.current?.close()
+    return () => {
+      unmounted = true
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      specWs.current?.close()
+    }
   }, [])
 
   // ── Agent events WebSocket ───────────────────────────────────────────────
   useEffect(() => {
+    let unmounted = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
     const connect = () => {
       const ws = connectAgentEvents((ev) => {
-        setEvents(prev => [ev, ...prev].slice(0, 100))
+        if (unmounted) return
+        setEvents(prev => [{ ...ev, _id: ++eventIdRef.current }, ...prev].slice(0, 100))
 
         // Session complete → extract analysis metrics
         if (ev.type === 'session_complete' && ev.data) {
@@ -211,57 +298,99 @@ export default function App() {
           setPlannerSuggestions(prev => [ev.text, ...prev].slice(0, 5))
         }
       })
-      ws.onclose = () => setTimeout(connect, 2000)
+      ws.onclose = () => {
+        if (unmounted) return
+        setWsReconnecting(true)
+        reconnectTimer = setTimeout(connect, 2000)
+      }
       ws.onerror = () => ws.close()
       agentWs.current = ws
     }
     connect()
-    return () => agentWs.current?.close()
+    return () => {
+      unmounted = true
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      agentWs.current?.close()
+    }
   }, [])
 
-  // Auto-scroll events to bottom (newest is top, so no-op needed but kept for completeness)
+  // Auto-scroll events list to top when new events arrive, unless user has manually scrolled down
   useEffect(() => {
-    eventsBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = eventsListRef.current
+    if (!el || userScrolledRef.current) return
+    el.scrollTop = 0
   }, [events])
+
+  // ── Shared error helper ───────────────────────────────────────────────────
+  const pushError = useCallback((source: string, err: unknown) => {
+    setEvents(prev => [{
+      _id: ++eventIdRef.current,
+      source, level: 'error', type: 'ui_error',
+      text: err instanceof Error ? err.message : String(err),
+    }, ...prev].slice(0, 100))
+  }, [])
 
   // ── Session controls ─────────────────────────────────────────────────────
   const startSession = async () => {
-    await api.configAcquisition({
-      integration_time_ms: integrationMs,
-      gas_label: gasLabel,
-      target_concentration: targetConc ? parseFloat(targetConc) : null,
-    })
-    const r = await api.startSession()
-    setSessionRunning(true)
-    setTrend([])
-    setSessionAnalysis(null)
-    if (r.session_id) setCurrentSessionId(r.session_id as string)
+    try {
+      await api.configAcquisition({
+        integration_time_ms: integrationMs,
+        gas_label: gasLabel,
+        target_concentration: targetConc ? parseFloat(targetConc) : null,
+      })
+      const r = await api.startSession()
+      setSessionRunning(true)
+      setTrend([])
+      setSessionAnalysis(null)
+      if (r.session_id) setCurrentSessionId(r.session_id as string)
+    } catch (err) {
+      pushError('UI/Session', err)
+    }
   }
 
   const stopSession = async () => {
-    await api.stopSession()
-    setSessionRunning(false)
     try {
+      await api.stopSession()
+      setSessionRunning(false)
       const list = await api.listSessions()
       setSessions(list)
-    } catch { /* ignore */ }
+    } catch (err) {
+      setSessionRunning(false)
+      pushError('UI/Session', err)
+    }
   }
 
   const captureRef = async () => {
-    const r = await api.captureReference()
-    setEvents(prev => [{
-      source: 'UI', level: 'info', type: 'reference_captured',
-      text: r.error ?? 'Reference spectrum captured',
-    }, ...prev])
+    try {
+      const r = await api.captureReference()
+      // Store all detected peak positions — works for single and multi-peak sensors
+      if (r.peak_wavelengths?.length) {
+        setRefPeakWls(r.peak_wavelengths)
+      } else if (r.peak_wavelength != null) {
+        setRefPeakWls([r.peak_wavelength])
+      }
+      const peakInfo = r.peak_wavelengths?.length
+        ? `${r.peak_wavelengths.length} peak(s) at ${r.peak_wavelengths.map((w: number) => w.toFixed(2)).join(', ')} nm`
+        : r.peak_wavelength != null ? `peak at ${r.peak_wavelength.toFixed(2)} nm` : 'no peak detected'
+      setEvents(prev => [{
+        _id: ++eventIdRef.current,
+        source: 'UI', level: 'info', type: 'reference_captured',
+        text: r.error ?? `Reference captured — ${peakInfo}`,
+      }, ...prev])
+    } catch (err) {
+      pushError('UI/Reference', err)
+    }
   }
 
   // ── Session history ──────────────────────────────────────────────────────
   const loadSessions = async () => {
-    try { setSessions(await api.listSessions()) } catch { /* ignore */ }
+    try { setSessions(await api.listSessions()) }
+    catch (err) { console.warn('[sessions/list]', err) }
   }
 
   const openSession = async (id: string) => {
-    try { setSessionDetail(await api.getSession(id)) } catch { /* ignore */ }
+    try { setSessionDetail(await api.getSession(id)) }
+    catch (err) { console.warn('[sessions/get]', err) }
   }
 
   // ── Report generation ────────────────────────────────────────────────────
@@ -274,6 +403,7 @@ export default function App() {
       setShowReport(true)
     } catch (err) {
       setEvents(prev => [{
+        _id: ++eventIdRef.current,
         source: 'UI', level: 'error', type: 'report_error',
         text: String(err),
       }, ...prev])
@@ -284,34 +414,44 @@ export default function App() {
 
   // ── Settings ─────────────────────────────────────────────────────────────
   const saveQualitySettings = async () => {
-    await api.setQualitySettings({ saturation_threshold: satThreshold, snr_warn_threshold: snrThreshold })
-    setEvents(prev => [{
-      source: 'UI', level: 'info', type: 'settings_updated',
-      text: `Quality settings updated: saturation=${satThreshold}, SNR warn=${snrThreshold}`,
-    }, ...prev])
+    try {
+      await api.setQualitySettings({ saturation_threshold: satThreshold, snr_warn_threshold: snrThreshold })
+      setEvents(prev => [{
+        _id: ++eventIdRef.current,
+        source: 'UI', level: 'info', type: 'settings_updated',
+        text: `Quality settings updated: saturation=${satThreshold}, SNR warn=${snrThreshold}`,
+      }, ...prev])
+    } catch (err) { pushError('UI/Settings', err) }
   }
 
   const saveDriftSettings = async () => {
-    await api.setDriftSettings({ drift_threshold_nm_per_min: driftThreshold, window_frames: driftWindow })
-    setEvents(prev => [{
-      source: 'UI', level: 'info', type: 'settings_updated',
-      text: `Drift settings updated: threshold=${driftThreshold} nm/min, window=${driftWindow} frames`,
-    }, ...prev])
+    try {
+      await api.setDriftSettings({ drift_threshold_nm_per_min: driftThreshold, window_frames: driftWindow })
+      setEvents(prev => [{
+        _id: ++eventIdRef.current,
+        source: 'UI', level: 'info', type: 'settings_updated',
+        text: `Drift settings updated: threshold=${driftThreshold} nm/min, window=${driftWindow} frames`,
+      }, ...prev])
+    } catch (err) { pushError('UI/Settings', err) }
   }
 
   // ── Calibration ──────────────────────────────────────────────────────────
   const addCalPoint = async () => {
     if (!calConc || !calDelta) return
     const c = parseFloat(calConc), d = parseFloat(calDelta)
-    await api.addCalibrationPoint({ concentration: c, delta_lambda: d })
-    setCalPoints(prev => [...prev, { c, d }])
-    setCalConc('')
-    setCalDelta('')
+    try {
+      await api.addCalibrationPoint({ concentration: c, delta_lambda: d })
+      setCalPoints(prev => [...prev, { c, d }])
+      setCalConc('')
+      setCalDelta('')
+    } catch (err) { pushError('UI/Calibration', err) }
   }
 
   const suggestNext = async () => {
-    const r = await api.suggestConcentration()
-    setSuggestedConc(r.suggestion ?? null)
+    try {
+      const r = await api.suggestConcentration()
+      setSuggestedConc(r.suggestion ?? null)
+    } catch (err) { pushError('UI/Calibration', err) }
   }
 
   // ── Claude ask ───────────────────────────────────────────────────────────
@@ -321,6 +461,8 @@ export default function App() {
     setAskStreaming(true)
     try {
       await api.ask(askQuery, (chunk) => setAskAnswer(prev => prev + chunk))
+    } catch (err) {
+      setAskAnswer(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAskStreaming(false)
     }
@@ -329,17 +471,25 @@ export default function App() {
   const toggleAutoExplain = async () => {
     const next = !autoExplain
     setAutoExplain(next)
-    await api.setAutoExplain(next)
+    try {
+      await api.setAutoExplain(next)
+    } catch (err) {
+      setAutoExplain(!next) // revert optimistic update
+      pushError('UI/Settings', err)
+    }
   }
 
   // ── Chart data ───────────────────────────────────────────────────────────
-  const specData = spectrum
-    ? spectrum.wl
-        .map((w, i) => ({ wl: parseFloat(w.toFixed(1)), intensity: parseFloat(spectrum.i[i].toFixed(4)) }))
-        .filter((_, i) => i % 4 === 0)
-    : []
+  const specData = useMemo(() =>
+    spectrum
+      ? spectrum.wl
+          .map((w, i) => ({ wl: parseFloat(w.toFixed(1)), intensity: parseFloat(spectrum.i[i].toFixed(4)) }))
+          .filter((_, i) => i % 4 === 0)
+      : [],
+    [spectrum]
+  )
 
-  const hasCIBands = trend.some(t => t.ciLow !== undefined)
+  const hasCIBands = useMemo(() => trend.some(t => t.ciLow !== undefined), [trend])
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -354,12 +504,12 @@ export default function App() {
         </div>
         <div className="header-right">
           {health && (
-            <span className={`hw-badge ${health.simulate ? 'sim' : 'live'}`}>
-              {health.simulate ? '⚡ Simulation' : `🔬 ${health.hardware}`}
+            <span className={`hw-badge ${(health.simulate || health.hardware === 'Simulation') ? 'sim' : 'live'}`}>
+              {(health.simulate || health.hardware === 'Simulation') ? '⚡ Simulation' : `🔬 ${health.hardware}`}
             </span>
           )}
           <a
-            href="http://localhost:8501"
+            href={`${location.protocol}//${location.hostname}:8501`}
             target="_blank"
             rel="noopener noreferrer"
             className="workbench-link"
@@ -368,9 +518,9 @@ export default function App() {
             <FlaskConical size={13} />
             Analysis Workbench
           </a>
-          <span className={`ws-badge ${wsConnected ? 'on' : 'off'}`}>
+          <span className={`ws-badge ${wsConnected ? 'on' : wsReconnecting ? 'reconnecting' : 'off'}`}>
             {wsConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
-            {wsConnected ? 'Live' : 'Connecting…'}
+            {wsConnected ? 'Live' : wsReconnecting ? 'Reconnecting…' : 'Connecting…'}
           </span>
         </div>
       </header>
@@ -464,7 +614,7 @@ export default function App() {
           )}
 
           {/* Live result */}
-          {(latestResult.concentration_ppm !== undefined || latestResult.peak_shift_nm !== undefined) && (
+          {(latestResult.concentration_ppm !== undefined || latestResult.peak_shift_nm !== undefined || latestResult.peak_wavelength !== undefined) && (
             <section className="card result-card">
               <h2><Activity size={15} /> Live result</h2>
               {(latestResult.gas_type || latestResult.confidence_score !== undefined) && (
@@ -508,6 +658,84 @@ export default function App() {
                   <span className={`mval-sm ${latestResult.snr < 3 ? 'warn' : ''}`}>
                     {latestResult.snr.toFixed(1)}
                   </span>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Multi-analyte panel */}
+          {analyteInfo && analyteInfo.analytes.length > 0 && (
+            <section className="card">
+              <h2><FlaskConical size={15} /> Multi-Analyte</h2>
+              <div className="multi-analyte-header">
+                <span className="phase-badge" data-phase={kineticPhase}>{kineticPhase}</span>
+                {analyteInfo.n_peaks > 1 && (
+                  <span className="peak-badge">{analyteInfo.n_peaks} peaks</span>
+                )}
+              </div>
+              {/* Concentration bars per analyte */}
+              <div className="analyte-bars">
+                {mixtureResult
+                  ? analyteInfo.analytes.map(name => {
+                      const c = mixtureResult.concentrations_ppm[name] ?? 0
+                      const maxBar = 5.0
+                      const pct = Math.min(100, (c / maxBar) * 100)
+                      return (
+                        <div key={name} className="analyte-row">
+                          <span className="analyte-name">{name}</span>
+                          <div className="analyte-bar-bg">
+                            {/* eslint-disable-next-line @typescript-eslint/consistent-type-assertions */}
+                            <div className="analyte-bar-fill" {...{ style: { '--bar-pct': `${pct}%` } as React.CSSProperties }} />
+                          </div>
+                          <span className="analyte-conc">{c.toFixed(3)} ppm</span>
+                        </div>
+                      )
+                    })
+                  : analyteInfo.analytes.map(name => (
+                      <div key={name} className="analyte-row">
+                        <span className="analyte-name">{name}</span>
+                        <div className="analyte-bar-bg">
+                          {/* eslint-disable-next-line @typescript-eslint/consistent-type-assertions */}
+                          <div className="analyte-bar-fill" {...{ style: { '--bar-pct': '0%' } as React.CSSProperties }} />
+                        </div>
+                        <span className="analyte-conc">— ppm</span>
+                      </div>
+                    ))
+                }
+              </div>
+              {/* S-matrix heatmap (text representation) */}
+              {analyteInfo.S_matrix && (
+                <details className="s-matrix-details">
+                  <summary>Sensitivity matrix S</summary>
+                  <table className="s-matrix-table">
+                    <thead>
+                      <tr>
+                        <th>Analyte \ Peak</th>
+                        {analyteInfo.peak_wavelengths_nm.map((wl, j) => (
+                          <th key={j}>{wl.toFixed(0)} nm</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analyteInfo.analytes.map((name, i) => (
+                        <tr key={name}>
+                          <td>{name}</td>
+                          {(analyteInfo.S_matrix![i] ?? []).map((v, j) => (
+                            <td key={j} className={v < 0 ? 'shift-neg' : 'shift-pos'}>
+                              {v.toFixed(4)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
+              {mixtureResult && (
+                <div className="residual-row">
+                  <span className="mlabel">Fit residual</span>
+                  <span className="mval-sm">{mixtureResult.residual_nm.toFixed(4)} nm</span>
+                  <span className="solver-badge">{mixtureResult.solver}</span>
                 </div>
               )}
             </section>
@@ -609,7 +837,7 @@ export default function App() {
                 </button>
                 {askAnswer && (
                   <div className="ask-answer">
-                    {askAnswer}
+                    <ReactMarkdown>{askAnswer}</ReactMarkdown>
                     {askStreaming && <span className="blink">▋</span>}
                   </div>
                 )}
@@ -708,8 +936,10 @@ export default function App() {
                     formatter={(v) => [Number(v).toFixed(4), 'Intensity']}
                     labelFormatter={(l) => `λ = ${l} nm`}
                   />
-                  <ReferenceLine x={717.9} stroke="#f59e0b" strokeDasharray="4 2"
-                    label={{ value: 'λ_ref', fill: '#f59e0b', fontSize: 10, position: 'top' }} />
+                  {refPeakWls.map((wl, i) => (
+                    <ReferenceLine key={wl} x={wl} stroke="#f59e0b" strokeDasharray="4 2"
+                      label={{ value: refPeakWls.length === 1 ? 'λ_ref' : `λ_ref${i + 1}`, fill: '#f59e0b', fontSize: 10, position: 'top' }} />
+                  ))}
                   <Line type="monotone" dataKey="intensity" stroke="#38bdf8"
                     dot={false} strokeWidth={1.5} isAnimationActive={false} />
                 </LineChart>
@@ -800,12 +1030,21 @@ export default function App() {
               <Zap size={15} /> Agent Events
               <span className="ev-count">{events.length}</span>
             </h2>
-            <div className="events-list">
+            <div
+              className="events-list"
+              ref={eventsListRef}
+              onScroll={() => {
+                const el = eventsListRef.current
+                if (!el) return
+                // If user scrolled away from top, disable auto-scroll
+                userScrolledRef.current = el.scrollTop > 40
+              }}
+            >
               {events.length === 0 && (
                 <div className="ev-empty">No events yet — agents are listening…</div>
               )}
-              {events.map((ev, i) => (
-                <div key={i} className={`ev-row ev-${ev.level}`}>
+              {events.map((ev) => (
+                <div key={ev._id} className={`ev-row ev-${ev.level}`}>
                   <span className="ev-icon">{levelIcon(ev.level)}</span>
                   <div className="ev-body">
                     <span className="ev-source">{ev.source}</span>
@@ -814,7 +1053,6 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              <div ref={eventsBottomRef} />
             </div>
           </section>
         </main>
@@ -824,7 +1062,18 @@ export default function App() {
 
       {showReport && reportContent && (
         <Modal title="Session Report" onClose={() => setShowReport(false)}>
-          <pre className="report-pre">{reportContent}</pre>
+          <div className="report-actions">
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              onClick={() => navigator.clipboard.writeText(reportContent)}
+            >
+              Copy
+            </button>
+          </div>
+          <div className="report-md">
+            <ReactMarkdown>{reportContent}</ReactMarkdown>
+          </div>
         </Modal>
       )}
 
@@ -833,7 +1082,9 @@ export default function App() {
           title={`${anomalyEvent.source} — ${anomalyEvent.type}`}
           onClose={() => setAnomalyEvent(null)}
         >
-          <p className="anomaly-text">{anomalyEvent.text}</p>
+          <div className="anomaly-md">
+            <ReactMarkdown>{anomalyEvent.text}</ReactMarkdown>
+          </div>
           {anomalyEvent.data && Object.keys(anomalyEvent.data).length > 0 && (
             <pre className="anomaly-data">{JSON.stringify(anomalyEvent.data, null, 2)}</pre>
           )}

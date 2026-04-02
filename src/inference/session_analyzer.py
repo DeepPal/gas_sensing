@@ -102,6 +102,28 @@ class SessionAnalysis:
     response_time_t10_seconds: float | None = None
     """Time (s) for sensor to recover to 10% above baseline (T10 / recovery time)."""
 
+    # Binding kinetics from exponential fit of Δλ transient (B1)
+    tau_63_s: float | None = None
+    """Time constant τ (s) of the 1:1 Langmuir association fit — time to 63.2%
+    of equilibrium. Estimated from the transient Δλ time series when timestamps
+    are available.  Published as the primary kinetic characterisation metric."""
+
+    tau_95_s: float | None = None
+    """Time to 95% of equilibrium response (s) = −τ·ln(0.05) ≈ 3τ.
+    Also known as T95 in biosensor literature."""
+
+    k_on_per_s: float | None = None
+    """Pseudo-first-order association rate constant k_obs = 1/τ (s⁻¹).
+    Note: k_obs = k_on·[A] + k_off; true bimolecular k_on requires a
+    concentration series."""
+
+    kinetics_delta_lambda_eq_nm: float | None = None
+    """Fitted equilibrium Δλ from the exponential model (nm)."""
+
+    kinetics_fit_r2: float | None = None
+    """R² of the exponential kinetics fit (0–1). Values < 0.90 indicate the
+    transient does not follow simple 1:1 Langmuir kinetics."""
+
     # Interval coverage check (when ground truth is available)
     interval_coverage: float | None = None
 
@@ -244,7 +266,7 @@ class SessionAnalyzer:
                         low_concs,
                         low_shifts,
                         baseline_noise_std=sigma_blank_nm,
-                        n_bootstrap=500,
+                        n_bootstrap=1000,
                         confidence=0.95,
                     )
                     result.lod_ci_lower = max(ci_lo, 1e-7)
@@ -358,6 +380,30 @@ class SessionAnalyzer:
         if t10_vals:
             result.response_time_t10_seconds = float(np.mean(t10_vals))
 
+        # ── Binding kinetics τ₆₃/τ₉₅ from Δλ transient (B1) ─────────────
+        # Requires measurement events to carry a `timestamp_s` field (elapsed
+        # time since session start, in seconds).  Falls back gracefully when
+        # timestamps are absent.
+        shift_ts_pairs = [
+            (float(e["wavelength_shift"]), float(e["timestamp_s"]))
+            for e in meas_events
+            if e.get("wavelength_shift") is not None
+            and e.get("timestamp_s") is not None
+        ]
+        if len(shift_ts_pairs) >= 16:
+            try:
+                from src.features.lspr_features import estimate_response_kinetics
+                shifts_arr = np.array([p[0] for p in shift_ts_pairs], dtype=float)
+                times_arr = np.array([p[1] for p in shift_ts_pairs], dtype=float)
+                kf = estimate_response_kinetics(shifts_arr, times_arr)
+                result.tau_63_s = kf.tau_63_s
+                result.tau_95_s = kf.tau_95_s
+                result.k_on_per_s = kf.k_on_per_s
+                result.kinetics_delta_lambda_eq_nm = kf.delta_lambda_eq_nm
+                result.kinetics_fit_r2 = kf.fit_r2
+            except Exception as exc:
+                log.debug("Kinetics estimation failed: %s", exc)
+
         # ── Summary text ─────────────────────────────────────────────────
         lines = [f"Session summary: {frame_count} frames acquired."]
         lines.append(f"Calibration: {result.calibration_n_points} points")
@@ -380,6 +426,13 @@ class SessionAnalyzer:
             lines.append(f"  T90 = {result.response_time_t90_seconds:.2f} s")
         if result.response_time_t10_seconds is not None:
             lines.append(f"  T10 = {result.response_time_t10_seconds:.2f} s")
+        if result.tau_63_s is not None:
+            r2_str = f" (R²={result.kinetics_fit_r2:.3f})" if result.kinetics_fit_r2 is not None else ""
+            lines.append(
+                f"  τ₆₃ = {result.tau_63_s:.2f} s  "
+                f"τ₉₅ = {result.tau_95_s:.2f} s  "
+                f"k_obs = {result.k_on_per_s:.4f} s⁻¹{r2_str}"
+            )
         if result.drift_rate_nm_per_frame is not None:
             lines.append(
                 f"Drift rate: {result.drift_rate_nm_per_frame:.6f} nm/frame"
@@ -396,7 +449,7 @@ class SessionAnalyzer:
             "lob_formula": "(|μ_blank_nm| + 1.645·σ_blank_nm) / m",
             "sigma_source": "blank_events" if result.lod_used_blanks else "calibration_residuals",
             "sensitivity_region": "henry_law_low_third",
-            "n_bootstrap": 500,
+            "n_bootstrap": 1000,
             "bootstrap_confidence": 0.95,
             "calibration_n_points": result.calibration_n_points,
             "lol_ppm": result.lol_ppm if not np.isnan(result.lol_ppm) else None,

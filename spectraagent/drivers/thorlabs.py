@@ -106,6 +106,13 @@ class ThorlabsCCSDriver(AbstractHardwareDriver):
 
     def set_integration_time_ms(self, ms: float) -> None:
         self._svc.integration_time_ms = ms
+        # Propagate to the underlying hardware if the spectrometer supports it.
+        spec = getattr(self._svc, "spectrometer", None)
+        if spec is not None and hasattr(spec, "set_integration_time"):
+            try:
+                spec.set_integration_time(ms / 1000.0)
+            except Exception as exc:
+                log.warning("set_integration_time failed: %s", exc)
 
     @property
     def name(self) -> str:

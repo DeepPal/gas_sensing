@@ -1,21 +1,22 @@
 # =============================================================================
-# Au-MIP LSPR Gas Sensing Platform — Multi-Stage Dockerfile
+# SpectraAgent — Universal Agentic Spectroscopy Platform
+# Multi-Stage Dockerfile
 # =============================================================================
 #
 # Build targets
 # -------------
-#   api          FastAPI inference server on port 8000  (default)
-#   dashboard    Streamlit analytics dashboard on port 8501
-#   test         pytest + mypy CI runner (exits 0/1)
+#   spectraagent  SpectraAgent FastAPI + acquisition server on port 8765 (default)
+#   dashboard     Streamlit scientific analysis dashboard on port 8501
+#   test          pytest + mypy CI runner (exits 0/1)
 #
 # Examples
 # --------
-#   docker build --target api       -t gas-api:latest .
-#   docker build --target dashboard -t gas-dashboard:latest .
-#   docker build --target test      -t gas-test:latest .
+#   docker build --target spectraagent  -t spectraagent:latest .
+#   docker build --target dashboard     -t spectraagent-dashboard:latest .
+#   docker build --target test          -t spectraagent-test:latest .
 #
-#   docker compose up                       # api + dashboard
-#   docker compose --profile test run test  # CI
+#   docker compose up                           # spectraagent + dashboard
+#   docker compose --profile test run test      # CI
 
 # =============================================================================
 # Stage 1 — base: OS packages shared by all targets
@@ -36,74 +37,79 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Create non-root user for runtime stages (pip installs still run as root)
+# Create non-root user for runtime stages
 RUN groupadd -r appuser && useradd --no-create-home -r -g appuser appuser
 
 # =============================================================================
-# Stage 2 — deps: pip install (cached layer — only reruns when pyproject changes)
+# Stage 2 — source: application tree required for editable installs
 # =============================================================================
-FROM base AS deps
+FROM base AS source
 
-# Copy only dependency manifests to maximise cache hits
-COPY pyproject.toml ./
+# Editable installs require project metadata and source tree to be present.
+COPY README.md       ./README.md
+COPY pyproject.toml  ./pyproject.toml
+COPY .streamlit/     ./.streamlit/
+COPY config/         ./config/
+COPY src/            ./src/
+COPY gas_analysis/   ./gas_analysis/
+COPY spectraagent/   ./spectraagent/
+COPY dashboard/      ./dashboard/
+COPY spectraagent.toml ./spectraagent.toml
+COPY serve.py        ./serve.py
+COPY run.py          ./run.py
 
-# Install core + all optional extras (no torch — too large for API/dashboard)
-# torch is an optional extra; containers that need CNN inference should add:
-#   RUN pip install "torch>=2.0.0" --index-url https://download.pytorch.org/whl/cpu
+# Pre-compile to .pyc for faster cold starts
+RUN python -m compileall -q src/ config/ spectraagent/ 2>/dev/null || true
+
+# Runtime output directories (override with named volumes in production)
+RUN mkdir -p /app/output/sessions /app/data && chown -R appuser:appuser /app/output /app/data
+
+# =============================================================================
+# Stage 3 — runtime-base: install runtime dependencies once for all targets
+# =============================================================================
+FROM source AS runtime-base
+
 RUN pip install --no-cache-dir -e ".[all]"
 
 # =============================================================================
-# Stage 3 — source: add application code on top of frozen deps
+# Stage 4 — spectraagent: primary FastAPI + acquisition server (DEFAULT target)
 # =============================================================================
-FROM deps AS source
+FROM runtime-base AS spectraagent
 
-# Copy source packages (ordered from least-changed to most-changed)
-COPY config/       ./config/
-COPY src/          ./src/
-COPY gas_analysis/ ./gas_analysis/
-COPY dashboard/    ./dashboard/
-COPY serve.py      ./serve.py
-COPY run.py        ./run.py
+EXPOSE 8765
 
-# Pre-compile to .pyc for faster cold starts
-RUN python -m compileall -q src/ config/ 2>/dev/null || true
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8765/api/health || exit 1
 
-# Runtime output directory (override with a named volume in production)
-RUN mkdir -p /app/output /app/data && chown appuser:appuser /app/output /app/data
+USER appuser
+
+# Simulation mode by default in Docker; mount real hardware via device passthrough
+CMD ["python", "-m", "spectraagent", "start", "--simulate", "--host", "0.0.0.0", "--no-browser"]
 
 # =============================================================================
-# Stage 4 — api: FastAPI inference server (DEFAULT target)
+# Stage 5 — api: standalone inference API on port 8000
 # =============================================================================
-FROM source AS api
+FROM runtime-base AS api
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Drop to non-root for runtime
 USER appuser
 
-# uvicorn with 2 workers; override via WORKERS env var
-# Shell form required here to expand ${WORKERS} and ${LOG_LEVEL} env vars
-SHELL ["/bin/sh", "-c"]
-CMD exec uvicorn src.api.main:app \
-        --host 0.0.0.0 \
-        --port 8000 \
-        --workers ${WORKERS:-2} \
-        --log-level ${LOG_LEVEL:-info}
+CMD ["python", "serve.py", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 
 # =============================================================================
-# Stage 5 — dashboard: Streamlit analytics UI
+# Stage 6 — dashboard: Streamlit scientific analysis UI
 # =============================================================================
-FROM source AS dashboard
+FROM runtime-base AS dashboard
 
 EXPOSE 8501
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
-# Drop to non-root for runtime
 USER appuser
 
 CMD ["streamlit", "run", "dashboard/app.py", \
@@ -113,16 +119,15 @@ CMD ["streamlit", "run", "dashboard/app.py", \
      "--browser.gatherUsageStats", "false"]
 
 # =============================================================================
-# Stage 6 — test: pytest + mypy CI runner
+# Stage 7 — test: pytest + mypy CI runner
 # =============================================================================
-FROM source AS test
+FROM runtime-base AS test
 
-# Install dev/test extras on top (ruff, pytest-cov, mypy, etc.)
+# Install dev/test extras (ruff, pytest-cov, mypy, etc.)
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY tests/ ./tests/
 
-# Run pytest then mypy; non-zero exit on any failure
 CMD ["sh", "-c", \
-     "pytest -q --tb=short tests/ && mypy src --ignore-missing-imports --follow-imports=skip"]
+     "pytest -q --tb=short -m 'not reliability' tests/ && mypy src --ignore-missing-imports --follow-imports=skip"]

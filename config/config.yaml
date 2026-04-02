@@ -467,7 +467,7 @@ mlflow:
   tracking_uri: "experiments/mlruns"    # local directory — no server needed
   experiment_name: "AuMIP_LSPR_Gas_Sensing"
   run_tags:
-    project: "Au-MIP-LSPR"
+    project: "the sensor-LSPR"
     lab: "Chula"
 
 # ---------------------------------------------------------------------------

@@ -104,9 +104,17 @@ class AgentBus:
             return None
         return self._loop.call_soon_threadsafe(self._fanout, event)
 
-    def subscribe(self) -> asyncio.Queue:
-        """Register a new WebSocket client. Returns its dedicated queue."""
-        q: asyncio.Queue = asyncio.Queue()
+    def subscribe(self, maxsize: int = 500) -> asyncio.Queue:
+        """Register a new WebSocket client. Returns its dedicated queue.
+
+        Parameters
+        ----------
+        maxsize:
+            Maximum number of events to buffer per client.  When the queue is
+            full, the oldest event is dropped so the live view stays current
+            rather than delivering stale events when a client reconnects.
+        """
+        q: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
         self._subscribers.append(q)
         return q
 
@@ -120,8 +128,16 @@ class AgentBus:
     # ------------------------------------------------------------------
 
     def _fanout(self, event: AgentEvent) -> None:
-        """Put event into every subscriber queue and write to JSONL log."""
+        """Put event into every subscriber queue and write to JSONL log.
+
+        If a subscriber's queue is full (slow/disconnected client), the oldest
+        buffered event is dropped to make room for the new one.  This keeps
+        the live view current and prevents unbounded memory growth.
+        """
         for q in list(self._subscribers):
+            if q.full():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    q.get_nowait()  # discard oldest to make room
             q.put_nowait(event)
         self._write_jsonl(event)
 

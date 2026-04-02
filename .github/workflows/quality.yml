@@ -8,15 +8,19 @@ on:
 jobs:
   quality-fast:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
 
       - name: Install dependencies
@@ -31,7 +35,19 @@ jobs:
         continue-on-error: true
         run: ruff check .
 
-      - name: Pytest fast lane (required)
+      # Primary version: run with coverage and enforce threshold
+      - name: Pytest fast lane + coverage (primary)
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q --tb=short -m "not reliability" \
+            --cov=src --cov-report=term-missing \
+            --cov-report=html:output/coverage \
+            --cov-report=xml:output/coverage.xml \
+            --cov-fail-under=70
+
+      # Other versions: compatibility smoke check — no coverage overhead
+      - name: Pytest fast lane (compat)
+        if: matrix.python-version != '3.11'
         run: pytest -q --tb=short -m "not reliability"
 
       - name: Mypy src/ (required — clean package)
@@ -40,6 +56,16 @@ jobs:
       - name: Mypy legacy (advisory — tracked as tech debt)
         continue-on-error: true
         run: mypy run.py gas_analysis config dashboard tests --ignore-missing-imports
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            output/coverage/
+            output/coverage.xml
+          if-no-files-found: warn
 
   reliability:
     runs-on: ubuntu-latest
@@ -60,6 +86,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      - name: Run research preflight self-check (required)
+        run: python scripts/research_preflight.py --self-check
 
       - name: Pytest reliability lane (required)
         run: |
@@ -105,15 +134,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build API image (validates Dockerfile)
+      - name: Build SpectraAgent image (validates Dockerfile)
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: api
+          target: spectraagent
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: gas-api:ci
+          tags: spectraagent:ci
 
       - name: Build dashboard image
         uses: docker/build-push-action@v5
@@ -122,7 +151,7 @@ jobs:
           target: dashboard
           push: false
           cache-from: type=gha
-          tags: gas-dashboard:ci
+          tags: spectraagent-dashboard:ci
 
       - name: Build test image
         uses: docker/build-push-action@v5
@@ -132,10 +161,10 @@ jobs:
           push: false
           load: true
           cache-from: type=gha
-          tags: gas-test:ci
+          tags: spectraagent-test:ci
 
       - name: Run tests in Docker
-        run: docker run --rm gas-test:ci
+        run: docker run --rm spectraagent-test:ci
 
   docs:
     runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Au-MIP LSPR Gas Sensing Platform — Unified CLI Entry Point
+SpectraAgent — Spectrometer-Based Sensing Platform — Unified CLI Entry Point
 ===========================================================
 
 Thin wrapper that delegates to existing, well-tested modules.  No business
@@ -110,9 +110,9 @@ class Config:
     """
 
     integration_time_ms: float = 30.0
-    #: LSPR reference peak for Au nanoparticles (green region, ~531–532 nm)
+    #: LSPR reference peak for nanoparticles (green region, ~531–532 nm)
     target_wavelength: float = 532.0
-    #: Literature sensitivity for ethanol on Au-MIP: 0.116 nm/ppm
+    #: Literature sensitivity for ethanol on the sensor: 0.116 nm/ppm
     calibration_slope: float = 0.116
     calibration_intercept: float = 0.0
     reference_wavelength: float = 532.0
@@ -159,6 +159,7 @@ class SpectrometerInterface:
         self._service: Any | None = None
         self.wavelengths: np.ndarray | None = None
         self.is_simulation = False
+        self._last_sample_num: int = -1  # deduplication: skip already-processed samples
 
     def connect(self, resource: str | None = None) -> bool:
         """Connect to the spectrometer.
@@ -177,6 +178,10 @@ class SpectrometerInterface:
                 resource_string=resource,
             )
             service.connect()
+            # start() launches the acquisition thread — must be called after
+            # connect() so the spectrometer handle is ready.  Without this the
+            # data_buffer stays empty and total_samples is always 0.
+            service.start()
             self._service = service
             self.wavelengths = service.wavelengths
             log.info("Connected to CCS200 spectrometer")
@@ -193,13 +198,23 @@ class SpectrometerInterface:
         return True
 
     def acquire(self) -> dict | None:
-        """Return the next spectrum sample dict."""
+        """Return the next unprocessed spectrum sample, or None if no new data.
+
+        Uses ``sample_num`` deduplication so repeated calls at a higher
+        frequency than the acquisition rate do not re-process the same frame.
+        """
         if self.is_simulation:
             return self._simulate_spectrum()
         if self._service:
             sample = cast(dict[str, Any] | None, self._service.get_latest_sample())
-            if sample:
-                sample["wavelengths"] = self.wavelengths
+            if sample is None:
+                return None
+            # Skip if we've already processed this sample number
+            num = int(sample.get("sample_num", -1))
+            if num == self._last_sample_num:
+                return None
+            self._last_sample_num = num
+            sample["wavelengths"] = self.wavelengths
             return sample
         return None
 
@@ -228,6 +243,7 @@ class SpectrometerInterface:
                 self._service.stop()
             except Exception as exc:
                 log.warning("Error closing spectrometer: %s", exc)
+        self._last_sample_num = -1
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +495,7 @@ class GasSensingSystem:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run.py",
-        description="Au-MIP LSPR Gas Sensing Platform",
+        description="SpectraAgent — Spectrometer-Based Sensing Platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

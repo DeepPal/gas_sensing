@@ -1414,7 +1414,7 @@ class LSPRPlugin(AbstractSensorPhysicsPlugin):
     Parameters
     ----------
     search_min_nm, search_max_nm:
-        Wavelength window for peak search.  Defaults match the Au-MIP sensor
+        Wavelength window for peak search.  Defaults match the the sensor
         constants in ``lspr_features.py``.
     """
 

@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 
 from src.features.lspr_features import (
-    LSPR_SENSITIVITY_NM_PER_PPM,
     LSPRFeatures,
     concentration_from_shift,
     detect_lspr_peak,
@@ -320,8 +319,10 @@ class TestConcentrationFromShift:
         # (-0.216 - (-0.1)) / -0.116 = (-0.116) / -0.116 = 1.0
         assert c == pytest.approx(1.0, rel=1e-4)
 
-    def test_lspr_default_slope_constant(self):
-        assert pytest.approx(-0.116) == LSPR_SENSITIVITY_NM_PER_PPM
+    def test_concentration_from_shift_explicit_slope(self):
+        # Slope is now always explicit — verify the formula holds for any slope
+        c = concentration_from_shift(-0.116, slope=-0.116)
+        assert c == pytest.approx(1.0, rel=1e-4)
 
 
 # ---------------------------------------------------------------------------

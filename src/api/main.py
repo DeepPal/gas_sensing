@@ -1,7 +1,7 @@
 """
 src.api.main
 =============
-FastAPI application factory for the Au-MIP LSPR inference server.
+FastAPI application factory for the SpectraAgent inference server.
 
 Quick start
 -----------
@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Load pipeline and models at startup; release at shutdown."""
-    log.info("Starting Au-MIP LSPR inference server...")
+    log.info("Starting SpectraAgent inference server...")
 
     # Load configuration
     try:
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="Au-MIP LSPR Gas Sensing API",
+        title="the sensor LSPR Gas Sensing API",
         description=(
             "Real-time spectral inference API for Au nanoparticle "
             "Molecularly Imprinted Polymer LSPR gas sensing. "
@@ -136,7 +136,7 @@ def create_app() -> FastAPI:
     async def root() -> JSONResponse:
         return JSONResponse(
             {
-                "message": "Au-MIP LSPR Gas Sensing API v3.0.0",
+                "message": "the sensor LSPR Gas Sensing API v3.0.0",
                 "docs": "/docs",
                 "health": "/health",
                 "predict": "POST /predict",

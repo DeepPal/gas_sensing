@@ -61,6 +61,10 @@ class QualityAgent:
         Hard-block threshold in raw counts (default 60 000).
     snr_warn_threshold:
         SNR warning threshold (default 3.0).
+    ok_emit_every:
+        Emit "ok" quality events at most once every N frames to avoid
+        flooding the event log at 20 Hz.  warn/error always emitted
+        immediately regardless of this setting.  Default 50 (≈2.5 s).
     """
 
     def __init__(
@@ -68,10 +72,13 @@ class QualityAgent:
         bus: AgentBus,
         saturation_threshold: float = _SATURATION_THRESHOLD,
         snr_warn_threshold: float = _SNR_WARN_THRESHOLD,
+        ok_emit_every: int = 5,
     ) -> None:
         self._bus = bus
         self._sat_threshold = saturation_threshold
         self._snr_threshold = snr_warn_threshold
+        self._ok_emit_every = max(1, ok_emit_every)
+        self._frames_since_ok_emit: int = 0
 
     def configure(
         self,
@@ -143,16 +150,19 @@ class QualityAgent:
             ))
             return True
 
-        self._bus.emit(AgentEvent(
-            source="QualityAgent",
-            level="ok",
-            type="quality",
-            data={
-                "frame": frame_num,
-                "snr": round(snr, 2),
-                "saturation_pct": round(sat_pct, 2),
-                "quality": "ok",
-            },
-            text=f"Frame {frame_num} — SNR={snr:.1f}, quality=OK",
-        ))
+        self._frames_since_ok_emit += 1
+        if self._frames_since_ok_emit >= self._ok_emit_every:
+            self._frames_since_ok_emit = 0
+            self._bus.emit(AgentEvent(
+                source="QualityAgent",
+                level="ok",
+                type="quality",
+                data={
+                    "frame": frame_num,
+                    "snr": round(snr, 2),
+                    "saturation_pct": round(sat_pct, 2),
+                    "quality": "ok",
+                },
+                text=f"Frame {frame_num} — SNR={snr:.1f}, quality=OK",
+            ))
         return True

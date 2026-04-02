@@ -1,4 +1,4 @@
-# Validation Strategy — Au-MIP LSPR Gas Sensing Pipeline
+# Validation Strategy — Spectrometer-Based Gas Sensing Pipeline
 
 **Version:** 1.0
 **Date:** 2026-03
@@ -9,7 +9,7 @@
 ## 1. Overview
 
 This document describes the train/validation/test split strategy for all
-models in the Au-MIP LSPR gas sensing pipeline. It must be cited in any
+models in the spectrometer-based gas sensing pipeline. It must be cited in any
 paper or report that uses metrics from this codebase.
 
 ---

@@ -1,19 +1,21 @@
 """
 spectraagent.webapp.session_writer
 =====================================
-SessionWriter — persists session metadata and agent events to disk.
+SessionWriter — persists session metadata, agent events, and pipeline results.
 
 Each active session creates a directory under ``sessions_dir / session_id /``:
   session_meta.json    — metadata (session_id, gas_label, timestamps, frame_count)
   agent_events.jsonl   — one JSON line per AgentEvent (append-only)
+  pipeline_results.csv — one row per frame: peak_wavelength, shift, concentration, SNR…
 
-``append_event()`` is a no-op when no session is active.
+``append_event()`` and ``append_frame_result()`` are no-ops when no session is active.
 ``stop_session()`` is a no-op when no session is active.
-Both are safe to call unconditionally from the asyncio event loop.
+All three are safe to call unconditionally from the asyncio event loop.
 """
 from __future__ import annotations
 
 import contextlib
+import csv
 from datetime import datetime, timezone
 import json
 import logging
@@ -21,6 +23,12 @@ from pathlib import Path
 from typing import IO, Optional
 
 log = logging.getLogger(__name__)
+
+_FRAME_RESULT_COLUMNS = [
+    "frame", "timestamp", "peak_wavelength", "wavelength_shift",
+    "concentration_ppm", "ci_low", "ci_high", "snr",
+    "gas_type", "confidence_score",
+]
 
 
 class SessionWriter:
@@ -38,6 +46,8 @@ class SessionWriter:
         self._dir = sessions_dir
         self._active_dir: Optional[Path] = None
         self._events_file: Optional[IO[str]] = None
+        self._results_file: Optional[IO[str]] = None
+        self._results_writer: Optional[csv.DictWriter] = None
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -68,6 +78,18 @@ class SessionWriter:
         self._events_file = open(  # noqa: SIM115
             session_dir / "agent_events.jsonl", "a", encoding="utf-8"
         )
+        self._results_file = open(  # noqa: SIM115
+            session_dir / "pipeline_results.csv", "a", newline="", encoding="utf-8"
+        )
+        self._results_writer = csv.DictWriter(
+            self._results_file,
+            fieldnames=_FRAME_RESULT_COLUMNS,
+            extrasaction="ignore",
+        )
+        # Write header only when creating a new (empty) file.
+        if (session_dir / "pipeline_results.csv").stat().st_size == 0:
+            self._results_writer.writeheader()
+            self._results_file.flush()
         self._active_dir = session_dir
         log.info("SessionWriter: started session %s", session_id)
         return session_dir
@@ -81,6 +103,25 @@ class SessionWriter:
             self._events_file.flush()
         except Exception as exc:
             log.warning("SessionWriter.append_event failed: %s", exc)
+
+    def append_frame_result(self, row: dict) -> None:
+        """Append one frame's pipeline result to pipeline_results.csv.
+
+        No-op when no session is active. Never raises.
+
+        Parameters
+        ----------
+        row:
+            Dict with keys matching ``_FRAME_RESULT_COLUMNS``; extra keys are
+            silently ignored, missing keys are written as empty strings.
+        """
+        if self._results_writer is None or self._results_file is None:
+            return
+        try:
+            self._results_writer.writerow({k: row.get(k, "") for k in _FRAME_RESULT_COLUMNS})
+            self._results_file.flush()
+        except Exception as exc:
+            log.warning("SessionWriter.append_frame_result failed: %s", exc)
 
     def stop_session(self, frame_count: int = 0) -> None:
         """Update session_meta.json with stopped_at + frame_count; close events file.
@@ -104,6 +145,12 @@ class SessionWriter:
             with contextlib.suppress(Exception):
                 self._events_file.close()
             self._events_file = None
+
+        if self._results_file is not None:
+            with contextlib.suppress(Exception):
+                self._results_file.close()
+            self._results_file = None
+            self._results_writer = None
 
         log.info("SessionWriter: stopped session at %s", self._active_dir)
         self._active_dir = None

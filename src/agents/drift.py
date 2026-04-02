@@ -1,16 +1,16 @@
 """
 src.agents.drift
 ================
-Drift Detection Agent for the Au-MIP LSPR gas sensing pipeline.
+Drift Detection Agent for the gas sensing pipeline.
 
 What is sensor drift?
 ---------------------
-Over time, Au-MIP LSPR sensors exhibit baseline drift — the zero-gas
+Over time, LSPR sensors exhibit baseline drift — the zero-gas
 peak wavelength shifts slowly due to:
 
 - Temperature fluctuations (thermoplasmonic effect)
 - Humidity-induced swelling of the MIP layer
-- Photo-degradation of the Au nanoparticle surface
+- Photo-degradation of the sensor surface
 - Fouling / partial saturation of binding sites
 
 Drift manifests as a slow trend in the baseline peak wavelength that is

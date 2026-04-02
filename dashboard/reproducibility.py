@@ -20,6 +20,7 @@ import logging
 import platform
 import subprocess
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +126,7 @@ class ReproducibilityManifest:
             "timestamp": self.timestamp,
             "operator": self.operator,
             "application": {
-                "name": "Au-MIP LSPR Gas Sensing Platform",
+                "name": "SpectraAgent — Spectrometer-Based Sensing Platform",
                 "version": "1.0.0",
                 "purpose": "Research-grade optical gas sensing",
             },
@@ -138,6 +139,26 @@ class ReproducibilityManifest:
                 "the exact same analysis."
             ),
         }
+
+    def build_artifact_checksums(self, output_dir: Path) -> list[dict[str, str]]:
+        """Return SHA256 checksums for files already present in output_dir.
+
+        The list is relative to output_dir so it remains portable across machines.
+        Manifest files are excluded to avoid self-referential hash churn.
+        """
+        checksums: list[dict[str, str]] = []
+        if not output_dir.exists():
+            return checksums
+
+        for file_path in sorted(p for p in output_dir.rglob("*") if p.is_file()):
+            if file_path.name.endswith("_manifest.json"):
+                continue
+            rel = file_path.relative_to(output_dir).as_posix()
+            checksums.append({
+                "path": rel,
+                "sha256": self._hash_file(file_path),
+            })
+        return checksums
 
     def save(self, output_dir: Path) -> Path:
         """
@@ -157,6 +178,7 @@ class ReproducibilityManifest:
         manifest_path = output_dir / f"{self.session_id}_manifest.json"
 
         manifest = self.get_manifest()
+        manifest["artifact_checksums"] = self.build_artifact_checksums(output_dir)
 
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2, default=str)
@@ -167,10 +189,52 @@ class ReproducibilityManifest:
     @staticmethod
     def _hash_dict(d: dict) -> str:
         """Compute hash of a dictionary for integrity checking."""
-        import hashlib
-
         json_str = json.dumps(d, sort_keys=True, default=str)
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        """Compute SHA256 hash of a file."""
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+
+def verify_manifest_artifacts(manifest_path: Path) -> tuple[bool, list[str]]:
+    """Validate checksummed artifacts listed in a reproducibility manifest."""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return False, [f"Could not parse manifest {manifest_path}: {exc}"]
+
+    checksums = payload.get("artifact_checksums", [])
+    if not isinstance(checksums, list):
+        return False, ["artifact_checksums must be a list"]
+
+    base_dir = manifest_path.parent
+    errors: list[str] = []
+    for item in checksums:
+        if not isinstance(item, dict):
+            errors.append("artifact_checksums entries must be objects")
+            continue
+        rel = item.get("path")
+        expected = item.get("sha256")
+        if not isinstance(rel, str) or not isinstance(expected, str):
+            errors.append("artifact_checksums entries require string path and sha256")
+            continue
+
+        path = base_dir / rel
+        if not path.exists() or not path.is_file():
+            errors.append(f"Missing artifact: {rel}")
+            continue
+
+        actual = ReproducibilityManifest._hash_file(path)
+        if actual != expected:
+            errors.append(f"Checksum mismatch: {rel}")
+
+    return len(errors) == 0, errors
 
 
 def create_session_manifest(session_id: str, output_dir: Path) -> Path:

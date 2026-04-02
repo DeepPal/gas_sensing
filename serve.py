@@ -1,5 +1,5 @@
 """
-serve.py — Au-MIP LSPR Inference API Server
+serve.py — SpectraAgent Inference API Server
 =============================================
 
 Launches the FastAPI inference server with uvicorn.
@@ -56,7 +56,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    parser = argparse.ArgumentParser(description="Au-MIP LSPR Gas Sensing Inference API")
+    parser = argparse.ArgumentParser(description="the sensor LSPR Gas Sensing Inference API")
     parser.add_argument(
         "--host",
         default="0.0.0.0",
@@ -93,7 +93,7 @@ def main() -> None:
         sys.exit(1)
 
     log.info(
-        "Starting Au-MIP LSPR API on http://%s:%d  (docs: /docs)",
+        "Starting SpectraAgent API on http://%s:%d  (docs: /docs)",
         args.host,
         args.port,
     )

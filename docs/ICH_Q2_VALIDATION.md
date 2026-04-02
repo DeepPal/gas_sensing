@@ -1,7 +1,7 @@
-# ICH Q2(R1) Analytical Method Validation — Au-MIP LSPR Gas Sensor
+# ICH Q2(R1) Analytical Method Validation — Spectrometer-Based Gas Sensor
 
 **Standard:** ICH Q2(R1) *Validation of Analytical Procedures*, 2005
-**Sensor:** Gold Molecularly Imprinted Polymer (Au-MIP) LSPR fiber sensor
+**Sensor:** Spectrometer-based LSPR sensor
 **Analytes:** Ethanol (EtOH), Isopropanol (IPA), Methanol (MeOH), Mixed VOC
 **Matrix:** Gas phase (ambient air)
 **Signal:** Peak wavelength shift Δλ (nm), measured by CCS200 spectrometer

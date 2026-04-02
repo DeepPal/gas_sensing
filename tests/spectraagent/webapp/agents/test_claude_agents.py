@@ -87,16 +87,34 @@ def _hardware_error_event(error_code="E001"):
 
 
 def _mock_claude_client(response_text="Thermal drift detected. Check temperature."):
-    """Return a mock that simulates anthropic.AsyncAnthropic with messages.create."""
-    mock_content = MagicMock()
-    mock_content.text = response_text
+    """Return a mock that simulates anthropic.AsyncAnthropic with messages.stream.
 
-    mock_message = MagicMock()
-    mock_message.content = [mock_content]
+    The underlying _BaseClaude._call now uses the streaming API:
+        async with client.messages.stream(...) as stream:
+            async for text in stream.text_stream: ...
+    Each call to messages.stream() returns a fresh async context manager so
+    that the text_stream generator is not exhausted on repeated calls.
+    """
+
+    def _make_stream_cm():
+        async def _text_stream():
+            yield response_text
+
+        mock_stream = MagicMock()
+        mock_stream.text_stream = _text_stream()
+
+        class _StreamCM:
+            async def __aenter__(self):
+                return mock_stream
+
+            async def __aexit__(self, *args):
+                return False
+
+        return _StreamCM()
 
     mock_client = MagicMock()
     mock_client.messages = MagicMock()
-    mock_client.messages.create = AsyncMock(return_value=mock_message)
+    mock_client.messages.stream = MagicMock(side_effect=lambda **_kw: _make_stream_cm())
     return mock_client
 
 
@@ -145,7 +163,7 @@ def test_anomaly_explainer_disabled_by_default():
     _flush(loop)
 
     assert q.empty(), "No event should be emitted when auto_explain=False"
-    mock_client.messages.create.assert_not_called()
+    mock_client.messages.stream.assert_not_called()
     loop.close()
 
 
@@ -194,7 +212,7 @@ def test_anomaly_explainer_respects_cooldown():
     _flush(loop)
 
     # Only one event should have been emitted
-    assert mock_client.messages.create.call_count == 1
+    assert mock_client.messages.stream.call_count == 1
     loop.close()
 
 
@@ -224,7 +242,7 @@ def test_anomaly_explainer_ignores_wrong_event_type():
     _flush(loop)
 
     assert q.empty(), "AnomalyExplainer must not react to quality events"
-    mock_client.messages.create.assert_not_called()
+    mock_client.messages.stream.assert_not_called()
     loop.close()
 
 
@@ -246,7 +264,7 @@ def test_experiment_narrator_fires_once_per_point():
         loop.run_until_complete(agent.on_event(_model_selected_event(n_points=4)))  # same n
     _flush(loop)
 
-    assert mock_client.messages.create.call_count == 1
+    assert mock_client.messages.stream.call_count == 1
     loop.close()
 
 
@@ -262,7 +280,7 @@ def test_experiment_narrator_fires_again_for_higher_n_points():
         loop.run_until_complete(agent.on_event(_model_selected_event(n_points=5)))  # new point
     _flush(loop)
 
-    assert mock_client.messages.create.call_count == 2
+    assert mock_client.messages.stream.call_count == 2
     loop.close()
 
 
@@ -311,7 +329,7 @@ def test_diagnostics_respects_per_code_cooldown():
         loop.run_until_complete(agent.on_event(_hardware_error_event("E001")))  # same code
     _flush(loop)
 
-    assert mock_client.messages.create.call_count == 1
+    assert mock_client.messages.stream.call_count == 1
     loop.close()
 
 
@@ -327,7 +345,7 @@ def test_diagnostics_different_codes_fire_independently():
         loop.run_until_complete(agent.on_event(_hardware_error_event("E002")))  # different code
     _flush(loop)
 
-    assert mock_client.messages.create.call_count == 2
+    assert mock_client.messages.stream.call_count == 2
     loop.close()
 
 
@@ -367,7 +385,7 @@ def test_diagnostics_ignores_non_error_events():
     _flush(loop)
 
     assert q.empty()
-    mock_client.messages.create.assert_not_called()
+    mock_client.messages.stream.assert_not_called()
     loop.close()
 
 
@@ -403,7 +421,7 @@ def test_runner_dispatches_drift_warn_to_anomaly_explainer():
     _flush(loop)
 
     # AnomalyExplainer should have called Claude exactly once
-    assert mock_client.messages.create.call_count == 1
+    assert mock_client.messages.stream.call_count == 1
     loop.close()
 
 
@@ -417,7 +435,7 @@ def test_report_writer_returns_text():
     bus, loop = _make_bus()
 
     writer = ReportWriter(bus)
-    mock_client = _mock_claude_client("Methods: LSPR sensor with gold nanoparticles...")
+    mock_client = _mock_claude_client("Methods: LSPR sensor with nanoparticles...")
 
     with patch("spectraagent.webapp.agents.claude_agents._get_client", return_value=mock_client):
         result = loop.run_until_complete(writer.write({

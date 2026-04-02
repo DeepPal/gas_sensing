@@ -18,7 +18,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import time
+
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +33,70 @@ from spectraagent.webapp.session_writer import SessionWriter
 log = logging.getLogger(__name__)
 
 _STATIC_DIST = Path(__file__).resolve().parent / "static" / "dist"
+
+
+def _is_nan(v: Any) -> bool:
+    """Return True if v is float NaN (safe for None and non-float types)."""
+    try:
+        import math
+        return v is not None and math.isnan(float(v))
+    except (TypeError, ValueError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter (stdlib sliding window — no extra dependencies)
+# ---------------------------------------------------------------------------
+
+
+class _RateLimiter:
+    """Sliding-window rate limiter keyed by (client_ip, endpoint).
+
+    Designed for LAN research use: protects Claude API quota from accidental
+    hammering and prevents runaway report generation loops.
+
+    Parameters
+    ----------
+    max_calls:
+        Maximum number of requests allowed within ``window_s`` seconds.
+    window_s:
+        Sliding window size in seconds.
+    """
+
+    def __init__(self, max_calls: int, window_s: float) -> None:
+        self._max = max_calls
+        self._window = window_s
+        self._history: dict[str, deque] = {}
+
+    def is_allowed(self, key: str) -> bool:
+        now = time.monotonic()
+        dq = self._history.setdefault(key, deque())
+        # Evict timestamps outside the window
+        while dq and now - dq[0] > self._window:
+            dq.popleft()
+        if len(dq) >= self._max:
+            return False
+        dq.append(now)
+        return True
+
+
+# One limiter instance per policy; shared across all requests.
+_claude_limiter = _RateLimiter(max_calls=10, window_s=60)    # 10 Claude calls/min
+_report_limiter = _RateLimiter(max_calls=3, window_s=60)     # 3 reports/min
+
+
+def _rate_limit_claude(request: Request) -> None:
+    """FastAPI dependency — raises 429 when Claude rate limit is exceeded."""
+    client = request.client.host if request.client else "unknown"
+    if not _claude_limiter.is_allowed(client):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 10 Claude calls per minute.")
+
+
+def _rate_limit_report(request: Request) -> None:
+    """FastAPI dependency — raises 429 when report rate limit is exceeded."""
+    client = request.client.host if request.client else "unknown"
+    if not _report_limiter.is_allowed(client):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 3 reports per minute.")
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +140,8 @@ class AcquisitionConfig(BaseModel):
     integration_time_ms: float = 50.0
     gas_label: str = "unknown"
     target_concentration: float | None = None
+    temperature_c: float | None = None   # room temperature at session start (°C)
+    humidity_pct: float | None = None    # relative humidity (%) — LSPR sensitivity ~0.02 nm/°C
 
 
 class CalibrationPoint(BaseModel):
@@ -242,6 +310,7 @@ def create_app(simulate: bool = False) -> FastAPI:
             "hardware": driver.name if driver is not None else "not_connected",
             "simulate": app.state.simulate,
             "physics_plugin": plugin.name if plugin is not None else "none",
+            "integration_time_ms": driver.integration_time_ms if driver is not None and hasattr(driver, "integration_time_ms") else None,
             "quality_settings": quality_agent.settings if quality_agent is not None else {},
             "drift_settings": drift_agent.settings if drift_agent is not None else {},
         })
@@ -305,6 +374,9 @@ def create_app(simulate: bool = False) -> FastAPI:
         "gas_label": "unknown",
         "target_concentration": None,
     }
+    # Expose on app.state so __main__.py can build a get_analyte lambda
+    # that always returns the current gas label at call time.
+    app.state._acq_config = _acq_config
     _session_active: dict[str, Any] = {"running": False, "session_id": None}
 
     @app.post("/api/acquisition/config")
@@ -321,12 +393,24 @@ def create_app(simulate: bool = False) -> FastAPI:
         _session_active["session_id"] = session_id
         app.state.session_running = True
         app.state.session_frame_count = 0
+        # Reset per-session agent state so cross-session history doesn't bleed.
+        drift_agent = getattr(app.state, "drift_agent", None)
+        if drift_agent is not None:
+            drift_agent.reset()
+        planner_agent = getattr(app.state, "planner_agent", None)
+        if planner_agent is not None:
+            planner_agent.reset()
+        app.state.session_events = []
+        import time as _time
+        app.state.session_start_monotonic = _time.monotonic()
         sw = getattr(app.state, "session_writer", None)
         if sw is not None:
             meta = {
                 "gas_label": _acq_config.get("gas_label", "unknown"),
                 "target_concentration": _acq_config.get("target_concentration"),
                 "hardware": getattr(getattr(app.state, "driver", None), "name", "unknown"),
+                "temperature_c": _acq_config.get("temperature_c"),
+                "humidity_pct": _acq_config.get("humidity_pct"),
             }
             sw.start_session(session_id, meta)
         return JSONResponse({"status": "started", "session_id": session_id})
@@ -342,10 +426,40 @@ def create_app(simulate: bool = False) -> FastAPI:
 
         # Auto-run SessionAnalyzer and emit results to the agent bus
         session_events = getattr(app.state, "session_events", [])
+        session_id = _session_active.get("session_id") or "unknown"
+        gas_label = _acq_config.get("gas_label", "unknown")
+        analysis = None
         try:
             from src.inference.session_analyzer import SessionAnalyzer
             analysis = SessionAnalyzer().analyze(session_events, frame_count)
             app.state.last_session_analysis = analysis
+
+            # Build the full session_complete event payload — includes all
+            # calibration metrics needed by SensorHealthAgent and context builders.
+            session_data: dict = {
+                "session_id": session_id,
+                "gas_label": gas_label,
+                "lod_ppm": analysis.lod_ppm,
+                "lob_ppm": getattr(analysis, "lob_ppm", None),
+                "lod_ci_lower": getattr(analysis, "lod_ci_lower", None),
+                "lod_ci_upper": getattr(analysis, "lod_ci_upper", None),
+                "loq_ppm": analysis.loq_ppm,
+                "calibration_r2": analysis.calibration_r2,
+                "calibration_rmse_ppm": getattr(analysis, "calibration_rmse_ppm", None),
+                "calibration_n_points": getattr(analysis, "calibration_n_points", 0),
+                "mean_snr": analysis.mean_snr,
+                "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
+                "frame_count": analysis.frame_count,
+                "summary": analysis.summary_text,
+                # Kinetics (B1)
+                "tau_63_s": getattr(analysis, "tau_63_s", None),
+                "tau_95_s": getattr(analysis, "tau_95_s", None),
+                "k_on_per_s": getattr(analysis, "k_on_per_s", None),
+                "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
+                # Environmental metadata (B5)
+                "temperature_c": _acq_config.get("temperature_c"),
+                "humidity_pct": _acq_config.get("humidity_pct"),
+            }
             bus = getattr(app.state, "agent_bus", None)
             if bus is not None:
                 from spectraagent.webapp.agent_bus import AgentEvent
@@ -353,24 +467,60 @@ def create_app(simulate: bool = False) -> FastAPI:
                     source="SessionAnalyzer",
                     level="info",
                     type="session_complete",
-                    data={
-                        "lod_ppm": analysis.lod_ppm,
-                        "loq_ppm": analysis.loq_ppm,
-                        "calibration_r2": analysis.calibration_r2,
-                        "mean_snr": analysis.mean_snr,
-                        "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
-                        "frame_count": analysis.frame_count,
-                        "summary": analysis.summary_text,
-                    },
+                    data=session_data,
                     text=analysis.summary_text,
                 ))
         except Exception as exc:
             log.warning("Post-session analysis failed: %s", exc)
+
+        # Wire SensorMemory: record lightweight session log regardless of
+        # whether full analysis succeeded.  Records calibration outcomes when
+        # analysis is available so SensorHealthAgent has history to reason from.
+        try:
+            memory = getattr(app.state, "sensor_memory", None)
+            if memory is not None:
+                import datetime as _dt
+                now_utc = _dt.datetime.now(_dt.timezone.utc).isoformat()
+                memory.record_session(
+                    session_id=session_id,
+                    analyte=gas_label,
+                    frame_count=frame_count,
+                    stopped_at=now_utc,
+                )
+                if analysis is not None and analysis.calibration_r2 is not None:
+                    from spectraagent.knowledge.sensor_memory import CalibrationObservation
+                    # Pull best model + sensitivity from CalibrationAgent last state
+                    cal_agent = getattr(app.state, "calibration_agent", None)
+                    best_model = "unknown"
+                    sensitivity: float | None = None
+                    if cal_agent is not None:
+                        best_model = getattr(cal_agent, "_last_best_model", "unknown") or "unknown"
+                        sensitivity = getattr(cal_agent, "_last_sensitivity_nm_per_ppm", None)
+                    memory.record_calibration(CalibrationObservation(
+                        session_id=session_id,
+                        timestamp_utc=now_utc,
+                        analyte=gas_label,
+                        sensitivity_nm_per_ppm=sensitivity,
+                        lod_ppm=analysis.lod_ppm if not _is_nan(analysis.lod_ppm) else None,
+                        loq_ppm=analysis.loq_ppm if not _is_nan(analysis.loq_ppm) else None,
+                        r_squared=analysis.calibration_r2,
+                        rmse_ppm=getattr(analysis, "calibration_rmse_ppm", None),
+                        calibration_model=best_model,
+                        n_calibration_points=getattr(analysis, "calibration_n_points", 0),
+                        reference_peak_nm=getattr(app.state, "ref_peak_nm", None),
+                        conformal_coverage=None,
+                        tau_63_s=getattr(analysis, "tau_63_s", None),
+                        reference_fwhm_nm=getattr(app.state, "ref_fwhm_nm", None),
+                    ))
+        except Exception as exc:
+            log.warning("SensorMemory record failed: %s", exc)
+
         # Clear events for next session
         app.state.session_events = []
 
+        active: dict[str, Any] = _session_active
         return JSONResponse({"status": "stopped",
-                             "session_id": _session_active.get("session_id")})
+                             "session_id": active.get("session_id")})
 
     @app.post("/api/acquisition/reference")
     async def acq_reference() -> JSONResponse:
@@ -382,18 +532,71 @@ def create_app(simulate: bool = False) -> FastAPI:
                 status_code=400,
             )
         app.state.reference = intensities
-        app.state.cached_ref = None
 
-        # Propagate to RealTimePipeline (feature extraction + calibration stages)
+        import numpy as _np
+        from src.features.lspr_features import detect_all_peaks, fit_lorentzian_peak
+        wl_np = _np.asarray(latest_spectrum.get("wl", []))
+        int_np = _np.asarray(intensities)
+        plugin = getattr(app.state, "plugin", None)
+
+        # ── Detect ALL spectral peaks (multi-peak sensor support) ──────────
+        # Works for any sensor: single-peak, multi-peak, multi-analyte.
+        # Peak positions are discovered at runtime — never hardcoded.
+        ref_peak_wls: list[float] = []
+        if len(wl_np) > 0:
+            try:
+                cfg_obj = getattr(app.state, "cfg", None)
+                smin = cfg_obj.physics.search_min_nm if cfg_obj else float(wl_np[0])
+                smax = cfg_obj.physics.search_max_nm if cfg_obj else float(wl_np[-1])
+                ref_peak_wls = detect_all_peaks(wl_np, int_np, search_min=smin, search_max=smax)
+            except Exception as exc:
+                log.warning("Multi-peak detection failed: %s", exc)
+
+        ref_peak: float | None = ref_peak_wls[0] if ref_peak_wls else None
+        app.state.ref_peak_nm = ref_peak
+        app.state.ref_peak_wls = ref_peak_wls
+
+        # Update plugin so subsequent extract_features calls use discovered peaks
+        if plugin is not None and ref_peak_wls:
+            if hasattr(plugin, "update_from_reference"):
+                plugin.update_from_reference(ref_peak_wls)
+
+        # Pre-compute cached Lorentzian fit for the primary peak (saves ~5 ms/frame)
+        if plugin is not None and ref_peak is not None:
+            try:
+                app.state.cached_ref = plugin.compute_reference_cache(wl_np, int_np)
+            except Exception as exc:
+                log.warning("Reference cache build failed: %s", exc)
+                app.state.cached_ref = None
+        else:
+            app.state.cached_ref = None
+
+        # ── Extract FWHM of primary peak for sensor health tracking (B4) ──
+        ref_fwhm: float | None = None
+        if ref_peak is not None:
+            try:
+                lfit = fit_lorentzian_peak(wl_np, int_np, peak_wl_init=ref_peak)
+                if lfit is not None:
+                    ref_fwhm = lfit[1]
+                    app.state.ref_fwhm_nm = ref_fwhm
+            except Exception as exc:
+                log.debug("Reference FWHM extraction failed: %s", exc)
+
+        # Propagate to RealTimePipeline
         pipeline = getattr(app.state, "pipeline", None)
         if pipeline is not None and hasattr(pipeline, "set_reference"):
             try:
-                import numpy as _np
-                pipeline.set_reference(_np.asarray(intensities))
+                pipeline.set_reference(int_np)
             except Exception as exc:
                 log.warning("Pipeline reference set failed: %s", exc)
 
-        return JSONResponse({"status": "reference_captured", "peak_wavelength": None})
+        return JSONResponse({
+            "status": "reference_captured",
+            "peak_wavelength": ref_peak,           # primary peak (backward compat)
+            "peak_wavelengths": ref_peak_wls,      # all detected peaks
+            "n_peaks": len(ref_peak_wls),
+            "fwhm_nm": ref_fwhm,
+        })
 
     # ------------------------------------------------------------------
     # Calibration API
@@ -423,6 +626,161 @@ def create_app(simulate: bool = False) -> FastAPI:
         return JSONResponse({"suggestion": suggested})
 
     # ------------------------------------------------------------------
+    # Multi-analyte calibration API (sensitivity matrix + mixture deconvolution)
+    # ------------------------------------------------------------------
+
+    class SensitivityFitRequest(BaseModel):
+        """Fit sensitivity matrix from single-analyte calibration data."""
+        analytes: list[str]
+        n_peaks: int
+        calibration_data: list[dict]
+        # Each entry: {analyte, peak_idx, conc_ppm: [..], shifts_nm: [..]}
+
+    class MixtureInferenceRequest(BaseModel):
+        """Estimate analyte concentrations from observed peak shifts."""
+        delta_lambda: list[float]          # observed peak shifts (nm), one per peak
+        analytes: list[str]
+        S_matrix: list[list[float]]        # [[S_00, S_01, ...], [S_10, ...]] (N×M)
+        Kd_matrix: list[list[float]] | None = None   # K_d matrix (ppm), same shape; null = linear
+        use_nonlinear: bool = False
+
+    class SimGenerateRequest(BaseModel):
+        """Generate a batch of synthetic spectra from the physics simulation."""
+        peak_nm: float = 700.0
+        fwhm_nm: float = 20.0
+        wl_start: float = 500.0
+        wl_end: float = 900.0
+        analyte_name: str = "Gas"
+        sensitivity_nm_per_ppm: float = -0.5
+        tau_s: float = 30.0
+        kd_ppm: float = 100.0
+        concentrations: list[float] = [0.1, 0.5, 1.0, 2.0, 5.0]
+        n_sessions: int = 5
+        random_seed: int = 42
+
+    @app.post("/api/calibration/sensitivity-matrix/fit")
+    async def calibration_sensitivity_fit(req: SensitivityFitRequest) -> JSONResponse:
+        """Fit a sensitivity matrix from single-analyte calibration runs.
+
+        Returns the fitted S matrix, condition number, R² per entry, and
+        LOD estimates in mixture context.
+        """
+        try:
+            from src.calibration.sensitivity_matrix import SensitivityMatrix
+            sm = SensitivityMatrix(req.analytes, req.n_peaks)
+            for entry in req.calibration_data:
+                sm.fit_analyte(
+                    analyte=entry["analyte"],
+                    peak_idx=int(entry["peak_idx"]),
+                    conc_ppm=entry["conc_ppm"],
+                    shifts_nm=entry["shifts_nm"],
+                )
+            summary = sm.summary()
+            lod = sm.compute_lod_mixture()
+            return JSONResponse({
+                "status": "fitted",
+                "S_matrix": summary["S_matrix"],
+                "condition_number": summary["condition_number"],
+                "rank": summary["rank"],
+                "r2_per_entry": [
+                    {"analyte": e["analyte"], "peak": e["peak"], "r2": e["r_squared"]}
+                    for e in summary["entries"]
+                ],
+                "lod_mixture_ppm": lod,
+            })
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/inference/mixture")
+    async def inference_mixture(req: MixtureInferenceRequest) -> JSONResponse:
+        """Estimate all analyte concentrations from a peak-shift observation.
+
+        Uses the linear pseudoinverse (fast) or non-linear Langmuir solver
+        (accurate in saturation regime) as requested.
+        """
+        try:
+            import numpy as np
+            from src.calibration.mixture_deconvolution import deconvolve_mixture
+            S = np.array(req.S_matrix, dtype=float)
+            Kd = np.array(req.Kd_matrix, dtype=float) if req.Kd_matrix else None
+            dl = np.array(req.delta_lambda, dtype=float)
+            result = deconvolve_mixture(dl, req.analytes, S, Kd=Kd,
+                                        use_nonlinear=req.use_nonlinear)
+            return JSONResponse({
+                "concentrations_ppm": result.concentrations,
+                "residual_nm": result.residual_nm,
+                "solver": result.solver,
+                "success": result.success,
+                "predicted_shifts_nm": result.predicted_shifts.tolist(),
+            })
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/analytes")
+    async def list_analytes() -> JSONResponse:
+        """List analytes registered in the current sensor configuration.
+
+        Returns analyte names, peak count, and S matrix if available from
+        the active physics plugin.
+        """
+        plugin = app.state.plugin
+        if plugin is None:
+            return JSONResponse({"analytes": [], "n_peaks": 0, "S_matrix": None})
+        sensor_cfg = getattr(plugin, "_cfg", None)
+        if sensor_cfg is None:
+            return JSONResponse({"analytes": [], "n_peaks": 0, "S_matrix": None})
+        return JSONResponse({
+            "analytes": [a.name for a in sensor_cfg.analytes],
+            "n_peaks": len(sensor_cfg.peaks),
+            "peak_wavelengths_nm": [p.center_nm for p in sensor_cfg.peaks],
+            "S_matrix": sensor_cfg.sensitivity_matrix.tolist() if sensor_cfg.analytes else None,
+        })
+
+    @app.post("/api/simulation/generate")
+    async def simulation_generate(req: SimGenerateRequest) -> JSONResponse:
+        """Generate a synthetic calibration dataset from the physics simulation.
+
+        Returns a summary of the generated dataset including mean peak shifts
+        per concentration level, for use in sensitivity matrix fitting.
+        """
+        try:
+            from src.simulation.gas_response import make_single_peak_sensor, make_analyte
+            from src.simulation.dataset_generator import DatasetConfig, DatasetGenerator
+            sensor = make_single_peak_sensor(req.peak_nm, req.fwhm_nm, req.wl_start, req.wl_end)
+            sensor.analytes = [make_analyte(
+                req.analyte_name, 1,
+                req.sensitivity_nm_per_ppm,
+                tau_s=req.tau_s,
+                kd_ppm=req.kd_ppm,
+            )]
+            cfg = DatasetConfig(
+                sensor_config=sensor,
+                analyte_names=[req.analyte_name],
+                concentration_levels=req.concentrations,
+                n_sessions=req.n_sessions,
+                random_seed=req.random_seed,
+                domain_randomize=True,
+            )
+            df = DatasetGenerator(cfg).generate_calibration_dataset()
+            # Aggregate: mean shift per concentration
+            summary = (
+                df.groupby("concentration_ppm")["peak_shift_0"]
+                .agg(["mean", "std", "count"])
+                .reset_index()
+                .rename(columns={"mean": "mean_shift_nm", "std": "std_shift_nm", "count": "n"})
+                .to_dict(orient="records")
+            )
+            return JSONResponse({
+                "status": "ok",
+                "analyte": req.analyte_name,
+                "n_sessions": req.n_sessions,
+                "n_rows": len(df),
+                "calibration_summary": summary,
+            })
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # ------------------------------------------------------------------
     # Session API — list and retrieve saved sessions
     # ------------------------------------------------------------------
 
@@ -450,7 +808,10 @@ def create_app(simulate: bool = False) -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.post("/api/reports/generate")
-    async def reports_generate(request: ReportRequest) -> JSONResponse:
+    async def reports_generate(
+        request: ReportRequest,
+        _rl: None = Depends(_rate_limit_report),
+    ) -> JSONResponse:
         """Call ReportWriter to generate a Methods+Results prose report.
 
         Returns ``{"report": "<text>", "session_id": "<id>"}`` on success.
@@ -471,7 +832,11 @@ def create_app(simulate: bool = False) -> FastAPI:
         text = await writer.write(context)
         if text is None:
             raise HTTPException(
-                status_code=503, detail="Claude unavailable: set ANTHROPIC_API_KEY"
+                status_code=503,
+                detail=(
+                    "Claude unavailable — check ANTHROPIC_API_KEY is set and valid, "
+                    "or see agent events for the specific error."
+                ),
             )
         return JSONResponse({"report": text, "session_id": request.session_id})
 
@@ -537,7 +902,10 @@ def create_app(simulate: bool = False) -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.post("/api/agents/ask")
-    async def agents_ask(request: AskRequest) -> StreamingResponse:
+    async def agents_ask(
+        request: AskRequest,
+        _rl: None = Depends(_rate_limit_claude),
+    ) -> StreamingResponse:
         """Stream a Claude response to a free-text query about the current session.
 
         Returns Server-Sent Events (SSE) with content-type text/event-stream.

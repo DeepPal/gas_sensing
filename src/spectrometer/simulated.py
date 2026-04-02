@@ -7,7 +7,7 @@ Generates physically plausible spectra for three common spectroscopic
 modalities so the full analysis pipeline can be exercised without hardware:
 
 ``'lspr'``
-    Au nanoparticle / MIP LSPR sensor — Lorentzian peak at ~717.9 nm
+    LSPR sensor — Lorentzian peak at ~717.9 nm
     that red-shifts with analyte concentration following a Langmuir
     adsorption isotherm.  Thermal drift modelled as a linear trend.
 
@@ -46,14 +46,14 @@ import numpy as np
 from src.spectrometer.base import AbstractSpectrometer, SpectralFrame
 
 # ---------------------------------------------------------------------------
-# Physical constants and defaults (match real CCS200 + Au-MIP sensor)
+# Physical constants and defaults (example LSPR configuration for CCS200)
 # ---------------------------------------------------------------------------
 
 _LSPR_N_PIXELS: int = 3648
 _LSPR_WL_START: float = 500.0   # nm
 _LSPR_WL_END:   float = 1000.0  # nm
-_LSPR_PEAK_REF: float = 717.9   # nm  (reference peak of bare Au-MIP sensor)
-_LSPR_FWHM:     float = 55.0    # nm  (typical Au LSPR linewidth)
+_LSPR_PEAK_REF: float = 717.9   # nm  (example reference peak; override via peak_wavelength_nm)
+_LSPR_FWHM:     float = 55.0    # nm  (typical LSPR linewidth)
 _LSPR_AMP:      float = 8000.0  # counts at peak (50 ms integration, 12-bit detector)
 
 _FLUORESCENCE_N_PIXELS: int = 2048
@@ -229,7 +229,7 @@ class SimulatedSpectrometer(AbstractSpectrometer):
         """Lorentzian LSPR peak with Langmuir concentration response + thermal drift."""
         c = self._concentration_ppm
         # Langmuir shift: Δλ = Δλ_max * c / (K_D + c)
-        # Typical Au-MIP: Δλ_max = -15 nm, K_D = 5 ppm
+        # Example LSPR defaults: Δλ_max = -15 nm, K_D = 5 ppm
         delta_lam_max = -15.0
         k_d = 5.0
         delta_lam = delta_lam_max * c / (k_d + c) if c > 0 else 0.0

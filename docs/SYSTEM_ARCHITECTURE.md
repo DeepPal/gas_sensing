@@ -1,471 +1,399 @@
-# Autonomous AI-Driven Optical Gas Sensing Laboratory
+# System Architecture
 
-## System Architecture for Publication
+SpectraAgent — Universal Agentic Spectroscopy Platform
 
-**Version**: 1.0.0  
-**Target Journals**: Sensors and Actuators B, Analytical Chemistry, Biosensors and Bioelectronics
-
----
-
-## Abstract
-
-This document describes the architecture of a novel autonomous agent system for SPR-based optical fiber gas sensor characterization. The system moves beyond traditional "ML as post-processing" to implement a complete "agentic AI research co-worker" that:
-
-1. **Monitors** for new experimental data
-2. **Executes** end-to-end characterization pipelines
-3. **Evaluates** results against research-grade quality thresholds
-4. **Adapts** parameters through intelligent retry logic
-5. **Proposes** optimal next experiments via Bayesian optimization
-6. **Detects** sensor degradation and data anomalies
-7. **Documents** all results for reproducibility
+Version 2.0 | Last updated 2026-03
 
 ---
 
-## Runtime Status (2026-03)
+## Overview
 
-The repository currently includes multiple generations of runtime paths. To
-reduce ambiguity, use the following interpretation when implementing new
-runtime behavior:
+SpectraAgent is a **hardware-agnostic, physics-plugin-based spectroscopy platform**. Any spectrometer and any sensor physics model can be plugged in via Python entry-points — the core platform has no hard dependency on a specific instrument or sensing modality.
 
-- **Primary hardened runtime path**:
-  `python -m spectraagent start [--simulate --no-browser --port ...]`
-  This path owns current work on lifecycle hardening, session persistence,
-  FastAPI routes/WebSockets, and agent-bus integration.
-- **Research dashboard path**:
-  `streamlit run dashboard/app.py`
-  Keep this for researcher-facing workflows and UI-driven experimentation.
-- **Legacy compatibility path**:
-  `python run.py --mode ...`
-  Maintain for backward compatibility unless explicitly refactoring legacy flow.
+The current reference deployment uses a Thorlabs CCS200 spectrometer with an LSPR sensor, but this is one configuration among many. The platform supports fluorescence, absorbance, and Raman sensing through the same plugin interface.
 
-When adding new runtime infrastructure (startup/shutdown behavior, state
-management, persistence, API changes), prefer the `spectraagent` runtime path
-unless the change is specifically scoped to legacy scripts or dashboard-only
-behavior.
+The platform has two complementary runtime paths that serve different audiences:
+
+| Path | Entry point | Audience |
+|------|------------|----------|
+| **SpectraAgent** (primary) | `python -m spectraagent start` | Live acquisition, real-time inference, Claude AI agents |
+| **Research Dashboard** | `streamlit run dashboard/app.py` | Scientific analysis, batch calibration, publication figures |
+
+Both paths share the same `src/` science library. Neither depends on the other.
 
 ---
 
-## 1. System Overview
+## 1. SpectraAgent Runtime
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    AUTONOMOUS GAS SENSING LABORATORY                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │   DATA      │    │   AGENT     │    │   QUALITY   │    │   REPORT    │  │
-│  │  INGESTION  │───▶│   CORE      │───▶│   CONTROL   │───▶│  GENERATION │  │
-│  │             │    │             │    │             │    │             │  │
-│  │ FileWatcher │    │ PipelineRun │    │  QC Rules   │    │  Reporting  │  │
-│  └─────────────┘    └──────┬──────┘    └──────┬──────┘    └─────────────┘  │
-│                            │                  │                             │
-│                            ▼                  ▼                             │
-│                     ┌─────────────┐    ┌─────────────┐                     │
-│                     │  ADAPTIVE   │    │   HEALTH    │                     │
-│                     │   RETRY     │    │  MONITORING │                     │
-│                     │             │    │             │                     │
-│                     │  Profiles   │    │  Anomaly    │                     │
-│                     │  Config     │    │  Detector   │                     │
-│                     └─────────────┘    └─────────────┘                     │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    EXPERIMENT OPTIMIZATION                           │   │
-│  │                                                                      │   │
-│  │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │   │
-│  │   │  Bayesian   │    │  Gaussian   │    │  Experiment │             │   │
-│  │   │ Optimizer   │───▶│  Process    │───▶│  Proposal   │             │   │
-│  │   │             │    │  Surrogate  │    │             │             │   │
-│  │   └─────────────┘    └─────────────┘    └─────────────┘             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    BENCHMARKING & VALIDATION                         │   │
-│  │                                                                      │   │
-│  │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │   │
-│  │   │  Benchmark  │    │ Statistical │    │   Report    │             │   │
-│  │   │   Runner    │───▶│   Tests     │───▶│  Generator  │             │   │
-│  │   │             │    │  (t, d, CI) │    │             │             │   │
-│  │   └─────────────┘    └─────────────┘    └─────────────┘             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         SPECTRAAGENT RUNTIME                               │
+│                  python -m spectraagent start [--simulate]                 │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  Hardware Layer              Acquisition Thread (daemon, ~2–20 Hz)        │
+│  ┌──────────────────┐        ┌─────────────────────────────────────────┐  │
+│  │ ThorlabsDriver   │──────▶ │ _acquisition_loop()                     │  │
+│  │ SimulationDriver │        │  ├─ driver.read_spectrum()               │  │
+│  └──────────────────┘        │  ├─ QualityAgent.process()  (SNR/sat.)  │  │
+│  (loaded via entry-point     │  ├─ DriftAgent.update()    (peak shift) │  │
+│   spectraagent.hardware)     │  ├─ RealTimePipeline.process_spectrum() │  │
+│                              │  └─ AgentBus.emit() + WS broadcast      │  │
+│                              └─────────────────────────────────────────┘  │
+│                                           │                                │
+│                                           ▼                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │                    AgentBus  (thread-safe bridge)                   │  │
+│  │  call_soon_threadsafe → asyncio queue per subscriber               │  │
+│  │  Also writes every event to agent_events.jsonl (session log)       │  │
+│  └──────────┬───────────────────────────────────────────┬─────────────┘  │
+│             │                                           │                  │
+│             ▼ (asyncio event loop)                      ▼                  │
+│  ┌────────────────────────┐               ┌─────────────────────────────┐ │
+│  │  Deterministic Agents  │               │     Claude API Agents       │ │
+│  │  ─────────────────     │               │  ────────────────────────   │ │
+│  │  QualityAgent          │               │  AnomalyExplainer           │ │
+│  │  DriftAgent            │               │  ExperimentNarrator         │ │
+│  │  CalibrationAgent      │               │  DiagnosticsAgent           │ │
+│  │  ExperimentPlannerAgent│               │  ReportWriter               │ │
+│  └────────────────────────┘               └─────────────────────────────┘ │
+│                                                                            │
+│  FastAPI + WebSocket Server (spectraagent/webapp/server.py)                │
+│  ┌──────────────────────────────────────────────────────────────────────┐ │
+│  │  GET  /health                   — hardware status, version, mode    │ │
+│  │  POST /acquisition/config       — set integration time, gas label   │ │
+│  │  POST /acquisition/start        — begin session, returns session_id │ │
+│  │  POST /acquisition/stop         — end session, runs SessionAnalyzer │ │
+│  │  POST /acquisition/reference    — capture reference spectrum        │ │
+│  │  GET  /calibration/suggest      — next concentration (BED)         │ │
+│  │  POST /calibration/add_point    — add (concentration, shift) point  │ │
+│  │  POST /agents/ask               — SSE streaming Claude query        │ │
+│  │  POST /agents/settings          — toggle auto_explain               │ │
+│  │  POST /reports/generate         — trigger ReportWriter              │ │
+│  │  GET  /sessions                 — list past sessions                │ │
+│  │  GET  /sessions/{id}            — fetch session events + metadata   │ │
+│  │  WS   /ws/spectrum              — live spectrum frames (JSON)       │ │
+│  │  WS   /ws/agent-events          — live AgentBus events (JSON)       │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                            │
+│  React Frontend (spectraagent/webapp/frontend/ — Vite + TypeScript)        │
+│  ┌──────────────────────────────────────────────────────────────────────┐ │
+│  │  Live spectrum chart  │  Agent event feed  │  Calibration wizard    │ │
+│  │  HW badge (Live/Sim)  │  Session controls  │  Ask Claude panel      │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 2. Module Descriptions
-
-### 2.1 Core Agent Modules
-
-| Module | Lines | Purpose | Key Classes/Functions |
-|--------|-------|---------|----------------------|
-| `run_agent_v1.py` | ~350 | Main orchestration | `run_agent()`, `main()` |
-| `config_loader.py` | ~465 | Configuration management | `load_agent_config()`, `validate_config()` |
-| `pipeline_runner.py` | ~476 | Pipeline execution adapter | `run_pipeline()`, `PipelineResult` |
-| `qc_rules.py` | ~664 | Quality control logic | `evaluate_run()`, `assess_thresholds()` |
-| `reporting.py` | ~510 | Report generation | `write_agent_log()`, `append_experiment_entry()` |
-
-### 2.2 Advanced Modules
-
-| Module | Lines | Purpose | Key Classes/Functions |
-|--------|-------|---------|----------------------|
-| `bayesian_optimizer.py` | ~650 | Experiment design | `BayesianOptimizer`, `SurrogateModel` |
-| `anomaly_detector.py` | ~750 | Health monitoring | `AnomalyDetector`, `ControlChart`, `CUSUM` |
-| `file_watcher.py` | ~550 | Autonomous ingestion | `FileWatcher`, `DetectedFile` |
-| `benchmarks.py` | ~600 | Comparative evaluation | `BenchmarkRunner`, `StatisticalResult` |
-
-### 2.3 Total Implementation
-
-- **10 Python modules**
-- **~5,000 lines of code**
-- **Comprehensive docstrings** (NumPy style)
-- **Type hints** throughout
-- **Research-grade documentation**
-
----
-
-## 3. Agent Workflow
-
-### 3.1 Level 1: Autonomous Characterization
+### 1.1 Startup sequence
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     AUTONOMOUS CHARACTERIZATION LOOP                      │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐           │
-│   │  Load   │────▶│  Run    │────▶│  QC     │────▶│ Report  │           │
-│   │ Config  │     │Pipeline │     │ Check   │     │ Generate│           │
-│   └─────────┘     └────┬────┘     └────┬────┘     └─────────┘           │
-│                        │               │                                 │
-│                        │               ▼                                 │
-│                        │         ┌──────────┐                           │
-│                        │         │  PASSED? │                           │
-│                        │         └────┬─────┘                           │
-│                        │              │                                  │
-│                        │    ┌────────┴────────┐                         │
-│                        │    │                 │                         │
-│                        │    ▼                 ▼                         │
-│                        │  ┌───┐            ┌─────┐                      │
-│                        │  │YES│            │ NO  │                      │
-│                        │  └─┬─┘            └──┬──┘                      │
-│                        │    │                 │                         │
-│                        │    ▼                 ▼                         │
-│                        │ SUCCESS         ┌────────┐                     │
-│                        │                 │ Retry? │                     │
-│                        │                 └───┬────┘                     │
-│                        │                     │                          │
-│                        │           ┌────────┴────────┐                  │
-│                        │           │                 │                  │
-│                        │           ▼                 ▼                  │
-│                        │    ┌───────────┐     ┌──────────┐              │
-│                        │    │   Next    │     │  FAILED  │              │
-│                        └────│  Profile  │     │  (max    │              │
-│                             │           │     │ retries) │              │
-│                             └───────────┘     └──────────┘              │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+spectraagent start
+  1. Load config (spectraagent.toml)
+  2. Load hardware driver (entry-point spectraagent.hardware)
+       → ThorlabsDriver if CCS200 found, else SimulationDriver
+  3. Load physics plugin (entry-point spectraagent.sensor_physics)
+       → LSPRPhysicsPlugin (default)
+  4. Build FastAPI app, wire AgentBus
+  5. Instantiate all agents
+  6. Wire RealTimePipeline
+  7. Register startup callback → acquisition daemon thread starts
+  8. Open browser (http://localhost:8765 by default)
+  9. uvicorn.run() — blocking
 ```
 
-### 3.2 Level 2: Bayesian Experiment Optimization
+### 1.2 Per-frame hot path (20 Hz)
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    CLOSED-LOOP EXPERIMENT OPTIMIZATION                    │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   ┌─────────────────────────────────────────────────────────────────┐   │
-│   │                    BAYESIAN OPTIMIZATION LOOP                    │   │
-│   │                                                                  │   │
-│   │    ┌──────────┐                                                  │   │
-│   │    │ Initial  │  (Space-filling design: 5 experiments)          │   │
-│   │    │ Samples  │                                                  │   │
-│   │    └────┬─────┘                                                  │   │
-│   │         │                                                        │   │
-│   │         ▼                                                        │   │
-│   │    ┌──────────┐     ┌──────────┐     ┌──────────┐               │   │
-│   │    │   Fit    │────▶│ Compute  │────▶│ Propose  │               │   │
-│   │    │   GP     │     │   EI     │     │  Next    │               │   │
-│   │    │ Surrogate│     │Acquisition│    │Experiment│               │   │
-│   │    └──────────┘     └──────────┘     └────┬─────┘               │   │
-│   │                                           │                      │   │
-│   │         ┌─────────────────────────────────┘                      │   │
-│   │         │                                                        │   │
-│   │         ▼                                                        │   │
-│   │    ┌──────────┐     ┌──────────┐     ┌──────────┐               │   │
-│   │    │  Run     │────▶│  Add     │────▶│  Update  │───┐           │   │
-│   │    │Experiment│     │Observation│    │  Model   │   │           │   │
-│   │    └──────────┘     └──────────┘     └──────────┘   │           │   │
-│   │                                                      │           │   │
-│   │         ┌────────────────────────────────────────────┘           │   │
-│   │         │                                                        │   │
-│   │         ▼                                                        │   │
-│   │    ┌──────────┐                                                  │   │
-│   │    │  Target  │  NO ──▶ (Loop back to Compute EI)               │   │
-│   │    │ Reached? │                                                  │   │
-│   │    └────┬─────┘                                                  │   │
-│   │         │ YES                                                    │   │
-│   │         ▼                                                        │   │
-│   │    ┌──────────┐                                                  │   │
-│   │    │  DONE    │  Optimal concentration range identified         │   │
-│   │    └──────────┘                                                  │   │
-│   │                                                                  │   │
-│   └─────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+driver.read_spectrum(wl, I)
+  → QualityAgent.process(frame, wl, I)
+      ├─ PASS → continue
+      └─ FAIL (saturation) → drop frame, emit quality_error
+  → plugin.detect_peak(wl, I)  → direct_peak_wl
+  → DriftAgent.update(frame, peak_wl) → may emit drift_warn
+  → RealTimePipeline.process_spectrum(wl, I)
+      Stage 1: preprocessing (ALS baseline, S-G denoising)
+      Stage 2: LSPR feature extraction (Δλ, ΔI_peak, ΔI_area, ΔI_std)
+      Stage 3: GPR calibration → concentration_ppm + CI [low, high]
+      Stage 4: CNN classification → gas_type + confidence_score
+  → SessionWriter.append_frame_result(row)  [crash-safe CSV]
+  → Broadcaster.broadcast(JSON payload)  [WebSocket fan-out]
+```
+
+### 1.3 Session lifecycle
+
+```
+POST /acquisition/start
+  → session_id = YYYYMMDD_HHMMSS
+  → session_running = True
+  → output/sessions/{session_id}/pipeline_results.csv created
+
+POST /acquisition/reference
+  → captures current spectrum as reference
+  → RealTimePipeline receives reference for Δλ calculation
+
+POST /acquisition/stop
+  → session_running = False
+  → SessionAnalyzer.analyze(events) runs automatically
+  → LOD/LOQ/drift/T90/T10 computed, stored in session_meta.json
+  → session_complete event emitted to AgentBus
 ```
 
 ---
 
-## 4. Quality Control Metrics
-
-### 4.1 Calibration Quality
-
-| Metric | Symbol | Threshold | Reference |
-|--------|--------|-----------|-----------|
-| Coefficient of Determination | R² | ≥ 0.90 (min), ≥ 0.95 (target) | ICH Q2(R1) |
-| Sensitivity | Slope | ≥ 0.05 nm/ppm | Application-specific |
-| Limit of Detection | LOD | ≤ 6.0 ppm | IUPAC 3σ method |
-| Limit of Quantification | LOQ | ≤ 18.0 ppm | IUPAC 10σ method |
-
-### 4.2 Dynamic Response
-
-| Metric | Symbol | Expected Range | Reference |
-|--------|--------|----------------|-----------|
-| Response Time | T90 | 5-120 s | ISO 11843-2 |
-| Recovery Time | T10 | 5-180 s | ISO 11843-2 |
-| Responsive Fraction | - | ≥ 50% | Application-specific |
-
-### 4.3 Quality Score
-
-The agent computes a normalized quality score (0-1):
+## 2. Research Dashboard Runtime
 
 ```
-score = Σ(weight_i × metric_score_i) / Σ(weight_i)
-
-where:
-  - R² score: (r2 - min_r2) / (1 - min_r2)
-  - LOD score: max(0, 1 - lod / max_lod)
-  - Response score: responsive_fraction
+streamlit run dashboard/app.py
 ```
+
+Four tabs:
+
+| Tab | File | Purpose |
+|-----|------|---------|
+| Batch Analysis | `dashboard/app.py` (tabs 1–2) | Load Joy_Data CSVs, run calibration pipeline |
+| Agentic Pipeline | `dashboard/agentic_pipeline_tab.py` | Step-by-step guided workflow with agents |
+| Live Sensor | `dashboard/sensor_dashboard.py` | Legacy live view (pre-SpectraAgent) |
+| Reports | `dashboard/app.py` (tab 4) | Export publication-quality figures |
+
+Key features of the Agentic Pipeline tab:
+- Step 1: Load raw spectra from Joy_Data folders
+- Step 2: Load reference spectrum → compute `diff_signal = raw − ref_interp`
+- Step 3: LSPR feature extraction using Δλ when reference available
+- Step 4: GPR calibration fit → LOD/LOQ/LOB + bootstrap CI
+- Step 5: Isotherm model selection (Langmuir / Freundlich / Hill, Mandel gate)
+- Step 6: Session summary + reproducibility manifest
 
 ---
 
-## 5. Anomaly Detection
-
-### 5.1 Statistical Process Control
-
-| Method | Purpose | Parameters |
-|--------|---------|------------|
-| Shewhart Chart | Detect large shifts | ±3σ control limits |
-| CUSUM | Detect small persistent shifts | k=0.5σ, h=5σ |
-| Western Electric Rules | Pattern detection | 8-point runs |
-
-### 5.2 Machine Learning
-
-| Method | Purpose | Parameters |
-|--------|---------|------------|
-| Isolation Forest | Multivariate outliers | contamination=0.1 |
-| One-Class SVM | Novelty detection | (optional) |
-
-### 5.3 Physics-Informed Checks
-
-| Check | Anomaly Type | Severity |
-|-------|--------------|----------|
-| T90 out of range | Response time | Warning/Critical |
-| R² degradation | Sensitivity loss | Warning |
-| Response/recovery asymmetry | Hysteresis | Warning |
-| Baseline shift | Drift | Warning |
-
----
-
-## 6. Benchmarking Framework
-
-### 6.1 Comparison Methods
-
-| Method | Description | Human Intervention |
-|--------|-------------|-------------------|
-| Manual | Traditional human-operated workflow | High (5-10 decisions) |
-| Fixed Script | One-shot automated script | None (but no adaptation) |
-| Autonomous Agent | Full adaptive agent | None |
-
-### 6.2 Statistical Tests
-
-| Test | Purpose | Interpretation |
-|------|---------|----------------|
-| Paired t-test | Compare means | p < 0.05 = significant |
-| Cohen's d | Effect size | d > 0.8 = large effect |
-| 95% CI | Confidence interval | Non-overlapping = significant |
-
-### 6.3 Example Results Format
+## 3. Shared Science Library (`src/`)
 
 ```
-Metric: total_time
-  Manual: 1823.5 ± 312.4 seconds
-  Autonomous Agent: 847.2 ± 98.6 seconds
-  Change: -53.5% (decrease)
-  p-value: 0.0012 (significant)
-  Effect size (Cohen's d): 1.84 (large)
-```
-
----
-
-## 7. Output Artifacts
-
-### 7.1 Structured Logs
-
-| File | Format | Purpose |
-|------|--------|---------|
-| `AGENT_LOG.json` | JSON | Complete structured log for reproducibility |
-| `EXPERIMENT_LOG.md` | Markdown | Human-readable experiment diary |
-| `RESULTS_SUMMARY.md` | Markdown | Publication-ready summary |
-| `environment_metadata.json` | JSON | Python/package versions, git commit |
-
-### 7.2 Reproducibility Metadata
-
-Every run logs:
-- Timestamp (ISO 8601 UTC)
-- Python version and implementation
-- Package versions (numpy, scipy, sklearn, etc.)
-- Git commit hash and dirty status
-- Full configuration used
-- All pipeline attempts with parameters
-
----
-
-## 8. Integration Points
-
-### 8.1 n8n Workflow Integration
-
-```json
-{
-  "trigger": "file_added",
-  "watch_path": "/data/new/",
-  "workflow": [
-    {"node": "detect_gas_type", "type": "python"},
-    {"node": "run_agent", "type": "python", "script": "run_agent_v1.py"},
-    {"node": "check_status", "type": "condition"},
-    {"node": "notify_success", "type": "email", "condition": "success"},
-    {"node": "notify_failure", "type": "slack", "condition": "failure"}
-  ]
-}
-```
-
-### 8.2 Docker Deployment
-
-```dockerfile
-FROM python:3.11-slim
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy agent code
-COPY gas_analysis/ /app/gas_analysis/
-COPY config/ /app/config/
-
-# Entry point
-WORKDIR /app
-ENTRYPOINT ["python", "-m", "gas_analysis.agent.run_agent_v1"]
+src/
+├── preprocessing/          Spectrum preprocessing
+│   ├── baseline.py         ALS asymmetric least-squares baseline correction
+│   ├── denoising.py        Savitzky-Golay + wavelet denoising
+│   └── quality.py          SNR estimation, saturation detection
+│
+├── calibration/            Calibration and uncertainty
+│   ├── gpr.py              Gaussian Process Regressor (scikit-learn wrapper)
+│   ├── physics_kernel.py   Physics-informed GPR — Langmuir isotherm mean function
+│   ├── pls.py              PLS calibration with LOOCV and VIP scores
+│   ├── conformal.py        Split conformal prediction (normalised scores, coverage guarantee)
+│   ├── active_learning.py  BayesianExperimentDesigner — logspace max-variance acquisition
+│   ├── isotherms.py        Langmuir / Freundlich / Hill isotherm fitting
+│   ├── roi_scan.py         ROI scan and concentration-response computation
+│   ├── multi_roi.py        Multi-ROI calibration
+│   ├── transforms.py       Signal transforms for calibration
+│   ├── batch_reproducibility.py  Batch sensor QC (pooled LOD, RSD, accept/reject)
+│   └── selectivity.py      Cross-reactivity coefficients (IUPAC K values)
+│
+├── features/               Feature extraction
+│   └── lspr_features.py    LSPR features: [Δλ, ΔI_peak, ΔI_area, ΔI_std]
+│
+├── models/                 ML models
+│   ├── cnn.py              CNN gas classifier (PyTorch)
+│   └── onnx_export.py      ONNX export with numerical validation
+│
+├── scientific/             Scientific metrics (IUPAC-compliant)
+│   ├── lod.py              LOD/LOQ/LOB triad — bootstrap CI, blank-based and residual-based
+│   ├── regression.py       Weighted linear, Theil-Sen, RANSAC
+│   └── selectivity.py      Selectivity matrix and from-calibration-data helper
+│
+├── inference/              Real-time inference
+│   ├── realtime_pipeline.py  RealTimePipeline (4 stages) + ConformalCalibrator wiring
+│   └── session_analyzer.py   SessionAnalyzer — post-session LOD/LOQ/T90/drift/linearity
+│
+├── io/                     Data I/O
+│   └── hdf5.py             HDF5 archival — write/read spectral datasets
+│
+├── spectrometer/           Hardware abstraction layer (research-facing)
+│   ├── base.py             AbstractSpectrometer + SpectralFrame dataclass
+│   ├── registry.py         SpectrometerRegistry — register/discover/create drivers
+│   ├── simulated.py        SimulatedSpectrometer (LSPR, fluorescence, absorbance modes)
+│   └── ccs200_adapter.py   CCS200Adapter — wraps native DLL driver
+│
+├── batch/                  Batch processing
+│   ├── preprocessing.py    Multi-frame preprocessing pipeline
+│   ├── response.py         Concentration-response aggregation
+│   ├── aggregation.py      Stable-plateau detection, canonical spectrum builder
+│   └── time_series.py      Response time-series extraction
+│
+├── reporting/              Reporting and figures
+│   ├── metrics.py          LOD/SNR/QC metric computation
+│   ├── plots.py            Calibration curves, spectral overlays, ROI diagnostics
+│   ├── publication.py      Publication-quality figure generation
+│   ├── environment.py      Environment metadata capture
+│   └── io.py               Save canonical spectra, JSON reports, CSV outputs
+│
+├── agents/                 Signal-path agents
+│   ├── quality.py          QualityAgent (used by RealTimePipeline)
+│   └── training.py         TrainingAgent — auto-retrain on drift / R² decay
+│
+├── training/               Training scripts
+│   ├── train_gpr.py        GPR training with MLflow tracking
+│   ├── train_cnn.py        CNN training with ablation config
+│   ├── ablation.py         Ablation study runner
+│   └── cross_gas_eval.py   Cross-gas sensitivity evaluation
+│
+└── public_api.py           Stable commercial facade — re-exports key classes
 ```
 
 ---
 
-## 9. Novelty Claims for Publication
+## 4. Plugin Architecture
 
-### 9.1 Compared to Literature
+SpectraAgent uses Python entry-points for hardware and physics plugins.
 
-| Aspect | Traditional Approach | This Work |
-|--------|---------------------|-----------|
-| Automation | Manual parameter tuning | Fully autonomous with adaptive retry |
-| Experiment Design | Fixed concentration grids | Bayesian optimization |
-| Quality Control | Post-hoc analysis | Real-time QC gates |
-| Health Monitoring | Periodic manual checks | Continuous SPC + ML detection |
-| Reproducibility | Varies by operator | Complete metadata logging |
-| Benchmarking | Qualitative comparison | Rigorous statistical tests |
+### 4.1 Hardware drivers (`spectraagent.hardware`)
 
-### 9.2 Quantifiable Improvements
+```toml
+# pyproject.toml
+[project.entry-points."spectraagent.hardware"]
+thorlabs_ccs200 = "spectraagent.drivers.thorlabs:ThorlabsDriver"
+```
 
-1. **Analysis Time**: Reduced by X% (p < 0.01, d = Y)
-2. **Human Intervention**: Reduced from 5-10 decisions to 0
-3. **Experiment Count**: Reduced by ~40% via Bayesian optimization
-4. **Reproducibility**: CV < 5% across repeated runs
-5. **Anomaly Detection**: Real-time with < 1 minute latency
-
----
-
-## 10. References
-
-1. Shahriari, B., et al. (2016). "Taking the Human Out of the Loop: A Review of Bayesian Optimization." *Proceedings of the IEEE*.
-
-2. Montgomery, D. C. (2012). *Statistical Quality Control* (7th ed.). Wiley.
-
-3. Chandola, V., et al. (2009). "Anomaly Detection: A Survey." *ACM Computing Surveys*.
-
-4. Sandve, G. K., et al. (2013). "Ten Simple Rules for Reproducible Computational Research." *PLoS Computational Biology*.
-
-5. ICH Q2(R1). "Validation of Analytical Procedures: Text and Methodology."
-
-6. IUPAC. "Recommendations for Limit of Detection and Limit of Quantification."
-
----
-
-## Appendix A: Configuration Schema
-
-See `config/agent_config.yaml` for complete configuration options including:
-- QC thresholds
-- Pipeline profiles (strict, relaxed_pelt, exploratory, publication)
-- Gas-specific defaults
-- Bayesian optimization parameters
-- Anomaly detection settings
-- File watcher configuration
-- Benchmarking settings
-
----
-
-## Appendix B: API Reference
-
-### Core Functions
+Implementing a new driver:
 
 ```python
-# Run autonomous agent
-from gas_analysis.agent import run_agent
-exit_code = run_agent(args)
+from spectraagent.drivers.base import AbstractHardwareDriver
+import numpy as np
 
-# Load configuration
-from gas_analysis.agent import load_agent_config
-config = load_agent_config("config/agent_config.yaml")
-
-# Evaluate QC metrics
-from gas_analysis.agent import evaluate_run, assess_thresholds
-metrics = evaluate_run(output_dir)
-result = assess_thresholds(metrics, thresholds)
+class MyDriver(AbstractHardwareDriver):
+    @property
+    def name(self) -> str: return "MyInstrument"
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def get_wavelengths(self) -> np.ndarray: ...
+    def read_spectrum(self) -> np.ndarray: ...
+    def set_integration_time_ms(self, ms: float) -> None: ...
+    def is_connected(self) -> bool: ...
 ```
 
-### Advanced Features
+Register it in `pyproject.toml` and it will be auto-discovered by `spectraagent start`.
+
+### 4.2 Physics plugins (`spectraagent.sensor_physics`)
+
+```toml
+[project.entry-points."spectraagent.sensor_physics"]
+lspr = "spectraagent.physics.lspr:LSPRPhysicsPlugin"
+```
+
+The physics plugin provides `detect_peak()`, `extract_features()`, and `calibration_priors()`.
+
+### 4.3 Research-facing driver registry (`src/spectrometer`)
+
+For scripts and notebooks that don't use the full SpectraAgent runtime:
 
 ```python
-# Bayesian optimization
-from gas_analysis.agent import BayesianOptimizer
-optimizer = BayesianOptimizer(bounds=(1, 200))
-proposal = optimizer.suggest_next()
+from src.spectrometer.registry import SpectrometerRegistry
 
-# Anomaly detection
-from gas_analysis.agent import AnomalyDetector
-detector = AnomalyDetector(sensor_id="SPR-001")
-report = detector.analyze(metrics)
+# List available drivers
+SpectrometerRegistry.available()  # ['ccs200', 'sim', 'simulated', 'thorlabs_ccs200']
 
-# File watching
-from gas_analysis.agent import FileWatcher
-watcher = FileWatcher(watch_dirs=["data/"])
-watcher.start()
+# Create and use as context manager
+with SpectrometerRegistry.create("simulated") as spec:
+    spec.open()
+    frame = spec.acquire()
+    print(frame.peak_wavelength, frame.snr)
 
-# Benchmarking
-from gas_analysis.agent import BenchmarkRunner
-runner = BenchmarkRunner()
-report = runner.generate_report()
+# Register a custom driver
+@SpectrometerRegistry.register("usb2000")
+class USB2000Driver(AbstractSpectrometer):
+    ...
 ```
 
 ---
 
-*Document generated for publication preparation. Last updated: 2024.*
+## 5. Data Flow Summary
+
+```
+Physical sensor (LSPR sensor on CCS200)
+          │
+          │  USB (TLCCS DLL)
+          ▼
+  ThorlabsDriver.read_spectrum()          ~2.4 Hz (50 ms integration)
+          │
+          ▼
+  _acquisition_loop() in daemon thread
+     ├── QualityAgent    → SNR check, saturation gate
+     ├── DriftAgent      → peak shift trend (rolling window)
+     ├── RealTimePipeline→ Stage1: ALS+S-G preprocessing
+     │                     Stage2: LSPR Δλ feature extraction
+     │                     Stage3: GPR → [concentration_ppm, CI_low, CI_high]
+     │                     Stage4: CNN → [gas_type, confidence_score]
+     ├── SessionWriter   → per-frame CSV (crash-safe)
+     └── Broadcaster     → WebSocket JSON to React frontend
+
+  AgentBus (thread-safe)
+     ├── QualityAgent    → emits quality_ok / quality_warn / quality_error
+     ├── DriftAgent      → emits drift_ok / drift_warn
+     ├── CalibrationAgent→ emits model_selected (on sufficient data)
+     ├── ExperimentPlannerAgent → emits experiment_suggestion (BED)
+     └── ClaudeAgentRunner (asyncio)
+           ├── AnomalyExplainer    → reacts to drift_warn (opt-in)
+           ├── ExperimentNarrator  → reacts to model_selected (opt-in)
+           └── DiagnosticsAgent    → reacts to hardware_error (always)
+
+  Session stop
+     └── SessionAnalyzer → LOD/LOQ/LOB, bootstrap CI, T90/T10,
+                           drift rate, linearity, selectivity
+                         → session_meta.json
+```
+
+---
+
+## 6. Session Storage
+
+```
+output/sessions/
+└── YYYYMMDD_HHMMSS/
+    ├── pipeline_results.csv      per-frame: timestamp, peak_wl, shift, conc, CI, SNR, gas_type
+    ├── session_meta.json         LOD/LOQ/LOB, T90/T10, drift_rate, linearity, bootstrap CI
+    └── agent_events.jsonl        every AgentBus event (quality, drift, claude, calibration)
+```
+
+---
+
+## 7. Configuration
+
+`spectraagent.toml` (auto-created at first run):
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 8765
+open_browser = true
+
+[hardware]
+default_driver = "thorlabs_ccs200"
+integration_time_ms = 50.0
+
+[physics]
+default_plugin = "lspr"
+
+[claude]
+model = "claude-sonnet-4-6"
+timeout_s = 30.0
+
+[agents]
+auto_explain = false
+anomaly_explainer_cooldown_s = 60.0
+diagnostics_cooldown_s = 300.0
+```
+
+---
+
+## 8. Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Daemon acquisition thread, not asyncio | Hardware DLL calls block; asyncio can't yield inside ctypes |
+| AgentBus as thread bridge | `call_soon_threadsafe` is the safe pattern for thread→asyncio hand-off |
+| Claude agents in asyncio, not signal thread | LLM calls are I/O bound and should never block 20 Hz acquisition |
+| SpectraAgent and Streamlit as separate runtimes | Different user models: live acquisition vs. scientific batch analysis |
+| entry-points for hardware plugins | Allows third-party drivers without modifying the core package |
+| Split conformal prediction for CI | Coverage guarantee is provably correct; GPR posterior CI alone is not calibrated |
+| Physics-informed GPR with Langmuir | Prevents physically impossible extrapolation; better LOD at sparse calibration points |
+
+See `docs/adr/` for full Architectural Decision Records.

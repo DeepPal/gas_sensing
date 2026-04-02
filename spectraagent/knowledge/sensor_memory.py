@@ -71,6 +71,8 @@ class CalibrationObservation:
     n_calibration_points: int
     reference_peak_nm: Optional[float]
     conformal_coverage: Optional[float]  # empirical coverage of conformal PI
+    tau_63_s: Optional[float] = None      # binding kinetics time constant (s) — B1
+    reference_fwhm_nm: Optional[float] = None  # FWHM of reference peak (chip age) — B4
     notes: str = ""
 
 
@@ -213,7 +215,11 @@ class SensorMemory:
 
     def record_session(self, session_id: str, analyte: str, frame_count: int,
                        stopped_at: str, notes: str = "") -> None:
-        """Lightweight session log entry (called regardless of calibration)."""
+        """Lightweight session log entry (called regardless of calibration).
+
+        Also creates the analyte bucket so ``get_analyte_summary`` returns
+        a valid record even for sessions without a calibration observation.
+        """
         self._data["session_log"].append({
             "session_id": session_id,
             "analyte": analyte,
@@ -221,6 +227,14 @@ class SensorMemory:
             "stopped_at": stopped_at,
             "notes": notes,
         })
+        # Ensure the analyte entry exists so get_analyte_summary() is non-None
+        key = analyte.lower()
+        bucket = self._data["analytes"].setdefault(key, {
+            "canonical_name": analyte,
+            "calibration_history": [],
+            "session_count": 0,
+        })
+        bucket["session_count"] = bucket.get("session_count", 0) + 1
         self.save()
 
     # ------------------------------------------------------------------
@@ -234,11 +248,14 @@ class SensorMemory:
         """
         key = analyte.lower()
         bucket = self._data["analytes"].get(key)
-        if not bucket or not bucket.get("calibration_history"):
+        if not bucket:
             return None
 
-        history = bucket["calibration_history"]
-        n = len(history)
+        history = bucket.get("calibration_history", [])
+        # n_sessions counts both calibration records and plain record_session() calls
+        n = max(len(history), bucket.get("session_count", 0))
+        if n == 0:
+            return None
 
         def _valid(field: str) -> list[float]:
             return [h[field] for h in history if h.get(field) is not None]
@@ -265,7 +282,7 @@ class SensorMemory:
             "conformal_coverage": _stat_summary(coverages),
             "dominant_model": best_model,
             "model_counts": model_counts,
-            "most_recent": history[-1],
+            "most_recent": history[-1] if history else {},
             "trend": _compute_trend(lods),   # "improving", "stable", "degrading"
             "reference_peaks": _valid("reference_peak_nm"),
         }
@@ -301,9 +318,31 @@ class SensorMemory:
         """Return list of analytes this sensor has been characterised for."""
         return [v["canonical_name"] for v in self._data["analytes"].values()]
 
+    def get_sensitivities_by_analyte(self) -> dict[str, float]:
+        """Return the mean calibration sensitivity (nm/ppm) for every analyte
+        that has at least one calibration observation in memory.
+
+        Used by CalibrationValidationOrchestrator (B3) to build the
+        selectivity matrix from historical data rather than requiring the
+        researcher to run all analytes in a single session.
+        """
+        result: dict[str, float] = {}
+        for canonical_name, bucket in self._data["analytes"].items():
+            history = bucket.get("calibration_history", [])
+            sensitivities = [
+                h["sensitivity_nm_per_ppm"]
+                for h in history
+                if h.get("sensitivity_nm_per_ppm") is not None
+            ]
+            if sensitivities:
+                result[bucket.get("canonical_name", canonical_name)] = float(
+                    sum(sensitivities) / len(sensitivities)
+                )
+        return result
+
     def get_recent_failures(self, n: int = 10) -> list[dict[str, Any]]:
         """Return the n most recent failure events."""
-        return self._data["failure_events"][-n:]
+        return list(self._data["failure_events"][-n:])
 
     def get_calibration_trend_text(self, analyte: str) -> str:
         """One-line text description of calibration trend for agent prompts."""

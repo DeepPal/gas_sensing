@@ -1,7 +1,7 @@
 """
 src.experiment_tracking
 =======================
-MLflow-based experiment tracking for the Au-MIP LSPR Gas Sensing Platform.
+MLflow-based experiment tracking for the SpectraAgent — Spectrometer-Based Sensing Platform.
 
 Every model training run is logged as an MLflow experiment run, capturing:
 
@@ -345,6 +345,85 @@ class ExperimentTracker:
 
         run_id: str = run.info.run_id
         log.info("ExperimentTracker: PLS run logged — run_id=%s", run_id)
+        return run_id
+
+    # ------------------------------------------------------------------
+    # Neural network run logging
+    # ------------------------------------------------------------------
+
+    def log_nn_run(
+        self,
+        model_type: str,
+        params: dict[str, Any],
+        history: dict[str, list[float]],
+        analyte: str | None = None,
+        n_samples: int | None = None,
+        n_features: int | None = None,
+        session_id: str | None = None,
+    ) -> str | None:
+        """Log a neural network training run (multi-task, contrastive, autoencoder).
+
+        Parameters
+        ----------
+        model_type :
+            Human-readable model type string, e.g. ``"Multi-Task CNN"``.
+        params :
+            Hyperparameter dict (e.g. ``{"embed_dim": 64, "lr": 0.001, ...}``).
+            All values must be MLflow-serialisable (str, int, float, bool).
+        history :
+            Training history dict with keys ``"train_loss"`` and optionally
+            ``"val_loss"``.  The final value of each key is logged as a metric.
+        analyte :
+            Analyte / gas name, if known.
+        n_samples :
+            Number of training samples.
+        n_features :
+            Input feature / wavelength dimension.
+        session_id :
+            Source session ID (e.g. ``"20260401_120000"``).
+
+        Returns
+        -------
+        str or None
+            MLflow run ID, or ``None`` if MLflow is unavailable.
+        """
+        if not self.available:
+            return None
+
+        run = mlflow.active_run()
+        if run is None:
+            log.warning("log_nn_run called outside a start_run() context")
+            return None
+
+        # ── Parameters ──────────────────────────────────────────────────
+        logged_params: dict[str, Any] = {
+            "model_type": model_type,
+            "analyte": analyte or "unknown",
+            "n_samples": n_samples,
+            "n_features": n_features,
+            "source_session": session_id or "unknown",
+        }
+        logged_params.update(params)
+        # MLflow requires all param values to be str/int/float/bool
+        safe_params = {
+            k: (str(v) if not isinstance(v, (int, float, bool, str)) else v)
+            for k, v in logged_params.items()
+            if v is not None
+        }
+        mlflow.log_params(safe_params)
+
+        # ── Metrics — final epoch values ────────────────────────────────
+        metrics: dict[str, float] = {}
+        for key in ("train_loss", "val_loss"):
+            series = history.get(key, [])
+            if series:
+                metrics[f"final_{key}"] = float(series[-1])
+                metrics[f"min_{key}"] = float(min(series))
+        if metrics:
+            mlflow.log_metrics(metrics)
+
+        run_id: str = run.info.run_id
+        log.info("ExperimentTracker: NN run logged — run_id=%s model=%s", run_id, model_type)
         return run_id
 
     # ------------------------------------------------------------------

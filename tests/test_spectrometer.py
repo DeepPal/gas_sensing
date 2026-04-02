@@ -295,7 +295,7 @@ class TestSimulatedSpectrometerLSPR:
         p0 = peak_at(0.0)
         p5 = peak_at(5.0)
         # Δλ_max = -15 nm (red-shift → lower wavelength? Check physics)
-        # Actually for Au-MIP binding: shift is toward LONGER wavelength on binding.
+        # Actually for the sensor binding: shift is toward LONGER wavelength on binding.
         # The sim uses delta_lam_max = -15 nm: negative means shorter wavelength.
         # Either direction is valid as long as there IS a shift.
         assert abs(p5 - p0) > 0.5, f"Expected shift at 5 ppm but got p0={p0:.2f}, p5={p5:.2f}"
