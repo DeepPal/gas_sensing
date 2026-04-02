@@ -48,6 +48,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Setup Node.js for frontend checks
+        if: matrix.python-version == '3.11'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: spectraagent/webapp/frontend/package-lock.json
+
+      - name: Frontend quality checks
+        if: matrix.python-version == '3.11'
+        run: |
+          cd spectraagent/webapp/frontend
+          npm ci
+          npm run lint
+          npm run test
+          npm run build
+
       - name: Ruff lint (required — correctness only)
         run: ruff check . --select E9,F63,F7,F82
 

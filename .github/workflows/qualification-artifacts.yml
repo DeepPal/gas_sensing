@@ -41,6 +41,8 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           GIT_SHA: ${{ github.sha }}
         run: |
+          python scripts/generate_benchmark_evidence.py \
+            --output-dir output/qualification/ci
           python scripts/generate_qualification_artifacts.py \
             --output-dir output/qualification/ci \
             --session-id "ci-${REF_NAME}" \

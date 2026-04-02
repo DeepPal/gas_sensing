@@ -16,6 +16,17 @@ from pathlib import Path
 import zipfile
 
 
+def _load_latest_benchmark_evidence(output_dir: Path) -> dict | None:
+    candidates = sorted(output_dir.glob("benchmark_evidence_*.json"))
+    if not candidates:
+        return None
+    latest = candidates[-1]
+    try:
+        return json.loads(latest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
 def _signature(payload: str, signing_key: str | None) -> dict[str, str | bool]:
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     if not signing_key:
@@ -94,6 +105,7 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    benchmark_evidence = _load_latest_benchmark_evidence(out_dir)
 
     dossier = {
         "status": "ok",
@@ -118,6 +130,20 @@ def main() -> None:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         },
     }
+
+    if benchmark_evidence:
+        summary = benchmark_evidence.get("summary", {})
+        novelty_signal = bool(summary.get("novelty_signal", False))
+        dossier["benchmark_evidence"] = benchmark_evidence
+        dossier["checks"].append(
+            {
+                "id": "benchmark_novelty",
+                "title": "Benchmark novelty signal",
+                "value": "pass" if novelty_signal else "warn",
+                "target": "pass",
+                "pass": novelty_signal,
+            }
+        )
 
     payload_json = json.dumps(dossier, indent=2, sort_keys=True)
     sig = _signature(payload_json, args.signing_key)
@@ -145,6 +171,8 @@ def main() -> None:
         zf.write(json_path, arcname=f"qualification/{json_path.name}")
         zf.write(html_path, arcname=f"qualification/{html_path.name}")
         zf.write(sig_path, arcname=f"qualification/{sig_path.name}")
+        for benchmark_file in sorted(out_dir.glob("benchmark_evidence_*.*")):
+            zf.write(benchmark_file, arcname=f"qualification/{benchmark_file.name}")
 
     print(json.dumps({
         "status": "ok",
