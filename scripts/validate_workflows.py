@@ -20,9 +20,30 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 RE_IF_LINE = re.compile(r"^\s*if:\s*(.+?)\s*$")
 
 
+def _validate_security_dependency_review(path: Path, content: str) -> list[str]:
+    """Enforce critical invariants for the Security Gates dependency review job."""
+    if path.name != "security.yml":
+        return []
+
+    errors: list[str] = []
+    required_snippets = [
+        "dependency-review:",
+        "if: github.event_name == 'pull_request'",
+        "base-ref: ${{ github.event.pull_request.base.sha }}",
+        "head-ref: ${{ github.event.pull_request.head.sha }}",
+    ]
+    for snippet in required_snippets:
+        if snippet not in content:
+            errors.append(
+                f"{path.relative_to(ROOT)}: missing required security dependency-review setting: {snippet}"
+            )
+    return errors
+
+
 def _validate_file(path: Path) -> list[str]:
     errors: list[str] = []
-    lines = path.read_text(encoding="utf-8").splitlines()
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
 
     for idx, line in enumerate(lines, start=1):
         m = RE_IF_LINE.match(line)
@@ -44,6 +65,8 @@ def _validate_file(path: Path) -> list[str]:
                 f"{path.relative_to(ROOT)}:{idx}: avoid using secrets in 'if:' expressions; "
                 "use a guarded shell step with env vars instead"
             )
+
+    errors.extend(_validate_security_dependency_review(path, content))
 
     return errors
 
