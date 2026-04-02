@@ -409,6 +409,10 @@ def _build_qualification_dossier(
             "lod_ppm": getattr(analysis, "lod_ppm", None),
             "loq_ppm": getattr(analysis, "loq_ppm", None),
             "drift_rate_nm_per_frame": getattr(analysis, "drift_rate_nm_per_frame", None),
+            "lol_ppm": getattr(analysis, "lol_ppm", None),
+            "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
+            "tau_63_s": getattr(analysis, "tau_63_s", None),
+            "interval_coverage": getattr(analysis, "interval_coverage", None),
             "summary_text": getattr(analysis, "summary_text", ""),
         }
         source = "live_analysis"
@@ -464,6 +468,10 @@ def _build_qualification_dossier(
     lod = metrics.get("lod_ppm")
     loq = metrics.get("loq_ppm")
     drift = metrics.get("drift_rate_nm_per_frame")
+    lol_ppm = metrics.get("lol_ppm")
+    kinetics_fit_r2 = metrics.get("kinetics_fit_r2")
+    tau_63_s = metrics.get("tau_63_s")
+    interval_coverage = metrics.get("interval_coverage")
 
     min_pts = int(thresholds["min_calibration_points"])
     add_check(
@@ -519,6 +527,42 @@ def _build_qualification_dossier(
         _is_finite_number(drift) and abs(float(drift)) <= thresholds["max_abs_drift_nm_per_frame"],
         False,
         "Stabilize temperature/humidity and allow longer warm-up before measurement.",
+    )
+    add_check(
+        "linearity_limit",
+        "Limit of linearity (LOL) computed",
+        lol_ppm,
+        "finite",
+        _is_finite_number(lol_ppm),
+        False,
+        "Collect more calibration points and verify Mandel linearity to establish linear operating range.",
+    )
+    add_check(
+        "kinetics_fit",
+        "Kinetics fit quality (R²)",
+        kinetics_fit_r2,
+        ">= 0.90 (when kinetics available)",
+        (not _is_finite_number(kinetics_fit_r2)) or float(kinetics_fit_r2) >= 0.90,
+        False,
+        "Capture a cleaner step response and re-run kinetics fitting to support mechanism claims.",
+    )
+    add_check(
+        "kinetics_tau63",
+        "Response time constant τ63 (s)",
+        tau_63_s,
+        "finite (when kinetics available)",
+        (not _is_finite_number(tau_63_s)) or float(tau_63_s) > 0,
+        False,
+        "Run a full association transient to characterize sensor response dynamics.",
+    )
+    add_check(
+        "interval_coverage",
+        "Predictive interval coverage",
+        interval_coverage,
+        ">= 0.90 (if ground truth available)",
+        (not _is_finite_number(interval_coverage)) or float(interval_coverage) >= 0.90,
+        False,
+        "Evaluate predicted intervals against labeled concentrations to validate uncertainty calibration.",
     )
 
     passed = sum(1 for c in checks if c["pass"])
@@ -1150,6 +1194,7 @@ def create_app(simulate: bool = False) -> FastAPI:
                     "calibration_r2": analysis.calibration_r2,
                     "calibration_rmse_ppm": getattr(analysis, "calibration_rmse_ppm", None),
                     "calibration_n_points": getattr(analysis, "calibration_n_points", 0),
+                    "lol_ppm": getattr(analysis, "lol_ppm", None),
                     "mean_snr": analysis.mean_snr,
                     "drift_rate_nm_per_frame": analysis.drift_rate_nm_per_frame,
                     "frame_count": analysis.frame_count,
@@ -1158,6 +1203,7 @@ def create_app(simulate: bool = False) -> FastAPI:
                     "tau_95_s": getattr(analysis, "tau_95_s", None),
                     "k_on_per_s": getattr(analysis, "k_on_per_s", None),
                     "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
+                    "interval_coverage": getattr(analysis, "interval_coverage", None),
                     "temperature_c": acq_config_snapshot.get("temperature_c"),
                     "humidity_pct": acq_config_snapshot.get("humidity_pct"),
                 }

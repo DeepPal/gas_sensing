@@ -125,6 +125,32 @@ def test_qualification_dossier_passes_with_strong_metrics(client):
     assert isinstance(data["checks"], list)
 
 
+def test_qualification_dossier_surfaces_research_validation_checks(client):
+    """Dossier should include linearity/kinetics/coverage checks when available."""
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=8,
+        calibration_r2=0.985,
+        mean_snr=4.2,
+        lod_ppm=0.012,
+        loq_ppm=0.040,
+        drift_rate_nm_per_frame=0.001,
+        lol_ppm=5.0,
+        kinetics_fit_r2=0.93,
+        tau_63_s=12.5,
+        interval_coverage=0.94,
+        summary_text="Research-validation rich session.",
+    )
+
+    resp = client.get("/api/qualification/dossier")
+    assert resp.status_code == 200
+    data = resp.json()
+    check_ids = {check["id"] for check in data["checks"]}
+    assert "linearity_limit" in check_ids
+    assert "kinetics_fit" in check_ids
+    assert "kinetics_tau63" in check_ids
+    assert "interval_coverage" in check_ids
+
+
 def test_qualification_dossier_marks_failed_sessions_as_research_only(client):
     """Failed qualification dossiers should be explicitly labeled as research-only."""
     client.app.state.last_session_analysis = SimpleNamespace(
