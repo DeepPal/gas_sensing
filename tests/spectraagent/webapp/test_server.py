@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -119,6 +120,51 @@ def test_qualification_dossier_passes_with_strong_metrics(client):
     assert data["overall_pass"] is True
     assert data["qualification_tier"] in {"bronze", "silver", "gold"}
     assert isinstance(data["checks"], list)
+
+
+def test_qualification_dossier_export_writes_artifacts(client, tmp_path, monkeypatch):
+    """Export endpoint writes dossier artifacts and signature metadata."""
+    monkeypatch.setenv("SPECTRAAGENT_DOSSIER_DIR", str(tmp_path))
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=8,
+        calibration_r2=0.985,
+        mean_snr=4.2,
+        lod_ppm=0.012,
+        loq_ppm=0.040,
+        drift_rate_nm_per_frame=0.001,
+        summary_text="Qualification-ready session.",
+    )
+
+    resp = client.post("/api/qualification/dossier/export?artifact=both")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "exported"
+    assert "paths" in data
+    assert os.path.exists(data["paths"]["json"])
+    assert os.path.exists(data["paths"]["html"])
+    assert os.path.exists(data["paths"]["signature"])
+
+
+def test_qualification_dossier_export_signs_with_hmac_key(client, tmp_path, monkeypatch):
+    """When signing key is configured, export includes HMAC signature metadata."""
+    monkeypatch.setenv("SPECTRAAGENT_DOSSIER_DIR", str(tmp_path))
+    monkeypatch.setenv("SPECTRAAGENT_DOSSIER_SIGNING_KEY", "top-secret-test-key")
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=7,
+        calibration_r2=0.97,
+        mean_snr=3.5,
+        lod_ppm=0.020,
+        loq_ppm=0.060,
+        drift_rate_nm_per_frame=0.002,
+        summary_text="Signed dossier session.",
+    )
+
+    resp = client.post("/api/qualification/dossier/export?artifact=json")
+    assert resp.status_code == 200
+    sig = resp.json()["signature"]
+    assert sig["signed"] is True
+    assert sig["algorithm"] == "hmac-sha256"
+    assert "signature" in sig
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,10 @@ import asyncio
 from collections import deque
 import contextlib
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
+import hmac
+import html
 import json
 import logging
 import math
@@ -552,6 +555,74 @@ def _build_qualification_dossier(
     }
 
 
+def _dossier_artifact_dir() -> Path:
+        """Directory where qualification dossier exports are written."""
+        return Path(os.environ.get("SPECTRAAGENT_DOSSIER_DIR", "output/qualification"))
+
+
+def _dossier_signature(payload_json: str) -> dict[str, Any]:
+        """Create integrity signature metadata for exported dossier payload."""
+        payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        secret = os.environ.get("SPECTRAAGENT_DOSSIER_SIGNING_KEY", "")
+        if not secret:
+                return {
+                        "algorithm": "sha256",
+                        "payload_sha256": payload_hash,
+                        "signed": False,
+                        "message": "Set SPECTRAAGENT_DOSSIER_SIGNING_KEY for HMAC signatures.",
+                }
+        mac = hmac.new(secret.encode("utf-8"), payload_json.encode("utf-8"), hashlib.sha256)
+        return {
+                "algorithm": "hmac-sha256",
+                "payload_sha256": payload_hash,
+                "signature": mac.hexdigest(),
+                "signed": True,
+        }
+
+
+def _render_dossier_html(dossier: dict[str, Any]) -> str:
+        """Render a simple standalone HTML dossier for procurement/review workflows."""
+        session = html.escape(str(dossier.get("session_id") or "unknown"))
+        tier = html.escape(str(dossier.get("qualification_tier") or "not_qualified"))
+        score = html.escape(str(dossier.get("score") or "0"))
+        overall = "PASS" if dossier.get("overall_pass") else "FAIL"
+        checks = dossier.get("checks", [])
+        rows = []
+        for c in checks:
+                title = html.escape(str(c.get("title", "")))
+                value = html.escape(str(c.get("value", "n/a")))
+                target = html.escape(str(c.get("target", "n/a")))
+                passed = "PASS" if c.get("pass") else "FAIL"
+                rows.append(f"<tr><td>{title}</td><td>{value}</td><td>{target}</td><td>{passed}</td></tr>")
+
+        row_html = "\n".join(rows) if rows else "<tr><td colspan='4'>No checks available</td></tr>"
+        return f"""<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>Qualification Dossier - {session}</title>
+    <style>
+        body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #122; }}
+        h1 {{ margin-bottom: 0; }}
+        .meta {{ margin: 8px 0 20px; color: #334; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #b9c6d1; padding: 8px; text-align: left; }}
+        th {{ background: #eaf1f6; }}
+        .badge {{ padding: 3px 8px; border-radius: 4px; background: #edf7ed; }}
+    </style>
+</head>
+<body>
+    <h1>Qualification Dossier</h1>
+    <div class=\"meta\">Session: <strong>{session}</strong> | Overall: <strong>{overall}</strong> | Tier: <strong>{tier}</strong> | Score: <strong>{score}</strong></div>
+    <table>
+        <thead><tr><th>Check</th><th>Value</th><th>Target</th><th>Status</th></tr></thead>
+        <tbody>{row_html}</tbody>
+    </table>
+</body>
+</html>
+"""
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -726,6 +797,58 @@ def create_app(simulate: bool = False) -> FastAPI:
     async def qualification_dossier(session_id: str | None = None) -> JSONResponse:
         """Return pass/fail qualification dossier for supplier-facing evidence."""
         return JSONResponse(_build_qualification_dossier(app, session_id, _session_active))
+
+    @app.post("/api/qualification/dossier/export")
+    async def qualification_dossier_export(
+        session_id: str | None = None,
+        artifact: str = "both",
+    ) -> JSONResponse:
+        """Export qualification dossier to JSON/HTML with integrity signature metadata."""
+        artifact = artifact.lower().strip()
+        if artifact not in {"json", "html", "both"}:
+            raise HTTPException(status_code=422, detail="artifact must be one of: json, html, both")
+
+        dossier = _build_qualification_dossier(app, session_id, _session_active)
+        resolved_session_id = str(
+            dossier.get("session_id") or getattr(app.state, "last_session_id", None) or "unknown"
+        )
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = _dossier_artifact_dir() / resolved_session_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        payload_json = json.dumps(dossier, indent=2, sort_keys=True, default=str)
+        signature = _dossier_signature(payload_json)
+        signature_payload = {
+            "session_id": resolved_session_id,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "artifact": artifact,
+            "signature": signature,
+        }
+
+        paths: dict[str, str] = {}
+        if artifact in {"json", "both"}:
+            json_path = out_dir / f"qualification_dossier_{stamp}.json"
+            json_path.write_text(payload_json, encoding="utf-8")
+            paths["json"] = str(json_path)
+
+        if artifact in {"html", "both"}:
+            html_path = out_dir / f"qualification_dossier_{stamp}.html"
+            html_path.write_text(_render_dossier_html(dossier), encoding="utf-8")
+            paths["html"] = str(html_path)
+
+        sig_path = out_dir / f"qualification_dossier_{stamp}.sig.json"
+        sig_path.write_text(json.dumps(signature_payload, indent=2), encoding="utf-8")
+        paths["signature"] = str(sig_path)
+
+        return JSONResponse(
+            {
+                "status": "exported",
+                "session_id": resolved_session_id,
+                "artifact": artifact,
+                "paths": paths,
+                "signature": signature,
+            }
+        )
 
     # ------------------------------------------------------------------
     # WebSocket: /ws/spectrum and /ws/trend
