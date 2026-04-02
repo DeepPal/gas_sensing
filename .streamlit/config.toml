@@ -22,5 +22,6 @@ runOnSave = true
 
 # Session state timeout — log users out after 8 hours
 maxUploadSize = 200
-enableCORS = false
+# XSRF protection requires CORS to stay at default (true).
+# Explicitly setting enableCORS=false here conflicts and is overridden by Streamlit.
 enableXsrfProtection = true

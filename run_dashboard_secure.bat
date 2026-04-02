@@ -50,27 +50,33 @@ echo ==========================================
 echo.
 
 REM Try to generate self-signed certs (non-fatal if OpenSSL is unavailable)
-python -m dashboard.security >nul 2>nul
+.venv\Scripts\python.exe -m dashboard.security >nul 2>nul
 
-set "CERT_FILE=.streamlit\certs\server.crt"
-set "KEY_FILE=.streamlit\certs\server.key"
+REM Use absolute paths so Streamlit resolves them correctly regardless of cwd
+set "CERT_FILE=%~dp0.streamlit\certs\server.crt"
+set "KEY_FILE=%~dp0.streamlit\certs\server.key"
 set "HTTPS_ARGS="
-if exist "%CERT_FILE%" if exist "%KEY_FILE%" (
-    echo HTTPS mode: enabled (self-signed cert)
-    echo Dashboard URL: https://localhost:8501
-    set "HTTPS_ARGS=--server.sslCertFile=%CERT_FILE% --server.sslKeyFile=%KEY_FILE%"
+if exist "%CERT_FILE%" (
+    if exist "%KEY_FILE%" (
+        echo HTTPS mode: enabled (self-signed cert)
+        echo Dashboard URL: https://localhost:8501
+        set "HTTPS_ARGS=--server.sslCertFile=%CERT_FILE% --server.sslKeyFile=%KEY_FILE%"
+    ) else (
+        echo HTTPS mode: unavailable ^(key file missing^)
+    )
 ) else (
-    echo HTTPS mode: unavailable (running HTTP)
+    echo HTTPS mode: unavailable ^(HTTP only^)
 )
 echo.
 
 REM Launch Streamlit
-streamlit run dashboard/app.py ^
+REM Note: enableCORS is intentionally omitted — Streamlit manages it automatically
+REM when enableXsrfProtection=true (setting both causes a warning and override).
+.venv\Scripts\python.exe -m streamlit run dashboard/app.py ^
     --logger.level=info ^
     --client.showErrorDetails=false ^
     --server.headless=true ^
     --server.enableXsrfProtection=true ^
-    --server.enableCORS=false ^
     !HTTPS_ARGS!
 
 pause
