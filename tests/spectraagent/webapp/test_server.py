@@ -472,6 +472,8 @@ def test_acquisition_start_stop_creates_session(client, tmp_path):
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["stopped_at"] is not None
+    manifest_path = tmp_path / "sessions" / session_id / f"{session_id}_manifest.json"
+    assert manifest_path.exists()
 
 
 def test_lifespan_startup_callback_runs():
@@ -503,6 +505,9 @@ def test_shutdown_finalizes_active_session(tmp_path):
     assert len(sessions) == 1
     assert sessions[0]["frame_count"] == 7
     assert sessions[0]["stopped_at"] is not None
+    session_id = sessions[0]["session_id"]
+    manifest_path = tmp_path / "sessions" / session_id / f"{session_id}_manifest.json"
+    assert manifest_path.exists()
 
 
 # ---------------------------------------------------------------------------

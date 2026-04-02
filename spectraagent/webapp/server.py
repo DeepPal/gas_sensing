@@ -728,6 +728,24 @@ def _build_package_status_readme(
     )
 
 
+def _write_session_manifest(app: FastAPI, session_id: str) -> Path | None:
+    """Write a reproducibility manifest beside a stored session when possible."""
+    sw = getattr(app.state, "session_writer", None)
+    session_base = getattr(sw, "_dir", None)
+    if session_base is None:
+        return None
+    session_dir = Path(session_base) / session_id
+    if not session_dir.exists() or not session_dir.is_dir():
+        return None
+    try:
+        from dashboard.reproducibility import create_session_manifest
+
+        return create_session_manifest(session_id=session_id, output_dir=session_dir)
+    except Exception as exc:
+        log.warning("Session manifest creation failed for %s: %s", session_id, exc)
+        return None
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -809,7 +827,10 @@ def create_app(simulate: bool = False) -> FastAPI:
             if app.state.session_running:
                 sw = getattr(app.state, "session_writer", None)
                 if sw is not None:
+                    session_id = getattr(app.state, "last_session_id", None)
                     sw.stop_session(frame_count=int(app.state.session_frame_count))
+                    if session_id:
+                        _write_session_manifest(app, str(session_id))
                 app.state.session_running = False
 
     app = FastAPI(
@@ -1095,12 +1116,13 @@ def create_app(simulate: bool = False) -> FastAPI:
         app.state.session_running = False
         frame_count = int(app.state.session_frame_count)
         sw = getattr(app.state, "session_writer", None)
+        session_id = str(_session_active.get("session_id") or getattr(app.state, "last_session_id", None) or "unknown")
         if sw is not None:
             sw.stop_session(frame_count=frame_count)
+            _write_session_manifest(app, session_id)
 
         # Auto-run SessionAnalyzer and emit results to the agent bus
         session_events = getattr(app.state, "session_events", [])
-        session_id = _session_active.get("session_id") or "unknown"
         gas_label = _acq_config.get("gas_label", "unknown")
         analysis = None
         try:
