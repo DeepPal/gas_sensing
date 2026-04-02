@@ -107,6 +107,17 @@ update the canonical tracking files in the same PR to prevent status drift:
 - `CHANGELOG.md`
 - `.github/workflows/security.yml` (if gate logic changed)
 
+## Security reporting
+
+If you discover a security issue, do not create a public issue.
+Follow the disclosure process documented in `SECURITY.md`.
+
+For security-relevant code changes, include:
+
+- Threat surface summary in the PR description
+- Test coverage for the security-sensitive path
+- Rollback or mitigation notes for deployment
+
 ## Pull request checklist
 
 - [ ] Tests added or updated for all behaviour changes

@@ -1,0 +1,18 @@
+# Default code owner for all paths
+* @DeepPal
+
+# Workflow and security policy ownership
+.github/workflows/ @DeepPal
+SECURITY.md @DeepPal
+
+# Core runtime and scientific pipelines
+src/ @DeepPal
+spectraagent/ @DeepPal
+dashboard/ @DeepPal
+gas_analysis/ @DeepPal
+
+# Tests and docs
+tests/ @DeepPal
+docs/ @DeepPal
+README.md @DeepPal
+CONTRIBUTING.md @DeepPal
