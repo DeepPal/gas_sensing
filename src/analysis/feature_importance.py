@@ -43,8 +43,13 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import plotly.graph_objects
+    import torch
 
 __all__ = [
     "gradient_attribution",

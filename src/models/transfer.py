@@ -48,11 +48,15 @@ Usage
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+if TYPE_CHECKING:
+    import numpy as np
+    from src.models.multi_task import MultiTaskModel
 
 __all__ = [
     "DomainAdaptConfig",
@@ -280,6 +284,7 @@ class DomainAdaptModel(nn.Module):
         """
         src_out = self.forward(src_x, lam)
         features_src = src_out["features"]
+        assert features_src is not None
 
         # Task losses on source data
         task_loss: torch.Tensor = features_src.mean() * 0.0
@@ -381,8 +386,10 @@ def fine_tune(
     has_conc = concentrations is not None
 
     if has_class:
+        assert analyte_labels is not None
         tensors.append(torch.from_numpy(analyte_labels.astype(np.int64)))
     if has_conc:
+        assert concentrations is not None
         tensors.append(
             torch.from_numpy(concentrations.astype(np.float32)).unsqueeze(1))
 
@@ -472,9 +479,11 @@ def train_domain_adapt(
     has_labels = source_labels is not None
     has_conc = source_conc is not None
     if has_labels:
+        assert source_labels is not None
         src_tensors.append(
             torch.from_numpy(source_labels.astype(np.int64)))
     if has_conc:
+        assert source_conc is not None
         src_tensors.append(
             torch.from_numpy(source_conc.astype(np.float32)).unsqueeze(1))
 

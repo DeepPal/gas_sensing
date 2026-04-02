@@ -42,10 +42,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.linalg import lstsq, matrix_rank, norm
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 log = logging.getLogger(__name__)
 
@@ -191,7 +194,7 @@ class SensitivityMatrix:
         )
         return entry
 
-    def fit_from_dataframe(self, df: "pd.DataFrame") -> None:  # noqa: F821
+    def fit_from_dataframe(self, df: "pd.DataFrame") -> None:
         """Fit the full S matrix from a calibration DataFrame.
 
         Expects columns: ``analyte``, ``concentration_ppm``,

@@ -245,10 +245,11 @@ class CrossPeakPCA:
         """Project X onto the fitted PCs. Returns shape (n_samples, n_components)."""
         if not self.is_fitted:
             raise RuntimeError("Fit CrossPeakPCA before calling transform().")
+        assert self._mean is not None and self._components is not None
         X = np.asarray(X, dtype=float)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        return (X - self._mean) @ self._components.T  # type: ignore[operator]
+        return (X - self._mean) @ self._components.T
 
     @property
     def explained_variance_ratio(self) -> np.ndarray | None:

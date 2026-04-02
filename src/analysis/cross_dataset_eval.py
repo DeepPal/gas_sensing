@@ -37,9 +37,12 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import TYPE_CHECKING, Callable, Literal
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from src.io.universal_loader import SpectralDataset
 
 __all__ = [
     "BenchmarkConfig",
@@ -357,7 +360,8 @@ class CrossDatasetBenchmark:
 
             if mask_tr.sum() < 2 or mask_te.sum() < 1:
                 warnings.warn(
-                    f"Not enough samples for classification in fold {self.test_name}")
+                    "Not enough samples for classification in current fold"
+                )
                 return float("nan"), float("nan")
 
             clf.fit(Xt[mask_tr], y_train[mask_tr])

@@ -182,7 +182,7 @@ class ModelVersionStore:
 
     def list_versions(self, name: str) -> list[VersionRecord]:
         """Return all saved versions for *name*, sorted newest-first."""
-        records = []
+        records: list[VersionRecord] = []
         if not self._root.exists():
             return records
         for version_dir in sorted(self._root.glob(f"{name}_*"), reverse=True):

@@ -49,11 +49,14 @@ Usage
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+if TYPE_CHECKING:
+    import numpy as np
 
 __all__ = [
     "ContrastiveConfig",

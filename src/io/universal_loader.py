@@ -112,11 +112,11 @@ class SpectralDataset:
 
     @property
     def n_samples(self) -> int:
-        return self.spectra.shape[0]
+        return int(self.spectra.shape[0])
 
     @property
     def n_wavelengths(self) -> int:
-        return self.spectra.shape[1]
+        return int(self.spectra.shape[1])
 
     @property
     def wl_range(self) -> tuple[float, float]:
@@ -491,7 +491,7 @@ def _find_wavelength_column(df: pd.DataFrame) -> str | None:
     for c in df.select_dtypes(include=[np.number]).columns:
         vals = df[c].dropna().values
         if len(vals) > 10 and 100 <= vals.min() and vals.max() <= 2500:
-            return c
+            return str(c)
     return None
 
 
