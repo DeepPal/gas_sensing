@@ -118,6 +118,8 @@ export default function App() {
   const [reportContent, setReportContent] = useState<string | null>(null)
   const [reportGenerating, setReportGenerating] = useState(false)
   const [showReport, setShowReport] = useState(false)
+  const [qualBusy, setQualBusy] = useState(false)
+  const [qualNotice, setQualNotice] = useState<string | null>(null)
 
   // Anomaly / Claude explanation modal
   const [anomalyEvent, setAnomalyEvent] = useState<AgentEvent | null>(null)
@@ -199,16 +201,16 @@ export default function App() {
 
   // ── Kinetic phase from trend data ────────────────────────────────────────
   useEffect(() => {
-    if (trendData.length < 3) { setKineticPhase('waiting'); return }
-    const recent = trendData.slice(-10)
-    const shifts = recent.map(d => Math.abs(d.shift ?? 0))
-    if (shifts.every(s => s < 0.02)) { setKineticPhase('baseline'); return }
+    if (trend.length < 3) { setKineticPhase('waiting'); return }
+    const recent = trend.slice(-10)
+    const shifts = recent.map((d: TrendPoint) => Math.abs(d.shift ?? 0))
+    if (shifts.every((s: number) => s < 0.02)) { setKineticPhase('baseline'); return }
     const last3 = shifts.slice(-3)
     const delta = last3[2] - last3[0]
     if (delta > 0.005) setKineticPhase('association')
     else if (delta < -0.005) setKineticPhase('dissociation')
     else setKineticPhase('equilibrium')
-  }, [trendData])
+  }, [trend])
 
   // ── Spectrum WebSocket ───────────────────────────────────────────────────
   useEffect(() => {
@@ -412,6 +414,46 @@ export default function App() {
     }
   }
 
+  const exportDossier = async () => {
+    setQualBusy(true)
+    setQualNotice(null)
+    try {
+      const r = await api.exportQualificationDossier(currentSessionId, 'both')
+      const signed = r.signature?.signed ? 'signed' : 'unsigned'
+      setQualNotice(`Dossier exported (${signed}). JSON: ${r.paths.json ?? 'n/a'}`)
+      setEvents(prev => [{
+        _id: ++eventIdRef.current,
+        source: 'UI', level: 'info', type: 'qualification_exported',
+        text: `Qualification dossier exported (${signed}) for ${r.session_id}`,
+      }, ...prev])
+    } catch (err) {
+      setQualNotice(`Export failed: ${String(err)}`)
+      pushError('UI/QualificationExport', err)
+    } finally {
+      setQualBusy(false)
+    }
+  }
+
+  const buildResearchPackage = async () => {
+    setQualBusy(true)
+    setQualNotice(null)
+    try {
+      const r = await api.createResearchPackage(currentSessionId)
+      const signed = r.signature?.signed ? 'signed' : 'unsigned'
+      setQualNotice(`Research package created (${signed}): ${r.package_path}`)
+      setEvents(prev => [{
+        _id: ++eventIdRef.current,
+        source: 'UI', level: 'info', type: 'research_package_created',
+        text: `Research package created with ${r.included.length} artifacts`,
+      }, ...prev])
+    } catch (err) {
+      setQualNotice(`Package build failed: ${String(err)}`)
+      pushError('UI/QualificationPackage', err)
+    } finally {
+      setQualBusy(false)
+    }
+  }
+
   // ── Settings ─────────────────────────────────────────────────────────────
   const saveQualitySettings = async () => {
     try {
@@ -565,6 +607,25 @@ export default function App() {
                   <FileText size={13} />
                   {reportGenerating ? 'Generating…' : 'Generate Report'}
                 </button>
+                <button
+                  type="button"
+                  className="btn-secondary full-width"
+                  onClick={exportDossier}
+                  disabled={qualBusy}
+                >
+                  <FileText size={13} />
+                  {qualBusy ? 'Working…' : 'Export Qualification Dossier'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary full-width"
+                  onClick={buildResearchPackage}
+                  disabled={qualBusy}
+                >
+                  <History size={13} />
+                  {qualBusy ? 'Working…' : 'Build Research Package (.zip)'}
+                </button>
+                {qualNotice && <div className="session-id-badge">{qualNotice}</div>}
                 <div className="session-id-badge">ID: {currentSessionId.slice(0, 18)}…</div>
               </div>
             )}

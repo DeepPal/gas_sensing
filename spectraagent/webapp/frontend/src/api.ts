@@ -92,6 +92,22 @@ export interface SimCalibrationSummaryRow {
   n: number
 }
 
+export interface QualificationExportResponse {
+  status: string
+  session_id: string
+  artifact: string
+  paths: Record<string, string>
+  signature: { algorithm: string; payload_sha256: string; signed: boolean; signature?: string }
+}
+
+export interface QualificationPackageResponse {
+  status: string
+  session_id: string
+  package_path: string
+  included: string[]
+  signature: { algorithm: string; payload_sha256: string; signed: boolean; signature?: string }
+}
+
 export const api = {
   async health(): Promise<HealthResponse> {
     const r = await fetch(`${BASE}/api/health`)
@@ -164,6 +180,30 @@ export const api = {
       try { const body = await r.json(); detail = body.detail ?? detail } catch { /* ignore */ }
       throw new Error(detail)
     }
+    return r.json()
+  },
+
+  async exportQualificationDossier(
+    sessionId: string | null,
+    artifact: 'json' | 'html' | 'both' = 'both',
+  ): Promise<QualificationExportResponse> {
+    const params = new URLSearchParams({ artifact })
+    if (sessionId) params.set('session_id', sessionId)
+    const r = await fetch(`${BASE}/api/qualification/dossier/export?${params.toString()}`, {
+      method: 'POST',
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return r.json()
+  },
+
+  async createResearchPackage(sessionId: string | null): Promise<QualificationPackageResponse> {
+    const params = new URLSearchParams()
+    if (sessionId) params.set('session_id', sessionId)
+    const q = params.toString()
+    const r = await fetch(`${BASE}/api/qualification/package${q ? `?${q}` : ''}`, {
+      method: 'POST',
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.json()
   },
 

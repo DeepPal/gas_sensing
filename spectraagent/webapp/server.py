@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import time
 from typing import Any
+import zipfile
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -623,6 +624,43 @@ def _render_dossier_html(dossier: dict[str, Any]) -> str:
 """
 
 
+def _write_dossier_artifacts(
+    dossier: dict[str, Any],
+    session_id: str,
+    artifact: str,
+) -> tuple[Path, str, dict[str, str], dict[str, Any]]:
+    """Write dossier artifacts and return (out_dir, stamp, paths, signature)."""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = _dossier_artifact_dir() / session_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    payload_json = json.dumps(dossier, indent=2, sort_keys=True, default=str)
+    signature = _dossier_signature(payload_json)
+    signature_payload = {
+        "session_id": session_id,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "artifact": artifact,
+        "signature": signature,
+    }
+
+    paths: dict[str, str] = {}
+    if artifact in {"json", "both"}:
+        json_path = out_dir / f"qualification_dossier_{stamp}.json"
+        json_path.write_text(payload_json, encoding="utf-8")
+        paths["json"] = str(json_path)
+
+    if artifact in {"html", "both"}:
+        html_path = out_dir / f"qualification_dossier_{stamp}.html"
+        html_path.write_text(_render_dossier_html(dossier), encoding="utf-8")
+        paths["html"] = str(html_path)
+
+    sig_path = out_dir / f"qualification_dossier_{stamp}.sig.json"
+    sig_path.write_text(json.dumps(signature_payload, indent=2), encoding="utf-8")
+    paths["signature"] = str(sig_path)
+
+    return out_dir, stamp, paths, signature
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -812,33 +850,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         resolved_session_id = str(
             dossier.get("session_id") or getattr(app.state, "last_session_id", None) or "unknown"
         )
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_dir = _dossier_artifact_dir() / resolved_session_id
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        payload_json = json.dumps(dossier, indent=2, sort_keys=True, default=str)
-        signature = _dossier_signature(payload_json)
-        signature_payload = {
-            "session_id": resolved_session_id,
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "artifact": artifact,
-            "signature": signature,
-        }
-
-        paths: dict[str, str] = {}
-        if artifact in {"json", "both"}:
-            json_path = out_dir / f"qualification_dossier_{stamp}.json"
-            json_path.write_text(payload_json, encoding="utf-8")
-            paths["json"] = str(json_path)
-
-        if artifact in {"html", "both"}:
-            html_path = out_dir / f"qualification_dossier_{stamp}.html"
-            html_path.write_text(_render_dossier_html(dossier), encoding="utf-8")
-            paths["html"] = str(html_path)
-
-        sig_path = out_dir / f"qualification_dossier_{stamp}.sig.json"
-        sig_path.write_text(json.dumps(signature_payload, indent=2), encoding="utf-8")
-        paths["signature"] = str(sig_path)
+        _, _, paths, signature = _write_dossier_artifacts(dossier, resolved_session_id, artifact)
 
         return JSONResponse(
             {
@@ -846,6 +858,47 @@ def create_app(simulate: bool = False) -> FastAPI:
                 "session_id": resolved_session_id,
                 "artifact": artifact,
                 "paths": paths,
+                "signature": signature,
+            }
+        )
+
+    @app.post("/api/qualification/package")
+    async def qualification_package(session_id: str | None = None) -> JSONResponse:
+        """Create a zipped research package containing dossier + session evidence files."""
+        dossier = _build_qualification_dossier(app, session_id, _session_active)
+        resolved_session_id = str(
+            dossier.get("session_id") or getattr(app.state, "last_session_id", None) or "unknown"
+        )
+        out_dir, stamp, paths, signature = _write_dossier_artifacts(
+            dossier, resolved_session_id, "both"
+        )
+
+        bundle_path = out_dir / f"research_package_{stamp}.zip"
+        included: list[str] = []
+        with zipfile.ZipFile(bundle_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for k in ("json", "html", "signature"):
+                p = paths.get(k)
+                if not p:
+                    continue
+                src = Path(p)
+                arc = f"qualification/{src.name}"
+                zf.write(src, arcname=arc)
+                included.append(arc)
+
+            session_root = Path("output/sessions") / resolved_session_id
+            for name in ("session_meta.json", "agent_events.jsonl", "pipeline_results.csv"):
+                src = session_root / name
+                if src.exists() and src.is_file():
+                    arc = f"session/{name}"
+                    zf.write(src, arcname=arc)
+                    included.append(arc)
+
+        return JSONResponse(
+            {
+                "status": "packaged",
+                "session_id": resolved_session_id,
+                "package_path": str(bundle_path),
+                "included": included,
                 "signature": signature,
             }
         )

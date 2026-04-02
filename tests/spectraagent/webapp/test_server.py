@@ -1,7 +1,9 @@
 import asyncio
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import zipfile
 
 from fastapi.testclient import TestClient
 import pytest
@@ -165,6 +167,33 @@ def test_qualification_dossier_export_signs_with_hmac_key(client, tmp_path, monk
     assert sig["signed"] is True
     assert sig["algorithm"] == "hmac-sha256"
     assert "signature" in sig
+
+
+def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
+    """Package endpoint should create a zip with dossier artifacts."""
+    monkeypatch.setenv("SPECTRAAGENT_DOSSIER_DIR", str(tmp_path))
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=7,
+        calibration_r2=0.97,
+        mean_snr=3.8,
+        lod_ppm=0.015,
+        loq_ppm=0.050,
+        drift_rate_nm_per_frame=0.0015,
+        summary_text="Packaging-ready session.",
+    )
+
+    resp = client.post("/api/qualification/package")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "packaged"
+    package_path = Path(data["package_path"])
+    assert package_path.exists()
+
+    with zipfile.ZipFile(package_path, "r") as zf:
+        names = zf.namelist()
+        assert any(name.startswith("qualification/") and name.endswith(".json") for name in names)
+        assert any(name.startswith("qualification/") and name.endswith(".html") for name in names)
+        assert any(name.startswith("qualification/") and name.endswith(".sig.json") for name in names)
 
 
 # ---------------------------------------------------------------------------
