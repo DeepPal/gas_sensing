@@ -633,3 +633,64 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: 11px; color: var(--text-dim); line-height: 1.5;
   background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px dashed #29415d; padding: 10px;
 }
+.repro-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.repro-metric-card {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid #29415d;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.repro-metric-card-status {
+  grid-column: span 2;
+}
+.repro-metric-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.repro-metric-value {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+.repro-status {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.repro-status.pass {
+  color: #86efac;
+  background: #052e16;
+}
+.repro-status.fail {
+  color: #fca5a5;
+  background: #3f1013;
+}
+.repro-status.pending {
+  color: #fcd34d;
+  background: #3b2a07;
+}
+.repro-notes-list {
+  margin-top: 8px;
+}
+@media (max-width: 860px) {
+  .repro-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .repro-metric-card-status {
+    grid-column: span 1;
+  }
+}

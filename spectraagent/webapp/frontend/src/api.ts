@@ -40,6 +40,20 @@ export interface QualificationCheck {
   recommendation: string
 }
 
+export interface ReproducibilitySummary {
+  available: boolean
+  reason?: string
+  window_sessions?: number
+  session_count?: number
+  required?: number
+  lod_rsd_pct?: number | null
+  loq_rsd_pct?: number | null
+  r2_mean?: number | null
+  r2_min?: number | null
+  batch_ready?: boolean | null
+  notes?: string[]
+}
+
 export interface QualificationDossierResponse {
   status: string
   session_id?: string | null
@@ -48,6 +62,7 @@ export interface QualificationDossierResponse {
   score?: number
   checks: QualificationCheck[]
   next_actions: string[]
+  reproducibility?: ReproducibilitySummary
 }
 
 export interface AcquisitionConfig {

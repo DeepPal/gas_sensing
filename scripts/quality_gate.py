@@ -37,6 +37,7 @@ def _pytest_base_command(*, with_coverage: bool, marker: str) -> str:
 
 def build_checks(args: argparse.Namespace) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = [
+        ("python scripts/validate_workflows.py", True),
         (RUFF_REQUIRED_CHECK, True),
         (RUFF_ADVISORY_CHECK, False),
     ]

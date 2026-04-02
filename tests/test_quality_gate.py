@@ -44,6 +44,8 @@ def test_build_checks_all_lane_includes_fast_and_reliability() -> None:
     commands = [command for command, _ in checks]
     required = {command: is_required for command, is_required in checks}
 
+    assert "python scripts/validate_workflows.py" in commands
+    assert required["python scripts/validate_workflows.py"] is True
     assert any('pytest -q --tb=short -m "not reliability"' in command for command in commands)
     assert any('pytest -q --tb=short -m "reliability"' in command for command in commands)
     assert quality_gate.RUFF_REQUIRED_CHECK in required

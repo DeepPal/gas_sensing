@@ -565,6 +565,7 @@ export default function App() {
   const qualificationChecks = qualificationDossier?.checks ?? []
   const passedQualificationChecks = qualificationChecks.filter(check => check.pass).length
   const failedCriticalChecks = qualificationChecks.filter(check => check.critical && !check.pass)
+  const reproducibility = qualificationDossier?.reproducibility
   const latestArtifactCount =
     (lastExport?.paths ? Object.keys(lastExport.paths).length : 0) +
     (lastPackage?.package_path ? 1 : 0)
@@ -1270,6 +1271,65 @@ export default function App() {
                         {qualificationDossier.next_actions.map((step, idx) => (
                           <div key={idx} className="coach-list-item">{step}</div>
                         ))}
+                      </div>
+                    )}
+
+                    {reproducibility && (
+                      <div className="coach-list-block qualification-block-tight">
+                        <div className="coach-list-title">Cross-session reproducibility</div>
+                        {reproducibility.available ? (
+                          <div className="repro-summary-grid">
+                            <div className="repro-metric-card">
+                              <span className="repro-metric-label">Completed sessions</span>
+                              <span className="repro-metric-value">{reproducibility.session_count ?? 'n/a'}</span>
+                            </div>
+                            <div className="repro-metric-card">
+                              <span className="repro-metric-label">LOD RSD</span>
+                              <span className="repro-metric-value">
+                                {reproducibility.lod_rsd_pct !== null && reproducibility.lod_rsd_pct !== undefined
+                                  ? `${reproducibility.lod_rsd_pct.toFixed(1)}%`
+                                  : 'n/a'}
+                              </span>
+                            </div>
+                            <div className="repro-metric-card">
+                              <span className="repro-metric-label">LOQ RSD</span>
+                              <span className="repro-metric-value">
+                                {reproducibility.loq_rsd_pct !== null && reproducibility.loq_rsd_pct !== undefined
+                                  ? `${reproducibility.loq_rsd_pct.toFixed(1)}%`
+                                  : 'n/a'}
+                              </span>
+                            </div>
+                            <div className="repro-metric-card">
+                              <span className="repro-metric-label">R² min</span>
+                              <span className="repro-metric-value">
+                                {reproducibility.r2_min !== null && reproducibility.r2_min !== undefined
+                                  ? reproducibility.r2_min.toFixed(4)
+                                  : 'n/a'}
+                              </span>
+                            </div>
+                            <div className="repro-metric-card repro-metric-card-status">
+                              <span className="repro-metric-label">Batch readiness</span>
+                              <span className={`repro-status ${reproducibility.batch_ready === true ? 'pass' : reproducibility.batch_ready === false ? 'fail' : 'pending'}`}>
+                                {reproducibility.batch_ready === true
+                                  ? 'ready'
+                                  : reproducibility.batch_ready === false
+                                    ? 'not ready'
+                                    : 'pending'}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="qualification-empty-state">
+                            Reproducibility summary unavailable: {reproducibility.reason ?? 'insufficient data'}.
+                          </div>
+                        )}
+                        {reproducibility.notes && reproducibility.notes.length > 0 && (
+                          <div className="repro-notes-list">
+                            {reproducibility.notes.map((note, idx) => (
+                              <div key={idx} className="coach-list-item">{note}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
