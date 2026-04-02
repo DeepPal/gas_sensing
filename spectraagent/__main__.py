@@ -332,6 +332,7 @@ def start(
     from spectraagent.webapp.server import create_app
 
     app = create_app(simulate=simulate)
+    app.state.cfg = cfg
     app.state.driver = driver
     app.state.plugin = plugin
     app.state.reference = None

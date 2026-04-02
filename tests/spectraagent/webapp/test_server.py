@@ -67,6 +67,29 @@ def test_unknown_route_returns_404(client):
     assert resp.status_code == 404
 
 
+def test_research_flow_endpoint_schema(client):
+    """GET /api/research-flow returns guided workflow and readiness metadata."""
+    resp = client.get("/api/research-flow")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "readiness_score" in data
+    assert isinstance(data["readiness_score"], int)
+    assert "checkpoints" in data
+    assert isinstance(data["checkpoints"], list)
+    assert "next_steps" in data
+    assert isinstance(data["next_steps"], list)
+    assert "commercialization_signal" in data
+
+
+def test_research_flow_recommends_reference_capture_when_missing(client):
+    """Without a captured reference, guided steps should explicitly call it out."""
+    resp = client.get("/api/research-flow")
+    assert resp.status_code == 200
+    data = resp.json()
+    joined = " ".join(data.get("next_steps", [])).lower()
+    assert "reference" in joined
+
+
 # ---------------------------------------------------------------------------
 # Task 10: WebSocket / Broadcaster
 # ---------------------------------------------------------------------------

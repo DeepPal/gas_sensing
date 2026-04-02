@@ -205,6 +205,139 @@ class DriftSettings(BaseModel):
 _ASK_MODEL = "claude-sonnet-4-6"
 
 
+def _build_research_flow_payload(app: FastAPI) -> dict[str, Any]:
+    """Build a step-by-step flow state for researchers and commercialization.
+
+    This endpoint is designed as an operational coach: it reports current
+    progress, identifies blockers, and recommends the next highest-impact step.
+    """
+    driver = getattr(app.state, "driver", None)
+    plugin = getattr(app.state, "plugin", None)
+    session_running = bool(getattr(app.state, "session_running", False))
+    reference_ready = getattr(app.state, "reference", None) is not None
+    analysis = getattr(app.state, "last_session_analysis", None)
+    calib_agent = getattr(app.state, "calibration_agent", None)
+
+    cal_r2 = None if analysis is None else analysis.calibration_r2
+    mean_snr = None if analysis is None else analysis.mean_snr
+
+    n_cal_points = 0
+    if calib_agent is not None and hasattr(calib_agent, "data"):
+        concentrations, _ = calib_agent.data
+        n_cal_points = len(concentrations)
+
+    cal_ready = n_cal_points >= 5
+    analysis_ready = analysis is not None
+    r2_ok = bool(cal_r2 is not None and float(cal_r2) >= 0.95)
+    snr_ok = bool(mean_snr is not None and float(mean_snr) >= 3.0)
+
+    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    kb_available = False
+    with contextlib.suppress(Exception):
+        from spectraagent.webapp.agents.claude_agents import knowledge_backend_status
+
+        kb_available = bool(knowledge_backend_status().get("knowledge_base_available"))
+
+    checkpoints: list[dict[str, Any]] = [
+        {
+            "id": "hardware_connected",
+            "title": "Connect hardware driver",
+            "done": driver is not None,
+            "impact": "high",
+        },
+        {
+            "id": "physics_loaded",
+            "title": "Load physics plugin",
+            "done": plugin is not None,
+            "impact": "high",
+        },
+        {
+            "id": "reference_captured",
+            "title": "Capture reference spectrum",
+            "done": reference_ready,
+            "impact": "high",
+        },
+        {
+            "id": "session_recorded",
+            "title": "Record a full acquisition session",
+            "done": analysis_ready,
+            "impact": "high",
+        },
+        {
+            "id": "calibration_points",
+            "title": "Collect at least 5 calibration points",
+            "done": cal_ready,
+            "value": n_cal_points,
+            "target": 5,
+            "impact": "high",
+        },
+        {
+            "id": "quality_r2",
+            "title": "Reach calibration R² >= 0.95",
+            "done": r2_ok,
+            "value": cal_r2,
+            "target": 0.95,
+            "impact": "medium",
+        },
+        {
+            "id": "quality_snr",
+            "title": "Reach mean SNR >= 3",
+            "done": snr_ok,
+            "value": mean_snr,
+            "target": 3.0,
+            "impact": "medium",
+        },
+        {
+            "id": "ai_ready",
+            "title": "Enable Claude API",
+            "done": has_api_key,
+            "impact": "medium",
+        },
+        {
+            "id": "knowledge_grounded",
+            "title": "Use domain-grounded AI context",
+            "done": kb_available,
+            "impact": "medium",
+        },
+    ]
+
+    done_count = sum(1 for c in checkpoints if c["done"])
+    readiness_score = int(round((done_count / len(checkpoints)) * 100))
+
+    next_steps: list[str] = []
+    if driver is None:
+        next_steps.append("Connect or initialize a spectrometer driver.")
+    if plugin is None:
+        next_steps.append("Load a sensor physics plugin before acquisition.")
+    if not reference_ready:
+        next_steps.append("Capture a reference spectrum before trusting concentration estimates.")
+    if not analysis_ready and not session_running:
+        next_steps.append("Run at least one full start/stop acquisition session.")
+    if n_cal_points < 5:
+        next_steps.append("Add calibration points across the operating range (minimum 5).")
+    if analysis_ready and not r2_ok:
+        next_steps.append("Improve calibration fit quality (target R² >= 0.95).")
+    if analysis_ready and not snr_ok:
+        next_steps.append("Improve optical SNR with exposure/averaging/hardware setup.")
+    if not has_api_key:
+        next_steps.append("Set ANTHROPIC_API_KEY to unlock explainability and report generation.")
+    if has_api_key and not kb_available:
+        next_steps.append("Install/restore knowledge modules to avoid generic AI fallback.")
+
+    if not next_steps:
+        next_steps.append(
+            "System is commercialization-ready for pilot trials: run reproducibility and stress-test lanes."
+        )
+
+    return {
+        "readiness_score": readiness_score,
+        "session_running": session_running,
+        "checkpoints": checkpoints,
+        "next_steps": next_steps,
+        "commercialization_signal": "strong" if readiness_score >= 85 else "developing",
+    }
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -368,6 +501,11 @@ def create_app(simulate: bool = False) -> FastAPI:
             },
             **knowledge_status,
         })
+
+    @app.get("/api/research-flow")
+    async def research_flow() -> JSONResponse:
+        """Return guided next steps from lab workflow to commercialization readiness."""
+        return JSONResponse(_build_research_flow_payload(app))
 
     # ------------------------------------------------------------------
     # WebSocket: /ws/spectrum and /ws/trend
