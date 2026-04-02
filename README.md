@@ -249,6 +249,43 @@ python run.py --mode sensor --gas Ethanol --duration 3600
 
 ---
 
+## Release Artifact Verification
+
+Each tagged release publishes:
+
+- `spectraagent-<version>-py3-none-any.whl`
+- `spectraagent-<version>.tar.gz`
+- `sha256sums.txt`
+
+Before installing from downloaded artifacts, verify checksums locally:
+
+```bash
+# In the directory containing release artifacts
+python - <<'PY'
+import hashlib
+from pathlib import Path
+
+manifest = Path("sha256sums.txt")
+records = {}
+for line in manifest.read_text(encoding="utf-8").splitlines():
+  line = line.strip()
+  if not line:
+    continue
+  digest, filename = line.split("  ", 1)
+  records[filename] = digest
+
+for filename, expected in records.items():
+  data = Path(filename).read_bytes()
+  got = hashlib.sha256(data).hexdigest()
+  if got != expected:
+    raise SystemExit(f"Checksum mismatch for {filename}: {got} != {expected}")
+
+print("All release artifact checksums verified.")
+PY
+```
+
+---
+
 ## Plugin System
 
 SpectraAgent discovers hardware drivers and sensor physics models at runtime via Python entry-points:

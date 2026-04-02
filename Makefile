@@ -55,6 +55,7 @@ help:
 	@echo "  Maintenance"
 	@echo "    make clean            Remove build artefacts and caches"
 	@echo "    make release-checksums Generate SHA-256 checksums for dist artifacts"
+	@echo "    make verify-release-manifest Verify checksum manifest coverage for dist artifacts"
 	@echo "    make ci-diagnostics   Collect local CI-style diagnostics markdown"
 	@echo ""
 
@@ -187,6 +188,10 @@ clean:
 .PHONY: release-checksums
 release-checksums:
 	$(PYTHON) scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
+
+.PHONY: verify-release-manifest
+verify-release-manifest:
+	$(PYTHON) scripts/verify_release_manifest.py --dist-dir dist --manifest sha256sums.txt
 
 .PHONY: ci-diagnostics
 ci-diagnostics:

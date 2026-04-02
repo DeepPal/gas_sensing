@@ -59,6 +59,9 @@ jobs:
       - name: Generate artifact checksums
         run: python scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
 
+      - name: Verify checksum manifest completeness
+        run: python scripts/verify_release_manifest.py --dist-dir dist --manifest sha256sums.txt
+
       - name: Verify distributions
         run: twine check dist/*
 
