@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -149,6 +150,58 @@ def test_qualification_dossier_surfaces_research_validation_checks(client):
     assert "kinetics_fit" in check_ids
     assert "kinetics_tau63" in check_ids
     assert "interval_coverage" in check_ids
+
+
+def test_qualification_dossier_includes_cross_session_reproducibility(client, tmp_path):
+    """Dossier should expose reproducibility summary from recent completed sessions."""
+    sw = SessionWriter(sessions_dir=tmp_path / "sessions")
+    client.app.state.session_writer = sw
+
+    samples = [
+        ("20260402_100001", 0.010, 0.030, 0.981),
+        ("20260402_100002", 0.011, 0.032, 0.979),
+        ("20260402_100003", 0.009, 0.029, 0.984),
+    ]
+    for sid, lod, loq, r2 in samples:
+        session_dir = tmp_path / "sessions" / sid
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "session_meta.json").write_text(
+            json.dumps({"session_id": sid, "started_at": sid, "stopped_at": sid}),
+            encoding="utf-8",
+        )
+        event = {
+            "type": "session_complete",
+            "data": {
+                "session_id": sid,
+                "lod_ppm": lod,
+                "loq_ppm": loq,
+                "calibration_r2": r2,
+            },
+        }
+        (session_dir / "agent_events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+    client.app.state.last_session_analysis = SimpleNamespace(
+        calibration_n_points=8,
+        calibration_r2=0.985,
+        mean_snr=4.2,
+        lod_ppm=0.012,
+        loq_ppm=0.040,
+        drift_rate_nm_per_frame=0.001,
+        lol_ppm=4.5,
+        kinetics_fit_r2=0.92,
+        tau_63_s=11.8,
+        interval_coverage=0.93,
+        summary_text="Reproducibility-ready session.",
+    )
+
+    resp = client.get("/api/qualification/dossier")
+    assert resp.status_code == 200
+    data = resp.json()
+    repro = data.get("reproducibility", {})
+    assert repro.get("available") is True
+    assert repro.get("session_count", 0) >= 3
+    assert repro.get("lod_rsd_pct") is not None
+    assert repro.get("batch_ready") in {True, False}
 
 
 def test_qualification_dossier_marks_failed_sessions_as_research_only(client):

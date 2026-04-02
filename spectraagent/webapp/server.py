@@ -24,6 +24,7 @@ from pathlib import Path
 import time
 from typing import Any
 import zipfile
+import numpy as np
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -388,6 +389,88 @@ def _latest_session_complete_payload(session: dict[str, Any] | None) -> dict[str
     return None
 
 
+def _compute_rsd_pct(values: list[float]) -> float | None:
+    """Return relative standard deviation in percent for finite samples."""
+    if len(values) < 2:
+        return None
+    arr = np.asarray(values, dtype=float)
+    mean = float(np.mean(arr))
+    std = float(np.std(arr, ddof=1))
+    if abs(mean) < 1e-12:
+        return None
+    return float((std / abs(mean)) * 100.0)
+
+
+def _build_reproducibility_overview(app: FastAPI, session_id: str | None) -> dict[str, Any]:
+    """Summarize cross-session reproducibility from recent session_complete payloads."""
+    sw = getattr(app.state, "session_writer", None)
+    if sw is None:
+        return {"available": False, "reason": "session_writer_unavailable"}
+
+    sessions = sw.list_sessions()
+    if not sessions:
+        return {"available": False, "reason": "no_sessions_recorded"}
+
+    window_n = _int_from_env("SPECTRAAGENT_REPRO_WINDOW", default=5, minimum=2)
+    recent_ids: list[str] = []
+    if session_id:
+        recent_ids.append(str(session_id))
+    for meta in sessions:
+        sid = str(meta.get("session_id", "")).strip()
+        if sid and sid not in recent_ids:
+            recent_ids.append(sid)
+        if len(recent_ids) >= window_n:
+            break
+
+    payloads: list[dict[str, Any]] = []
+    for sid in recent_ids:
+        payload = _latest_session_complete_payload(sw.get_session(sid))
+        if payload is not None:
+            payloads.append(payload)
+
+    if len(payloads) < 2:
+        return {
+            "available": False,
+            "reason": "insufficient_completed_sessions",
+            "session_count": len(payloads),
+            "required": 2,
+        }
+
+    lod_vals = [float(p["lod_ppm"]) for p in payloads if _is_finite_number(p.get("lod_ppm"))]
+    loq_vals = [float(p["loq_ppm"]) for p in payloads if _is_finite_number(p.get("loq_ppm"))]
+    r2_vals = [float(p["calibration_r2"]) for p in payloads if _is_finite_number(p.get("calibration_r2"))]
+
+    lod_rsd = _compute_rsd_pct(lod_vals)
+    loq_rsd = _compute_rsd_pct(loq_vals)
+    r2_mean = float(np.mean(r2_vals)) if r2_vals else None
+    r2_min = float(np.min(r2_vals)) if r2_vals else None
+
+    reasons: list[str] = []
+    if len(payloads) >= 3:
+        if lod_rsd is not None and lod_rsd > 20.0:
+            reasons.append(f"LOD RSD {lod_rsd:.1f}% exceeds 20%")
+        if loq_rsd is not None and loq_rsd > 20.0:
+            reasons.append(f"LOQ RSD {loq_rsd:.1f}% exceeds 20%")
+        if r2_min is not None and r2_min < 0.95:
+            reasons.append(f"Minimum calibration R² {r2_min:.4f} below 0.95")
+        batch_ready = len(reasons) == 0
+    else:
+        batch_ready = None
+        reasons.append("At least 3 completed sessions are recommended for reproducibility acceptance")
+
+    return {
+        "available": True,
+        "window_sessions": len(recent_ids),
+        "session_count": len(payloads),
+        "lod_rsd_pct": lod_rsd,
+        "loq_rsd_pct": loq_rsd,
+        "r2_mean": r2_mean,
+        "r2_min": r2_min,
+        "batch_ready": batch_ready,
+        "notes": reasons,
+    }
+
+
 def _build_qualification_dossier(
     app: FastAPI,
     session_id: str | None,
@@ -592,6 +675,7 @@ def _build_qualification_dossier(
         if overall_pass
         else "Critical qualification gates remain open. Do not use this artifact as evidence of supplier readiness."
     )
+    reproducibility = _build_reproducibility_overview(app, resolved_session_id)
 
     return {
         "status": "ok",
@@ -606,6 +690,7 @@ def _build_qualification_dossier(
         "summary": metrics.get("summary_text"),
         "shipment_label": shipment_label,
         "shipment_notice": shipment_notice,
+        "reproducibility": reproducibility,
     }
 
 
