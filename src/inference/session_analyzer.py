@@ -40,6 +40,7 @@ from typing import Any
 import numpy as np
 
 from src.scientific.lod import calculate_lod_3sigma, calculate_loq_10sigma, lod_bootstrap_ci
+from src.scientific.allan_deviation import AllanDeviationResult, allan_deviation
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,18 @@ class SessionAnalysis:
     kinetics_fit_r2: float | None = None
     """R² of the exponential kinetics fit (0–1). Values < 0.90 indicate the
     transient does not follow simple 1:1 Langmuir kinetics."""
+
+    # Allan deviation noise characterisation (mandatory for Sens. Actuators B)
+    # Computed from the peak-shift time series of the measurement session.
+    allan_deviation: AllanDeviationResult | None = None
+    """
+    Allan deviation analysis of the peak-shift time series.
+    Provides: tau_opt (optimal averaging time), sigma_min (noise floor),
+    noise_type (white / flicker / random_walk), and drift onset tau.
+    Required for publication: shows reviewers the fundamental noise floor
+    and validates that the reported LOD was measured at τ_opt.
+    Set to None if fewer than 10 frames were acquired.
+    """
 
     # Interval coverage check (when ground truth is available)
     interval_coverage: float | None = None
@@ -379,6 +392,28 @@ class SessionAnalyzer:
         if t10_vals:
             result.response_time_t10_seconds = float(np.mean(t10_vals))
 
+        # ── Allan deviation noise analysis ──────────────────────────────
+        # Use peak-shift time series from measurement events.
+        # dt is estimated from timestamps if available, else falls back to
+        # assuming 1 Hz acquisition (conservative; update via session config).
+        if len(shift_series) >= 10:
+            try:
+                shifts_for_adev = np.array([p[1] for p in shift_series], dtype=float)
+                # Estimate dt from timestamps in measurement events (preferred)
+                ts_vals = [
+                    float(e["timestamp_s"])
+                    for e in meas_events
+                    if e.get("timestamp_s") is not None
+                ]
+                if len(ts_vals) >= 2:
+                    dt_est = float(np.median(np.diff(ts_vals)))
+                    dt_est = max(dt_est, 0.001)  # guard against zero/negative
+                else:
+                    dt_est = 1.0  # conservative fallback: 1 Hz
+                result.allan_deviation = allan_deviation(shifts_for_adev, dt=dt_est)
+            except Exception as exc:
+                log.debug("Allan deviation computation failed: %s", exc)
+
         # ── Binding kinetics τ₆₃/τ₉₅ from Δλ transient (B1) ─────────────
         # Requires measurement events to carry a `timestamp_s` field (elapsed
         # time since session start, in seconds).  Falls back gracefully when
@@ -431,6 +466,12 @@ class SessionAnalyzer:
                 f"  τ₆₃ = {result.tau_63_s:.2f} s  "
                 f"τ₉₅ = {result.tau_95_s:.2f} s  "
                 f"k_obs = {result.k_on_per_s:.4f} s⁻¹{r2_str}"
+            )
+        if result.allan_deviation is not None:
+            ad = result.allan_deviation
+            lines.append(
+                f"Allan deviation: τ_opt={ad.tau_opt:.3g} s, "
+                f"σ_min={ad.sigma_min:.4g}, noise={ad.noise_type}"
             )
         if result.drift_rate_nm_per_frame is not None:
             lines.append(

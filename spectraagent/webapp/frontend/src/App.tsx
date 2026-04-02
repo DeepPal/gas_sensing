@@ -7,7 +7,8 @@ import {
   Activity, Wifi, WifiOff, Play, Square, Camera, Plus,
   MessageSquare, ChevronDown, ChevronUp, Settings, Zap,
   AlertTriangle, Info, FlaskConical, FileText, History,
-  X, TrendingUp, Sliders, CheckCircle2, Download,
+  X, TrendingUp, Sliders, CheckCircle2, Download, ClipboardList,
+  Circle, CheckCircle, Loader,
 } from 'lucide-react'
 import { api, connectSpectrum, connectAgentEvents } from './api'
 import type {
@@ -1073,6 +1074,97 @@ export default function App() {
               <div className="chart-empty">Start a session to see the concentration trend…</div>
             )}
           </section>
+
+          {/* ── Measurement Protocol Stepper ── */}
+          {(() => {
+            const workflowSteps: { id: string; label: string; hint: string; done: boolean; active: boolean }[] = [
+              {
+                id: 'baseline',
+                label: 'Hardware ready',
+                hint: 'Spectrometer connected & health OK',
+                done: health?.status === 'ok',
+                active: health === null || health.status !== 'ok',
+              },
+              {
+                id: 'reference',
+                label: 'Capture reference spectrum',
+                hint: 'Press Reference to record λ_ref baseline',
+                done: refPeakWls.length > 0,
+                active: health?.status === 'ok' && refPeakWls.length === 0,
+              },
+              {
+                id: 'calibrate',
+                label: 'Add ≥3 calibration points',
+                hint: 'Cover low / mid / high concentration range',
+                done: calPoints.length >= 3,
+                active: refPeakWls.length > 0 && calPoints.length < 3,
+              },
+              {
+                id: 'session',
+                label: 'Run measurement session',
+                hint: 'Click Start, expose sensor to analyte',
+                done: !!currentSessionId,
+                active: calPoints.length >= 3 && !currentSessionId,
+              },
+              {
+                id: 'analyze',
+                label: 'Wait for session analysis',
+                hint: 'Stop session — AI pipeline auto-runs',
+                done: sessionAnalysis !== null,
+                active: sessionRunning || (!!currentSessionId && sessionAnalysis === null),
+              },
+              {
+                id: 'export',
+                label: 'Export qualification artifacts',
+                hint: 'Download dossier, export JSON package',
+                done: !!(lastExport || lastPackage),
+                active: sessionAnalysis !== null && !(lastExport || lastPackage),
+              },
+            ]
+            const allDone = workflowSteps.every(s => s.done)
+            const currentIdx = workflowSteps.findIndex(s => s.active)
+            return (
+              <section className="card workflow-card">
+                <h2><ClipboardList size={15} /> Measurement Protocol</h2>
+                <div className="workflow-stepper">
+                  {workflowSteps.map((step, i) => {
+                    const state = step.done ? 'done' : step.active ? 'active' : 'pending'
+                    return (
+                      <div key={step.id} className={`workflow-step ${state}`}>
+                        <span className="workflow-step-num">
+                          {step.done
+                            ? <CheckCircle size={15} />
+                            : step.active
+                              ? <Loader size={15} className="spin" />
+                              : <Circle size={15} />}
+                        </span>
+                        <div className="workflow-step-body">
+                          <span className="workflow-step-label">{step.label}</span>
+                          {state !== 'done' && (
+                            <span className="workflow-step-hint">{step.hint}</span>
+                          )}
+                        </div>
+                        <span className="workflow-step-index">{i + 1}/{workflowSteps.length}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {allDone && (
+                  <div className="workflow-complete-banner">
+                    <CheckCircle2 size={14} /> Full measurement cycle complete — ready for publication!
+                  </div>
+                )}
+                {currentIdx >= 0 && !allDone && (
+                  <div className="workflow-progress-bar">
+                    <div
+                      className="workflow-progress-fill"
+                      style={{ width: `${Math.round((currentIdx / workflowSteps.length) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </section>
+            )
+          })()}
 
           {/* Session detail inline panel (shown when a history session is clicked) */}
           {sessionDetail && (
