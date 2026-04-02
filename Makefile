@@ -24,6 +24,7 @@ help:
 	@echo ""
 	@echo "  Quality"
 	@echo "    make lint             Run ruff linter"
+	@echo "    make check-workflows  Validate workflow syntax and guard rules"
 	@echo "    make format           Auto-format with ruff"
 	@echo "    make test             Run full test suite (1187 tests)"
 	@echo "    make test-fast        Run fast lane tests (excludes reliability)"
@@ -75,6 +76,10 @@ build-frontend:
 .PHONY: lint
 lint:
 	$(RUFF) check src/
+
+.PHONY: check-workflows
+check-workflows:
+	$(PYTHON) scripts/validate_workflows.py
 
 .PHONY: format
 format:
