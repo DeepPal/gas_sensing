@@ -117,6 +117,24 @@ def _build_methods_section(proj_data: dict) -> str:
         ". Residual diagnostics (Durbin-Watson autocorrelation test, Shapiro-Wilk normality test, "
         "and Breusch-Pagan homoscedasticity test) were performed according to ICH Q2(R1) guidelines. "
     )
+    # Environmental conditions
+    temp = proj_data.get("temperature_c")
+    hum = proj_data.get("humidity_pct")
+    if temp is not None or hum is not None:
+        env_parts = []
+        if temp is not None:
+            env_parts.append(f"temperature {temp:.1f} °C")
+        if hum is not None:
+            env_parts.append(f"relative humidity {hum:.0f} %")
+        lines.append(f"Measurements were performed at {' and '.join(env_parts)}. ")
+    hw = proj_data.get("hw_serial", "")
+    chip = proj_data.get("chip_serial", "")
+    if hw or chip:
+        hw_str = f"spectrometer S/N {hw}" if hw else ""
+        chip_str = f"sensor chip S/N {chip}" if chip else ""
+        lines.append(
+            "Hardware: " + ", ".join(x for x in [hw_str, chip_str] if x) + ". "
+        )
     return "".join(lines)
 
 
@@ -164,6 +182,38 @@ def _calibration_curve_base64(
 
 
 # ---------------------------------------------------------------------------
+# Software provenance helpers
+# ---------------------------------------------------------------------------
+
+def _get_git_hash() -> str:
+    """Return the current git commit hash (short form), or 'unknown'."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, cwd=str(_REPO_ROOT), timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _get_library_versions() -> dict[str, str]:
+    """Return versions of key scientific libraries."""
+    import sys
+    versions: dict[str, str] = {"python": sys.version.split()[0]}
+    for pkg in ("numpy", "scipy", "sklearn", "streamlit", "joblib"):
+        try:
+            import importlib.metadata
+            versions[pkg] = importlib.metadata.version(pkg if pkg != "sklearn" else "scikit-learn")
+        except Exception:
+            versions[pkg] = "?"
+    return versions
+
+
+# ---------------------------------------------------------------------------
 # Main report builder
 # ---------------------------------------------------------------------------
 
@@ -187,6 +237,17 @@ def generate_html_report(proj: Any) -> str:
     sensitivity = perf.get("sensitivity")
     rdiag = perf.get("residual_diagnostics") or {}
 
+    git_hash = _get_git_hash()
+    lib_versions = _get_library_versions()
+
+    # Pull environmental/hardware metadata from the project's preprocessing_config
+    # or from session metadata if stored there
+    _meta = getattr(proj, "_session_meta", {}) or {}
+    temperature_c = perf.get("temperature_c") or _meta.get("temperature_c")
+    humidity_pct = perf.get("humidity_pct") or _meta.get("humidity_pct")
+    hw_serial = perf.get("hw_serial") or _meta.get("hw_serial", "")
+    chip_serial = perf.get("chip_serial") or _meta.get("chip_serial", "")
+
     proj_data = {
         "gas_name": proj.gas_name,
         "model_type": proj.model_type,
@@ -197,6 +258,11 @@ def generate_html_report(proj: Any) -> str:
         "sensitivity": sensitivity,
         "session_id": proj.session_id,
         "preprocessing_config": proj.preprocessing_config,
+        "temperature_c": temperature_c,
+        "humidity_pct": humidity_pct,
+        "hw_serial": hw_serial,
+        "chip_serial": chip_serial,
+        "git_hash": git_hash,
     }
 
     methods_text = _build_methods_section(proj_data)
@@ -337,9 +403,27 @@ Verify instrument-specific details (integration time, temperature, humidity) bef
 
 {"<h2>6. Prediction History</h2><table><thead><tr><th>Timestamp</th><th>Concentration (ppm)</th><th>CI Lower</th><th>CI Upper</th><th>Quality</th></tr></thead><tbody>" + pred_rows + "</tbody></table>" if pred_rows else ""}
 
+<h2>7. Software Provenance</h2>
+<table>
+  <thead><tr><th>Item</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Git commit hash</td><td><code>{git_hash}</code></td></tr>
+    <tr><td>Python</td><td>{lib_versions.get('python', '?')}</td></tr>
+    <tr><td>NumPy</td><td>{lib_versions.get('numpy', '?')}</td></tr>
+    <tr><td>SciPy</td><td>{lib_versions.get('scipy', '?')}</td></tr>
+    <tr><td>scikit-learn</td><td>{lib_versions.get('sklearn', '?')}</td></tr>
+    <tr><td>Streamlit</td><td>{lib_versions.get('streamlit', '?')}</td></tr>
+    <tr><td>Generated</td><td>{now_str}</td></tr>
+    {"<tr><td>Spectrometer S/N</td><td>" + hw_serial + "</td></tr>" if hw_serial else ""}
+    {"<tr><td>Chip S/N</td><td>" + chip_serial + "</td></tr>" if chip_serial else ""}
+  </tbody>
+</table>
+<p><em>This table satisfies the software traceability requirement in Handbook §7.
+Archive this report alongside raw data for long-term reproducibility.</em></p>
+
 <div class="footer">
   Generated by SpectraAgent — Chulalongkorn University LSPR Research Platform &nbsp;|&nbsp;
-  Session {proj.session_id} &nbsp;|&nbsp; {now_str}
+  Session {proj.session_id} &nbsp;|&nbsp; git:{git_hash} &nbsp;|&nbsp; {now_str}
 </div>
 
 </div>

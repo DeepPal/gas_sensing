@@ -917,6 +917,40 @@ def render() -> None:
                 integration_ms = st.slider("Integration time (ms)", 10, 5000, 30, 10)
                 n_frames = st.slider("Frames to average", 5, 200, 30)
 
+            # ── Environmental & Hardware metadata (mandatory for publication) ──
+            st.markdown("**Environmental & Hardware Metadata** *(required for ICH Q2(R1) reproducibility)*")
+            _env1, _env2, _env3 = st.columns(3)
+            temperature_c = _env1.number_input(
+                "Temperature (°C)",
+                min_value=-10.0, max_value=60.0,
+                value=float(ss.get("ap_meta", {}).get("temperature_c", 23.0)),
+                step=0.5, format="%.1f",
+                help="Handbook §4.1: LSPR sensitivity shifts ~0.02 nm/°C. Log every session.",
+            )
+            humidity_pct = _env2.number_input(
+                "Humidity (%RH)",
+                min_value=0.0, max_value=100.0,
+                value=float(ss.get("ap_meta", {}).get("humidity_pct", 45.0)),
+                step=1.0, format="%.0f",
+            )
+            _hw1, _hw2 = st.columns(2)
+            hw_serial = _hw1.text_input(
+                "Spectrometer serial #",
+                value=ss.get("ap_meta", {}).get("hw_serial", ""),
+                placeholder="e.g. M01234567",
+                help="ThorLabs CCS200 serial number — required for hardware traceability (Handbook §7).",
+            )
+            chip_serial = _hw2.text_input(
+                "Chip / sensor serial #",
+                value=ss.get("ap_meta", {}).get("chip_serial", ""),
+                placeholder="e.g. CHIP-2026-03-B",
+            )
+            chip_func_date = st.date_input(
+                "Chip functionalization date",
+                value=None,
+                help="Date the sensor surface was functionalized. Used to track chip age vs. performance drift.",
+            )
+
             comments = st.text_input("Comments (optional)")
             save_meta = st.form_submit_button("✅ Confirm Metadata & Arm Recording", type="primary")
 
@@ -934,10 +968,15 @@ def render() -> None:
                 "trial": trial,
                 "integration_ms": integration_ms,
                 "n_frames": n_frames,
+                "temperature_c": float(temperature_c),
+                "humidity_pct": float(humidity_pct),
+                "hw_serial": hw_serial.strip(),
+                "chip_serial": chip_serial.strip(),
+                "chip_func_date": str(chip_func_date) if chip_func_date else "",
                 "comments": comments,
             }
             ss["ap_recording"] = False
-            st.success(f"Metadata saved — **{gas}** at **{conc} ppm**, trial {trial}.")
+            st.success(f"Metadata saved — **{gas}** at **{conc} ppm**, trial {trial}  |  {temperature_c:.1f}°C, {humidity_pct:.0f}%RH.")
 
         meta = ss["ap_meta"]
         if not meta:
@@ -1193,6 +1232,73 @@ def render() -> None:
                 ss["ap_step"] = 1
                 st.rerun()
             return
+
+        # ── Baseline Drift Check (Handbook §4.1: drift < 0.05 nm/min required) ──
+        st.markdown("---")
+        with st.expander("⏳ Baseline Drift Check (Handbook §4.1 — required before reference capture)", expanded=False):
+            st.markdown(
+                "Handbook §4.1: *'Reference spectrum captured and baseline stable (drift < 0.05 nm/min)'*  \n"
+                "Capture two measurements separated in time. If drift > 0.05 nm/min, wait and re-check."
+            )
+            _dc_col1, _dc_col2 = st.columns(2)
+            _dc_int = _dc_col1.number_input(
+                "Integration time (ms)", min_value=10, max_value=5000,
+                value=int(ss.get("ap_meta", {}).get("integration_ms", 30)),
+                key="dc_int_ms",
+            )
+            _dc_interval = _dc_col2.number_input(
+                "Interval between measurements (s)", min_value=5, max_value=300,
+                value=30, key="dc_interval_s",
+                help="Typically 30–60 s. Longer → more accurate drift estimate.",
+            )
+            if st.button("Measure drift (2-point)", key="dc_measure_btn"):
+                with st.spinner(f"Capturing frame 1…"):
+                    _dc_wl1, _dc_f1 = _acquire_frames(
+                        _dc_int, 5, 100.0, st.empty(),
+                        sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
+                    )
+                    try:
+                        from src.signal.peak import find_peak_wavelength as _fpw
+                        _dc_pk1 = float(_fpw(_dc_wl1, _dc_f1))
+                    except Exception:
+                        _dc_pk1 = float(_dc_wl1[np.argmax(_dc_f1)])
+                import time as _time
+                with st.spinner(f"Waiting {_dc_interval} s for frame 2…"):
+                    _time.sleep(min(int(_dc_interval), 5))  # cap wait in UI to 5 s for simulation
+                with st.spinner("Capturing frame 2…"):
+                    _dc_wl2, _dc_f2 = _acquire_frames(
+                        _dc_int, 5, 100.0, st.empty(),
+                        sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
+                    )
+                    try:
+                        _dc_pk2 = float(_fpw(_dc_wl2, _dc_f2))
+                    except Exception:
+                        _dc_pk2 = float(_dc_wl2[np.argmax(_dc_f2)])
+                _dc_drift_nm = abs(_dc_pk2 - _dc_pk1)
+                _dc_drift_rate = _dc_drift_nm / max(_dc_interval / 60.0, 1/60.0)
+                ss["ap_drift_nm_per_min"] = _dc_drift_rate
+                _dc_c1, _dc_c2, _dc_c3 = st.columns(3)
+                _dc_c1.metric("Peak 1", f"{_dc_pk1:.4f} nm")
+                _dc_c2.metric("Peak 2", f"{_dc_pk2:.4f} nm")
+                _dc_c3.metric("Drift rate", f"{_dc_drift_rate:.4f} nm/min")
+                if _dc_drift_rate < 0.05:
+                    st.success(
+                        f"✅ Drift {_dc_drift_rate:.4f} nm/min < 0.05 nm/min — baseline stable. Safe to capture reference."
+                    )
+                else:
+                    st.error(
+                        f"⚠️ Drift {_dc_drift_rate:.4f} nm/min ≥ 0.05 nm/min — baseline NOT stable. "
+                        "Wait for sensor equilibration (10+ min) before capturing reference."
+                    )
+
+            # Show stored drift result
+            if ss.get("ap_drift_nm_per_min") is not None:
+                _dr = ss["ap_drift_nm_per_min"]
+                _col = "green" if _dr < 0.05 else "red"
+                st.caption(
+                    f"Last drift check: **{_dr:.4f} nm/min** — "
+                    f"{'✅ STABLE' if _dr < 0.05 else '⚠️ UNSTABLE'}"
+                )
 
         # ── Reference spectrum (for LSPR Δλ / differential signal) ──────
         st.markdown("---")
@@ -1532,6 +1638,22 @@ def render() -> None:
                     f"{lol_val:.4f} ppm" if lol_val is not None else "N/A",
                     help="Limit of Linearity: highest concentration with linear response (ICH Q2 §4.2)",
                 )
+
+                # NEC (Noise Equivalent Concentration) — fundamental detection floor
+                nec_val = _sm.get("nec_ppm")
+                if nec_val is not None:
+                    st.info(
+                        f"**NEC (Noise Equivalent Concentration):** {nec_val:.4g} ppm  "
+                        f"= σ_blank / |S| — fundamental noise floor.  "
+                        f"LOD = 3 × NEC = {3 * nec_val:.4g} ppm.  "
+                        f"{'⚠️ LOD > 3×NEC: sensitivity degrading (not noise floor).' if lod_val and lod_val > 3.5 * nec_val else '✅ LOD ≈ 3×NEC: noise-limited detection.'}"
+                    )
+                else:
+                    st.caption(
+                        "NEC (Noise Equivalent Concentration) not computed — "
+                        "provide `blank_measurements` to `sensor_performance_summary()` for exact NEC. "
+                        "Using residual σ as noise estimate."
+                    )
 
                 # ── Row 2: Calibration quality ────────────────────────────
                 st.markdown("**Calibration quality**")
@@ -1890,9 +2012,31 @@ def render() -> None:
                                     continue
                                 _pe = _ap_iso.param_stderrs.get(_pn, float("nan"))
                                 st.caption(f"`{_pn}` = {_pv:.4g} ± {_pe:.2g}")
-                            st.markdown("**AIC table:**")
-                            for _mn, _ma, _mr2, _ in _ap_aic_table:
-                                st.caption(f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}")
+                            # AICc evidence table with ΔAICc and evidence ratios
+                            st.markdown("**AICc model comparison** (Handbook §5):")
+                            if _ap_aic_table:
+                                _best_aic = min(_ma for _, _ma, _, _ in _ap_aic_table)
+                                _aic_rows = []
+                                for _mn, _ma, _mr2, _ in _ap_aic_table:
+                                    _delta = _ma - _best_aic
+                                    # Akaike weight (evidence ratio denominator)
+                                    _weight = float(np.exp(-0.5 * _delta))
+                                    _support = (
+                                        "★ Best" if _delta < 2 else
+                                        ("Substantial" if _delta < 6 else "Weak evidence")
+                                    )
+                                    _aic_rows.append({
+                                        "Model": _mn,
+                                        "AICc": f"{_ma:.2f}",
+                                        "ΔAICc": f"{_delta:.2f}",
+                                        "R²": f"{_mr2:.4f}",
+                                        "Support": _support,
+                                    })
+                                st.dataframe(pd.DataFrame(_aic_rows), use_container_width=True, hide_index=True)
+                                st.caption(
+                                    "ΔAICc < 2: substantial evidence for best model. "
+                                    "ΔAICc > 6: little support. Report best model + ΔAICc in manuscript."
+                                )
                     except Exception as _ap_iso_exc:
                         st.error(f"Isotherm fit failed: {_ap_iso_exc}")
 
@@ -2474,24 +2618,42 @@ def render() -> None:
 
         # ── Spike Recovery Gate (optional, ICH Q2(R1)) ──────────────────────
         if ss.get("ap_model_trained"):
-            with st.expander("💉 Spike Recovery Validation (optional, ICH Q2(R1))", expanded=False):
+            with st.expander("💉 Spike Recovery Validation — ICH Q2(R1) §4.5 (80/100/120%)", expanded=False):
                 st.markdown(
-                    "Verify the sensor correctly recovers known added concentrations in a real matrix. "
-                    "ICH Q2(R1) accepts 98–102 %; routine QC accepts 90–110 %."
+                    "ICH Q2(R1) §4.5 requires **3 concentration levels at 80%, 100%, and 120%** of the "
+                    "nominal target concentration.  Each level is measured independently of the calibration standards. "
+                    "Acceptance: recovery 98–102% (ICH) or 90–110% (routine QC)."
                 )
+
+                # Auto-populate 80/100/120% levels from LOD/LOQ if available
+                _sr_target_default = float(ss.get("ap_sensor_metrics", {}).get("loq_ppm") or
+                                           ss.get("ap_lod", 0.0) or 50.0) * 3
+                sr_target = st.number_input(
+                    "Nominal target concentration (ppm)",
+                    min_value=0.0, value=float(ss.get("sr_target", round(_sr_target_default, 2))),
+                    step=1.0, key="sr_target_input",
+                    help="The concentration at 100%. 80% and 120% levels are computed automatically.",
+                )
+                # Show suggested spike levels
+                _sr_80 = round(sr_target * 0.8, 3)
+                _sr_100 = round(sr_target, 3)
+                _sr_120 = round(sr_target * 1.2, 3)
+                st.info(f"**Suggested spike levels:** 80% = {_sr_80} ppm | 100% = {_sr_100} ppm | 120% = {_sr_120} ppm")
+
                 sr_col1, sr_col2 = st.columns(2)
                 sr_added_str = sr_col1.text_area(
                     "Added concentrations (ppm, comma-separated)",
-                    value=ss.get("sr_added_str", ""),
+                    value=ss.get("sr_added_str", f"{_sr_80}, {_sr_100}, {_sr_120}"),
                     key="sr_added_input",
-                    placeholder="e.g. 50, 100, 200",
+                    placeholder=f"e.g. {_sr_80}, {_sr_100}, {_sr_120}",
                     height=80,
+                    help="Typically 3 values at 80%, 100%, 120% of nominal. More levels are allowed.",
                 )
                 sr_found_str = sr_col2.text_area(
-                    "Found concentrations (ppm, comma-separated, same order)",
+                    "Found concentrations (ppm, sensor measurement, same order)",
                     value=ss.get("sr_found_str", ""),
                     key="sr_found_input",
-                    placeholder="e.g. 49.8, 101.2, 197.5",
+                    placeholder="e.g. 79.2, 100.5, 121.1",
                     height=80,
                 )
                 sr_bg = st.number_input(
@@ -2510,6 +2672,12 @@ def render() -> None:
                         if len(_added) == 0 or len(_added) != len(_found):
                             st.error("Added and found lists must be non-empty and equal length.")
                         else:
+                            if len(_added) < 3:
+                                st.warning(
+                                    f"ICH Q2(R1) §4.5 requires ≥3 spike levels (80/100/120%). "
+                                    f"Only {len(_added)} provided — results are informative only."
+                                )
+                            ss["sr_target"] = sr_target
                             sr_result = spike_recovery(
                                 added_concentrations=_added,
                                 found_concentrations=_found,
@@ -2570,6 +2738,117 @@ def render() -> None:
                         f"ICH: {'PASS' if _sr['overall_pass_ich'] else 'FAIL'}  |  "
                         f"Routine: {'PASS' if _sr['overall_pass_routine'] else 'FAIL'}"
                     )
+
+        # ------------------------------------------------------------------
+        # Selectivity Coefficient Analysis
+        # ------------------------------------------------------------------
+        if ss.get("ap_model_trained"):
+            with st.expander("🔀 Selectivity Coefficients — Cross-Sensitivity (IUPAC 2000)", expanded=False):
+                st.markdown(
+                    "**Cross-sensitivity coefficient** K_{B/A} = S_B / S_A where S is the calibration "
+                    "slope (Δλ/ppm).  K < 0.1 → negligible; K 0.1–0.5 → significant; K > 0.5 → problematic.  "
+                    "Enter the calibration sensitivities of potential interferent gases below (from prior "
+                    "calibration sessions on the same chip or from literature)."
+                )
+
+                _target_gas = ss.get("ap_gas", "Analyte")
+                _target_sens = (ss.get("ap_sensor_metrics") or {}).get("sensitivity")
+
+                if _target_sens is None:
+                    st.warning("Train a model in Step 3 first to get the target gas sensitivity.")
+                else:
+                    st.info(
+                        f"**Target analyte**: {_target_gas}  |  "
+                        f"**Calibration sensitivity**: {_target_sens:.4f} Δλ/ppm"
+                    )
+
+                    # Dynamic table for interferent gases
+                    st.markdown("**Interferent sensitivities** (from other sessions / literature):")
+                    _n_interf = st.number_input(
+                        "Number of interferent gases to compare",
+                        min_value=1, max_value=10,
+                        value=int(ss.get("sel_n_interf", 2)),
+                        key="sel_n_interf_input",
+                    )
+                    ss["sel_n_interf"] = int(_n_interf)
+
+                    _sel_gases: dict[str, float] = {_target_gas: float(_target_sens)}
+                    _sel_valid = True
+                    _sel_cols_a, _sel_cols_b = st.columns(2)
+                    _prev_names: list[str] = ss.get("sel_interf_names", [])
+                    _prev_slopes: list[float] = ss.get("sel_interf_slopes", [])
+
+                    _interf_names: list[str] = []
+                    _interf_slopes: list[float] = []
+                    for _idx in range(int(_n_interf)):
+                        _def_name = _prev_names[_idx] if _idx < len(_prev_names) else f"Gas_{_idx + 1}"
+                        _def_slope = _prev_slopes[_idx] if _idx < len(_prev_slopes) else 0.0
+                        _ic1, _ic2 = st.columns([2, 1])
+                        _gname = _ic1.text_input(
+                            f"Gas {_idx + 1} name",
+                            value=_def_name,
+                            key=f"sel_gas_name_{_idx}",
+                        )
+                        _gslope = _ic2.number_input(
+                            f"Sensitivity (Δλ/ppm)",
+                            value=float(_def_slope),
+                            format="%.4f",
+                            key=f"sel_gas_slope_{_idx}",
+                        )
+                        if _gname.strip():
+                            _interf_names.append(_gname.strip())
+                            _interf_slopes.append(float(_gslope))
+                            if _gname.strip() != _target_gas:
+                                _sel_gases[_gname.strip()] = float(_gslope)
+                        else:
+                            _sel_valid = False
+
+                    ss["sel_interf_names"] = _interf_names
+                    ss["sel_interf_slopes"] = _interf_slopes
+
+                    if st.button("Compute Selectivity Matrix", key="sel_compute_btn"):
+                        if len(_sel_gases) < 2:
+                            st.error("Add at least one interferent gas to compute selectivity.")
+                        elif not _sel_valid:
+                            st.error("All interferent gas names must be non-empty.")
+                        else:
+                            try:
+                                from src.scientific.selectivity import selectivity_matrix
+                                _sel_result = selectivity_matrix(_sel_gases)
+                                ss["sel_result"] = _sel_result.to_dict()
+
+                                # Display selectivity matrix as DataFrame
+                                _sel_df = pd.DataFrame(
+                                    _sel_result.matrix,
+                                    index=_sel_result.gases,
+                                    columns=_sel_result.gases,
+                                ).round(4)
+                                st.dataframe(_sel_df, use_container_width=True)
+
+                                # Interpretation per target
+                                st.markdown("**Interpretation:**")
+                                for _tgt, _interp in _sel_result.interpretation.items():
+                                    _worst_name, _worst_k = _sel_result.worst_interferents.get(_tgt, ("—", 0.0))
+                                    if abs(_worst_k) >= 0.5:
+                                        st.error(f"**{_tgt}**: {_interp}")
+                                    elif abs(_worst_k) >= 0.1:
+                                        st.warning(f"**{_tgt}**: {_interp}")
+                                    else:
+                                        st.success(f"**{_tgt}**: {_interp}")
+
+                            except Exception as _sel_e:
+                                st.error(f"Selectivity computation failed: {_sel_e}")
+
+                    # Show cached result
+                    if ss.get("sel_result"):
+                        _sr_cached = ss["sel_result"]
+                        st.caption(
+                            "Last computed: "
+                            + ", ".join(
+                                f"{tgt}→worst={intf}(K={k:.3f})"
+                                for tgt, (intf, k) in _sr_cached.get("worst_interferents", {}).items()
+                            )
+                        )
 
         col_nav = st.columns(2)
         if col_nav[0].button("⬅️ Back to Step 2"):

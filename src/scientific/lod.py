@@ -484,13 +484,15 @@ def sensor_performance_summary(
     gas_name: str = "unknown",
     baseline_time_series: np.ndarray | None = None,
     dt_s: float = 0.05,
+    blank_measurements: np.ndarray | None = None,
 ) -> dict[str, object]:
     """Full sensor performance characterisation for one gas analyte.
 
-    Computes sensitivity, R², LOD, LOQ with bootstrap CI, residual
-    diagnostics (Durbin-Watson / Shapiro-Wilk / Breusch-Pagan), and
-    optionally Allan deviation noise characterisation when a baseline
-    time series is provided.
+    Computes sensitivity, R², LOD, LOQ with bootstrap CI, LOB from
+    dedicated blank measurements, NEC, residual diagnostics
+    (Durbin-Watson / Shapiro-Wilk / Breusch-Pagan), and optionally
+    Allan deviation noise characterisation when a baseline time series
+    is provided.
 
     Parameters
     ----------
@@ -511,12 +513,20 @@ def sensor_performance_summary(
         (optimal-τ noise floor) replaces the OLS residual σ for LOD.
     dt_s:
         Sample interval for ``baseline_time_series`` in seconds.
+    blank_measurements:
+        Optional 1-D array of replicate blank / carrier-gas responses
+        (Δλ at zero analyte concentration).  When provided, LOB is
+        computed from the actual blank distribution per IUPAC 2012:
+        LOB = μ_blank + 1.645 · σ_blank  (one-sided 95th percentile).
+        NEC (Noise Equivalent Concentration) = σ_blank / |sensitivity|.
+        If None, blank_mean = 0 is assumed (reference-subtracted sensor).
 
     Returns
     -------
     dict
         Keys: ``gas``, ``sensitivity``, ``intercept``, ``r_squared``,
-        ``lod_ppm``, ``loq_ppm``, ``noise_std``, ``n_calibration_points``,
+        ``lod_ppm``, ``loq_ppm``, ``lob_ppm``, ``nec_ppm``,
+        ``noise_std``, ``n_calibration_points``,
         ``residual_diagnostics``, and optionally ``allan_deviation``.
 
     Example
@@ -559,15 +569,29 @@ def sensor_performance_summary(
     # LOB (Limit of Blank): highest signal expected from a blank sample
     # = μ_blank + 1.645·σ_blank (IUPAC 2012, one-sided 95th percentile)
     # In concentration units: (|μ_blank| + 1.645·σ_blank) / |slope|
-    # Since blank mean ≈ 0 for a well-zeroed sensor, this simplifies to
-    # 1.645·σ_blank / |slope|, but we keep the general form.
-    blank_mean_signal = 0.0  # LSPR shifts are reference-subtracted → blank mean = 0
+    if blank_measurements is not None and len(blank_measurements) >= 2:
+        _bm = np.asarray(blank_measurements, dtype=float).ravel()
+        blank_mean_signal = float(np.mean(_bm))
+        blank_std_signal = float(np.std(_bm, ddof=1))
+        _lob_method = "blank_measurements"
+    else:
+        # Reference-subtracted sensor: blank mean ≈ 0; σ_blank ≈ baseline_noise_std
+        blank_mean_signal = 0.0
+        blank_std_signal = baseline_noise_std
+        _lob_method = "residual_std"
+
     if abs(slope) > 1e-12:
         lob = max(
-            (abs(blank_mean_signal) + 1.645 * baseline_noise_std) / abs(slope), 1e-7
+            (abs(blank_mean_signal) + 1.645 * blank_std_signal) / abs(slope), 1e-7
         )
     else:
         lob = float("inf")
+
+    # NEC (Noise Equivalent Concentration) = σ_blank / |sensitivity|
+    # The theoretical minimum detectable concentration (LOD = 3 × NEC by definition)
+    nec_ppm: float | None = None
+    if abs(slope) > 1e-12 and blank_std_signal > 0:
+        nec_ppm = float(blank_std_signal / abs(slope))
 
     # Mandel's linearity test on the full calibration range
     linearity_result: dict | None = None
@@ -656,8 +680,10 @@ def sensor_performance_summary(
         "r_squared": round(r2, 6),
         "noise_std": round(baseline_noise_std, 8),
         "n_calibration_points": int(len(c)),
-        # LOB (IUPAC 2012 mandatory for publication)
+        # LOB (IUPAC 2012 mandatory for publication) — from blank measurements when available
         "lob_ppm": round(lob, 6) if np.isfinite(lob) else None,
+        # NEC (Noise Equivalent Concentration) = σ_blank / |S| — fundamental detection limit
+        "nec_ppm": round(nec_ppm, 6) if nec_ppm is not None and np.isfinite(nec_ppm) else None,
         # LOD
         "lod_ppm": round(lod, 6) if np.isfinite(lod) else None,
         "lod_ppm_ci_lower": round(lod_ci_lo, 6) if np.isfinite(lod_ci_lo) else None,
@@ -684,7 +710,12 @@ def sensor_performance_summary(
             else "ICH Q2(R1) 3σ/S (OLS residuals) with bootstrap 95% CI (n=1000)"
         ),
         "loq_method": "ICH Q2(R1) 10σ/S with bootstrap 95% CI (n=1000)",
-        "lob_method": "IUPAC 2012: 1.645·σ_noise / |S|",
+        "lob_method": (
+            f"IUPAC 2012: μ_blank + 1.645·σ_blank / |S| from {len(blank_measurements)} blank measurements"
+            if blank_measurements is not None and len(blank_measurements) >= 2
+            else "IUPAC 2012: 1.645·σ_noise / |S| (no blank measurements; assumed μ_blank=0)"
+        ),
+        "nec_method": "σ_blank / |S| (Noise Equivalent Concentration, IUPAC)",
         "lol_method": "ICH Q2(R1) §4.2 Mandel F-test progressive truncation",
     }
 

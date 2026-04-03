@@ -294,9 +294,15 @@ with st.sidebar:
             else:
                 st.sidebar.caption("R²: not trained yet")
 
-            # LOD
+            # LOD / LOB / NEC
             if _qd_lod is not None:
                 st.sidebar.caption(f"LOD: {_qd_lod:.3g} ppm")
+            _qd_lob = _qd_perf.get("lob_ppm")
+            _qd_nec = _qd_perf.get("nec_ppm")
+            if _qd_lob is not None:
+                st.sidebar.caption(f"LOB: {_qd_lob:.3g} ppm")
+            if _qd_nec is not None:
+                st.sidebar.caption(f"NEC: {_qd_nec:.3g} ppm")
 
             # Residuals
             if _qd_rdiag:
