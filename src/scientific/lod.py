@@ -52,9 +52,14 @@ def calculate_lod_3sigma(noise_std: float, sensitivity_slope: float) -> float:
     float
         LOD in concentration units (ppm).  Returns ``inf`` if slope is zero.
     """
-    if sensitivity_slope == 0 or not np.isfinite(sensitivity_slope):
+    # Accept a bare float, a 1-element array, or a (slope, intercept, r2, se) tuple
+    _s = sensitivity_slope
+    if isinstance(_s, (tuple, list)):
+        _s = _s[0]
+    slope = float(np.squeeze(_s))
+    if slope == 0 or not np.isfinite(slope):
         return float("inf")
-    return (3.0 * abs(noise_std)) / abs(sensitivity_slope)
+    return (3.0 * abs(noise_std)) / abs(slope)
 
 
 def calculate_loq_10sigma(noise_std: float, sensitivity_slope: float) -> float:
@@ -77,9 +82,13 @@ def calculate_loq_10sigma(noise_std: float, sensitivity_slope: float) -> float:
     float
         LOQ in ppm.
     """
-    if sensitivity_slope == 0 or not np.isfinite(sensitivity_slope):
+    _s = sensitivity_slope
+    if isinstance(_s, (tuple, list)):
+        _s = _s[0]
+    slope = float(np.squeeze(_s))
+    if slope == 0 or not np.isfinite(slope):
         return float("inf")
-    return (10.0 * abs(noise_std)) / abs(sensitivity_slope)
+    return (10.0 * abs(noise_std)) / abs(slope)
 
 
 def calculate_sensitivity(

@@ -537,7 +537,7 @@ def _render_batch() -> None:
         if baseline_method == "Polynomial":
             poly_base = st.sidebar.slider("Poly Order (Baseline)", 1, 5, 1)
             processed = baseline_correction(
-                wl, processed, method="polynomial", poly_order=poly_base
+                wl, processed, method="polynomial", order=poly_base
             )
             ax.plot(wl, processed, label="Poly Baseline Corrected", color="green", linestyle="--")
 

@@ -342,7 +342,7 @@ def _preprocess(
             except Exception:
                 sig = baseline_correction(wl, sig, method="als")
         elif baseline == "Polynomial":
-            sig = baseline_correction(wl, sig, method="polynomial", poly_order=2)
+            sig = baseline_correction(wl, sig, method="polynomial", order=2)
 
         if norm == "Min-Max [0,1]":
             sig = normalize_spectrum(sig, method="minmax")
