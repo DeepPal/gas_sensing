@@ -188,68 +188,104 @@ class RealtimeAcquisitionService:
             self.callbacks.remove(callback)
 
     def _acquisition_loop(self):
-        """Main acquisition thread."""
+        """Main acquisition thread.
+
+        Uses continuous scan mode (tlccs_startScanCont) when the spectrometer
+        supports it — this matches ThorLabs OceanView throughput (~15–20 Hz at
+        50 ms integration) by letting the CCD expose the next frame while the
+        previous one is being transferred over USB.
+
+        Falls back to single-scan mode for other spectrometer types.
+        """
         self.stats["start_time"] = time.time()
 
-        while self.running:
-            t_start = time.time()
+        # Use continuous mode if the hardware driver supports it
+        use_cont = (
+            hasattr(self.spectrometer, "start_continuous")
+            and hasattr(self.spectrometer, "get_data_cont")
+            and hasattr(self.spectrometer, "stop_continuous")
+        )
 
+        if use_cont:
             try:
-                intensities = self.spectrometer.get_data()
-                if intensities is None or len(intensities) == 0:
-                    raise ValueError("Empty or invalid spectral data received")
-
-                intensities = self._apply_normalization(intensities)
-                t_acquisition = time.time() - t_start
-
-                # Validate data quality
-                if np.any(np.isnan(intensities)) or np.any(np.isinf(intensities)):
-                    raise ValueError("Invalid spectral data (NaN/Inf detected)")
-
-                if np.max(intensities) <= 0:
-                    raise ValueError("All intensities are zero or negative")
-
-                sample = {
-                    "timestamp": t_start,
-                    "sample_num": self.sample_count,
-                    "intensities": intensities,
-                    "target_intensity": float(intensities[self.target_idx]),
-                    "integration_ms": self.integration_time_ms,
-                    "acquisition_time_ms": t_acquisition * 1000,
-                }
-
-                self.sample_count += 1
-                self._last_sample_time = t_start
-                self.stats["avg_acquisition_time"] = (
-                    0.9 * self.stats["avg_acquisition_time"] + 0.1 * t_acquisition
-                )
-
-                with self._buffer_lock:
-                    self.data_buffer.append(sample)
-                    # deque handles automatic cleanup
-
-                for cb in self.callbacks:
-                    try:
-                        cb(sample)
-                    except Exception as e:
-                        print(f"Callback error: {e}")
-
-                elapsed = time.time() - t_start
-                target_period = self.integration_time_ms / 1000.0 + 0.015
-                sleep_time = max(0, target_period - elapsed)
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                else:
-                    self.stats["dropped_samples"] += 1
-
+                self.spectrometer.start_continuous()
             except Exception as e:
-                self.stats["dropped_samples"] += 1
-                self._request_restart(f"Acquisition error: {e}")
-                time.sleep(0.05)
+                print(f"  [WARN] Continuous mode unavailable ({e}), using single-scan")
+                use_cont = False
 
-            # Handle pending restart requests outside the try/except to avoid swallowing
-            if self._restart_requested:
-                self._perform_restart()
+        try:
+            while self.running:
+                t_start = time.time()
+
+                try:
+                    if use_cont:
+                        intensities = self.spectrometer.get_data_cont()
+                    else:
+                        intensities = self.spectrometer.get_data()
+
+                    if intensities is None or len(intensities) == 0:
+                        raise ValueError("Empty or invalid spectral data received")
+
+                    intensities = self._apply_normalization(intensities)
+                    t_acquisition = time.time() - t_start
+
+                    # Validate data quality
+                    if np.any(np.isnan(intensities)) or np.any(np.isinf(intensities)):
+                        raise ValueError("Invalid spectral data (NaN/Inf detected)")
+
+                    if np.max(intensities) <= 0:
+                        raise ValueError("All intensities are zero or negative")
+
+                    sample = {
+                        "timestamp": t_start,
+                        "sample_num": self.sample_count,
+                        "intensities": intensities,
+                        "target_intensity": float(intensities[self.target_idx]),
+                        "integration_ms": self.integration_time_ms,
+                        "acquisition_time_ms": t_acquisition * 1000,
+                    }
+
+                    self.sample_count += 1
+                    self._last_sample_time = t_start
+                    self.stats["avg_acquisition_time"] = (
+                        0.9 * self.stats["avg_acquisition_time"] + 0.1 * t_acquisition
+                    )
+
+                    with self._buffer_lock:
+                        self.data_buffer.append(sample)
+
+                    for cb in self.callbacks:
+                        try:
+                            cb(sample)
+                        except Exception as e:
+                            print(f"Callback error: {e}")
+
+                    # In continuous mode the CCD is already exposing the next
+                    # frame — no extra sleep needed; USB transfer is the bottleneck.
+                    # In single-scan mode pace to (integration + 15 ms).
+                    if not use_cont:
+                        elapsed = time.time() - t_start
+                        target_period = self.integration_time_ms / 1000.0 + 0.015
+                        sleep_time = max(0, target_period - elapsed)
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+                        else:
+                            self.stats["dropped_samples"] += 1
+
+                except Exception as e:
+                    self.stats["dropped_samples"] += 1
+                    self._request_restart(f"Acquisition error: {e}")
+                    time.sleep(0.05)
+
+                # Handle pending restart requests outside the try/except
+                if self._restart_requested:
+                    self._perform_restart()
+        finally:
+            if use_cont:
+                try:
+                    self.spectrometer.stop_continuous()
+                except Exception:
+                    pass
 
     def start(self):
         """Start acquisition thread."""
