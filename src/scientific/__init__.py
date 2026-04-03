@@ -8,6 +8,10 @@ Modules
 lod
     LOD / LOQ (IUPAC 3σ/slope), bootstrap confidence intervals,
     robust Theil-Sen sensitivity, Mandel's linearity F-test.
+cross_session
+    Cross-session statistical comparison: paired t-test, Bland-Altman,
+    F-test for variance equality, Mann-Whitney U.  Required for ISO 5725-2
+    reproducibility claims.
 residual_diagnostics
     OLS residual validation suite: Durbin-Watson (autocorrelation),
     Shapiro-Wilk (normality), Breusch-Pagan (heteroscedasticity),
@@ -25,6 +29,12 @@ ruggedness
     analytical method validation in chemistry / sensor journals.
 """
 
+from src.scientific.cross_session import (
+    CrossSessionComparison,
+    SessionData,
+    compare_lod_series,
+    compare_sessions,
+)
 from src.scientific.publication_tables import (
     BatchReproducibilityRow,
     DiagnosticsRow,
@@ -75,6 +85,11 @@ from src.scientific.ruggedness import (
 )
 
 __all__ = [
+    # cross-session comparison
+    "CrossSessionComparison",
+    "SessionData",
+    "compare_lod_series",
+    "compare_sessions",
     # publication tables
     "BatchReproducibilityRow",
     "DiagnosticsRow",

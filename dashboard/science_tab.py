@@ -1608,7 +1608,9 @@ measurements used for Allan deviation noise analysis (gives a more rigorous LOD)
         st.info("Upload at least one calibration CSV to continue.")
         return
 
-    import pandas as pd
+    if not PANDAS_AVAILABLE:
+        st.error("pandas is required for CSV parsing. Install it with `pip install pandas`.")
+        return
 
     # Parse baseline time series if provided
     baseline_ts: np.ndarray | None = None
