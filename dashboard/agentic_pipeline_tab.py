@@ -388,6 +388,81 @@ def _load_csv_spectrum(path_str: str) -> tuple[np.ndarray, np.ndarray]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _sync_to_project_store(ss: dict) -> None:
+    """Snapshot the agentic pipeline's current state into the shared ProjectStore.
+
+    Called at each step transition so the Predict Unknown tab (and any other
+    tab) can see the latest calibration, model, and performance data without
+    the researcher re-uploading anything.
+    """
+    try:
+        from dashboard.project_store import get_project
+        proj = get_project()
+
+        meta = ss.get("ap_meta") or {}
+        gas = meta.get("gas") or ss.get("ap_gas") or "unknown"
+        proj.gas_name = gas
+
+        # Wavelengths
+        wl = ss.get("ap_wl")
+        if wl is not None:
+            proj.set_wavelengths(wl)
+
+        # Reference spectrum
+        ref_spec = ss.get("ap_ref_spectrum")
+        ref_wl = ss.get("ap_ref_wl")
+        ref_peak = ss.get("ap_ref_peak_wl")
+        if ref_spec is not None:
+            import numpy as np
+            if ref_wl is not None and wl is not None:
+                ref_interp = np.interp(wl, ref_wl, ref_spec)
+            else:
+                ref_interp = ref_spec
+            proj.set_reference(ref_interp, peak_nm=ref_peak)
+
+        # Calibration concentrations + responses (from preprocessed entries)
+        preprocessed = ss.get("ap_preprocessed") or ss.get("ap_pp_items") or []
+        if preprocessed:
+            import numpy as np
+            concs, resps = [], []
+            for entry in preprocessed:
+                c = entry.get("concentration_ppm") or entry.get("conc_ppm")
+                r = entry.get("peak_shift") or entry.get("peak_wl") or entry.get("delta_lambda")
+                if c is not None and r is not None:
+                    concs.append(float(c))
+                    resps.append(float(r))
+            if len(concs) >= 2:
+                baseline_m = ss.get("ap_baseline_m", "als")
+                norm_m = ss.get("ap_norm_m", "none")
+                proj.set_calibration(
+                    np.array(concs), np.array(resps),
+                    preprocessing_cfg={"baseline_method": baseline_m, "norm_method": norm_m},
+                )
+
+        # Trained model
+        sensor_metrics = ss.get("ap_sensor_metrics") or {}
+        gpr_model = ss.get("ap_gpr_sklearn")
+        pls_model = ss.get("ap_pls_model")
+        model_path_ss = ss.get("ap_model_path") or ss.get("ap_model_save_path")
+
+        if (gpr_model is not None or pls_model is not None) and sensor_metrics:
+            model_type = "PLS" if pls_model is not None else "GPR"
+            if model_path_ss:
+                import numpy as np
+                lod = ss.get("ap_lod")
+                r2 = ss.get("ap_r2")
+                perf = dict(sensor_metrics)
+                if lod is not None:
+                    perf["lod_ppm"] = float(lod)
+                if r2 is not None:
+                    perf["r_squared"] = float(r2)
+                proj.set_model(str(model_path_ss), model_type, perf)
+                proj.save()
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).debug("ProjectStore sync skipped: %s", _e)
+
+
 def render() -> None:
     st.header("🤖 Research-Grade Automation Pipeline")
     st.caption("Agents 01–05: Acquisition → Logging → Preprocessing → Training → Deployment")
@@ -801,6 +876,7 @@ def render() -> None:
 
         if go_next:
             ss["ap_step"] = 2
+            _sync_to_project_store(ss)
             _save_session_to_disk()
             st.rerun()
 
@@ -1055,6 +1131,7 @@ def render() -> None:
             st.rerun()
         if col_nav[1].button("➡️ Proceed to Training", disabled=len(ss["ap_preprocessed"]) == 0):
             ss["ap_step"] = 3
+            _sync_to_project_store(ss)
             _save_session_to_disk()
             st.rerun()
 
@@ -1721,13 +1798,33 @@ def render() -> None:
         # ── Model training ────────────────────────────────────────────────
         st.markdown("### Model Training")
         model_type = st.selectbox(
-            "Select Model",
+            "Select Calibration Model",
             [
                 "Gaussian Process Regression (GPR — Concentration)",
                 "PLS — Partial Least Squares (Multivariate Concentration)",
+                "Linear OLS (Simple linear calibration)",
+                "Langmuir Isotherm (Nonlinear — saturation behaviour)",
                 "1D CNN Classifier (Gas Type)",
             ],
+            help=(
+                "**GPR**: Best for small datasets (≥3 pts) — gives confidence intervals. "
+                "**PLS**: Best for complex spectra with many features. "
+                "**Linear OLS**: Fast, transparent, use when R²≥0.99 and n≥6. "
+                "**Langmuir**: Use when calibration curve shows saturation at high concentrations. "
+                "**CNN**: Gas type classification, not concentration."
+            ),
         )
+        _model_explain = {
+            "GPR": "Gaussian Process regression — probabilistic, works with n≥3, provides CIs.",
+            "PLS": "Partial Least Squares — uses full spectral matrix, multivariate.",
+            "Linear OLS": "y = mx + b — fastest, most transparent, validate linearity first (Mandel test).",
+            "Langmuir": "y = (Bmax·C)/(Kd+C) — physically meaningful for surface adsorption sensors.",
+            "CNN": "Deep learning classifier — identifies gas type (not concentration).",
+        }
+        for key, expl in _model_explain.items():
+            if key in model_type:
+                st.caption(f"ℹ️ {expl}")
+                break
 
         train_btn = st.button("🚀 Train Model", type="primary", disabled=len(X_list) < 2)
 
@@ -1892,6 +1989,113 @@ def render() -> None:
                     except Exception as ex:
                         st.warning(f"Custom GPR skipped ({ex}), falling back to sklearn GPR.")
 
+                elif "Linear OLS" in model_type:
+                    try:
+                        import pickle
+                        from sklearn.linear_model import LinearRegression
+                        from src.scientific.lod import sensor_performance_summary, mandel_linearity_test
+
+                        y_arr = np.array(y_concs, dtype=float)
+                        X_1d = y_arr.reshape(-1, 1)   # feature is concentration itself
+                        # For Linear OLS, use the 1-D response vector (y_concs = signal)
+                        # and fit against the concentrations in pp
+                        responses_1d = np.array([it.get("peak_shift", it.get("peak_wl", 0.0)) for it in pp])
+                        concs_1d = np.array([it.get("concentration_ppm", it.get("conc_ppm", 0.0)) for it in pp])
+
+                        lin = LinearRegression()
+                        lin.fit(concs_1d.reshape(-1, 1), responses_1d)
+                        r2_lin = float(lin.score(concs_1d.reshape(-1, 1), responses_1d))
+
+                        # Mandel linearity test
+                        mandel = {}
+                        if len(concs_1d) >= 4:
+                            mandel = mandel_linearity_test(concs_1d, responses_1d)
+                            lin_ok = mandel.get("is_linear", True)
+                            if not lin_ok:
+                                st.warning(
+                                    f"Mandel linearity test FAILED "
+                                    f"(F={mandel.get('f_statistic', 0):.2f}, "
+                                    f"p={mandel.get('p_value', 1):.4f} < 0.05). "
+                                    "Consider GPR or Langmuir for non-linear data."
+                                )
+                            else:
+                                st.success(f"Mandel linearity confirmed (p={mandel.get('p_value', 1):.4f})")
+
+                        model_path_lin = model_dir / "linear_ols.pkl"
+                        with open(model_path_lin, "wb") as fh:
+                            pickle.dump(lin, fh)
+
+                        _sm_lin = sensor_performance_summary(concs_1d, responses_1d,
+                                                              gas_name=str(ss.get("ap_gas", "")))
+                        ss["ap_sensor_metrics"] = _sm_lin
+                        ss["ap_lod"] = _sm_lin.get("lod_ppm")
+                        ss["ap_r2"] = r2_lin
+                        ss["ap_model_path"] = str(model_path_lin)
+                        ss["ap_gpr_sklearn"] = lin   # duck-type for Step 4 inference
+
+                        col1_lin, col2_lin, col3_lin = st.columns(3)
+                        col1_lin.metric("R²", f"{r2_lin:.4f}")
+                        col2_lin.metric("Slope", f"{lin.coef_[0]:.5g}")
+                        col3_lin.metric("LOD", f"{(_sm_lin.get('lod_ppm') or 0):.3g} ppm")
+                        st.success(f"Linear OLS fitted and saved.")
+                        trained_ok = True
+                    except Exception as ex:
+                        st.warning(f"Linear OLS failed ({ex}), falling back to sklearn GPR.")
+
+                elif "Langmuir" in model_type:
+                    try:
+                        import pickle
+                        from scipy.optimize import curve_fit
+                        from src.scientific.lod import sensor_performance_summary
+
+                        responses_nl = np.array([it.get("peak_shift", it.get("peak_wl", 0.0)) for it in pp])
+                        concs_nl = np.array([it.get("concentration_ppm", it.get("conc_ppm", 0.0)) for it in pp])
+
+                        def _langmuir(c, bmax, kd):
+                            return (bmax * c) / (kd + c)
+
+                        popt, pcov = curve_fit(
+                            _langmuir, concs_nl, responses_nl,
+                            p0=[np.max(np.abs(responses_nl)), np.median(concs_nl)],
+                            maxfev=5000,
+                        )
+                        bmax, kd = popt
+                        resid = responses_nl - _langmuir(concs_nl, *popt)
+                        ss_resid = float(np.sum(resid**2))
+                        ss_tot = float(np.sum((responses_nl - responses_nl.mean())**2))
+                        r2_lang = 1.0 - ss_resid / ss_tot if ss_tot > 0 else 0.0
+
+                        lang_model = {"type": "langmuir", "bmax": float(bmax), "kd": float(kd)}
+                        model_path_lang = model_dir / "langmuir.pkl"
+                        with open(model_path_lang, "wb") as fh:
+                            pickle.dump(lang_model, fh)
+
+                        # Linearise in low-conc region for LOD
+                        lin_mask = concs_nl < kd  # below Kd — approximately linear
+                        _sm_lang = {}
+                        if lin_mask.sum() >= 2:
+                            _sm_lang = sensor_performance_summary(
+                                concs_nl[lin_mask], responses_nl[lin_mask],
+                                gas_name=str(ss.get("ap_gas", ""))
+                            )
+                            ss["ap_sensor_metrics"] = _sm_lang
+                            ss["ap_lod"] = _sm_lang.get("lod_ppm")
+                        ss["ap_r2"] = r2_lang
+                        ss["ap_model_path"] = str(model_path_lang)
+
+                        col1_lg, col2_lg, col3_lg = st.columns(3)
+                        col1_lg.metric("R² (Langmuir)", f"{r2_lang:.4f}")
+                        col2_lg.metric("Bmax", f"{bmax:.4g}")
+                        col3_lg.metric("Kd (ppm)", f"{kd:.3g}")
+                        st.info(
+                            f"Langmuir: Bmax={bmax:.4g}, Kd={kd:.3g} ppm. "
+                            f"Linear region: C << {kd:.3g} ppm (sensitivity = Bmax/Kd = {bmax/kd:.4g})"
+                        )
+                        trained_ok = True
+                        st.success("Langmuir isotherm fitted and saved.")
+                    except Exception as ex:
+                        st.warning(f"Langmuir fitting failed ({ex}), falling back to sklearn GPR.")
+
                 # Always-available sklearn GPR fallback
                 if not trained_ok:
                     import pickle
@@ -1980,12 +2184,42 @@ def render() -> None:
             ss["ap_pp_items"] = pp
             ss["ap_has_diff"] = has_diff  # pin feature-extraction mode for inference
 
+        # ── Save to Calibration Library ──────────────────────────────────────
+        if ss.get("ap_model_trained"):
+            try:
+                from dashboard.calibration_library import render_save_to_library
+                import pickle
+                _lib_model_path = ss.get("ap_model_path")
+                _lib_model_obj = ss.get("ap_gpr_sklearn")
+                # Fall back to loading from disk if in-memory model not available
+                if _lib_model_obj is None and _lib_model_path and Path(_lib_model_path).exists():
+                    with open(_lib_model_path, "rb") as _fh:
+                        _lib_model_obj = pickle.load(_fh)
+                if _lib_model_obj is not None:
+                    _lib_concs = ss.get("ap_y_concs", np.array([]))
+                    _lib_resps = np.array([
+                        it.get("peak_shift", it.get("peak_wl", 0.0))
+                        for it in ss.get("ap_pp_items", [])
+                    ])
+                    render_save_to_library(
+                        gas_name=str(ss.get("ap_gas", "unknown")),
+                        model_type=str(ss.get("ap_model_type", "GPR")),
+                        model_obj=_lib_model_obj,
+                        concentrations=_lib_concs,
+                        responses=_lib_resps,
+                        performance=ss.get("ap_sensor_metrics", {}),
+                        session_id=ss.get("ap_session_id", ""),
+                    )
+            except Exception as _lib_e:
+                st.caption(f"Calibration library widget unavailable: {_lib_e}")
+
         col_nav = st.columns(2)
         if col_nav[0].button("⬅️ Back to Step 2"):
             ss["ap_step"] = 2
             st.rerun()
         if col_nav[1].button("➡️ Deploy & Test", disabled=not ss["ap_model_trained"]):
             ss["ap_step"] = 4
+            _sync_to_project_store(ss)
             _save_session_to_disk()
             st.rerun()
 

@@ -93,6 +93,25 @@ except Exception as _exc:
     _import_errors["science"] = str(_exc)
     log.warning("Science tab unavailable: %s", _exc)
 
+try:
+    from dashboard.predict_tab import render as _render_predict  # type: ignore[import]
+
+    PREDICT_AVAILABLE = True
+except Exception as _exc:
+    PREDICT_AVAILABLE = False
+    _import_errors["predict"] = str(_exc)
+    log.warning("Predict tab unavailable: %s", _exc)
+
+# Shared project store — initialise once before any tab renders
+try:
+    from dashboard.project_store import get_project, render_session_browser  # type: ignore[import]
+    _project = get_project()
+    PROJECT_STORE_AVAILABLE = True
+except Exception as _exc:
+    PROJECT_STORE_AVAILABLE = False
+    _import_errors["project_store"] = str(_exc)
+    log.warning("ProjectStore unavailable: %s", _exc)
+
 # Core signal-processing imports — prefer src.preprocessing (new canonical location)
 try:
     from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
@@ -231,14 +250,19 @@ with st.sidebar:
 - Tab 2 experiments → `output/experiments/`
 - Live sessions → `output/sessions/`
 """)
+    # Session browser — only render if project store loaded correctly
+    if PROJECT_STORE_AVAILABLE:
+        render_session_browser()
+
     st.divider()
 
 # ---------------------------------------------------------------------------
 # Tab layout
 # ---------------------------------------------------------------------------
-tab_agentic, tab_exp, tab_batch, tab_live, tab_science = st.tabs(
+tab_agentic, tab_predict, tab_exp, tab_batch, tab_live, tab_science = st.tabs(
     [
         "📋 Guided Calibration",
+        "🎯 Predict Unknown",
         "🧪 Experiment (Guided)",
         "📊 Batch Analysis",
         "📡 Live Sensor",
@@ -258,7 +282,18 @@ with tab_agentic:
             st.code(_import_errors.get("agentic", "Unknown error"))
 
 # ===========================================================================
-# Tab 2 — Experiment (Guided)
+# Tab 2 — Predict Unknown
+# ===========================================================================
+with tab_predict:
+    if PREDICT_AVAILABLE:
+        _render_predict()
+    else:
+        st.error("Predict Unknown tab is unavailable.")
+        with st.expander("Error details"):
+            st.code(_import_errors.get("predict", "Unknown error"))
+
+# ===========================================================================
+# Tab 3 — Experiment (Guided)
 # ===========================================================================
 with tab_exp:
     if EXPERIMENT_AVAILABLE:
