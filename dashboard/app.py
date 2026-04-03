@@ -217,6 +217,20 @@ with st.sidebar:
         use_container_width=True,
     )
     st.caption(f"Live platform: {LIVE_PLATFORM_URL}")
+    with st.expander("🚀 Getting Started", expanded=False):
+        st.markdown("""
+**Recommended workflow:**
+1. **Tab 2** — Single measurement (new to the platform)
+2. **Tab 1** — Full calibration pipeline (advanced)
+3. **Tab 3** — Analyze saved batch/session data
+4. **Tab 4** — Live hardware monitoring
+5. **Tab 5** — ML training & publication figures
+
+**Your data is saved to:**
+- Tab 1 pipeline → `output/automation_dataset/`
+- Tab 2 experiments → `output/experiments/`
+- Live sessions → `output/sessions/`
+""")
     st.divider()
 
 # ---------------------------------------------------------------------------
@@ -262,6 +276,13 @@ with tab_exp:
 def _render_batch() -> None:
     st.title("🔬 Batch Spectrum Analysis")
 
+    st.info(
+        "**Where is my data?** "
+        "Tab 1 (pipeline) → `output/automation_dataset/` | "
+        "Tab 2 (experiment) → `output/experiments/` | "
+        "Sessions → `output/sessions/`"
+    )
+
     if not SIGNAL_PROC_AVAILABLE:
         st.error(
             "Signal processing module could not be loaded. "
@@ -273,6 +294,85 @@ def _render_batch() -> None:
 
     # ---- Sidebar --------------------------------------------------------
     st.sidebar.header("Data Configuration")
+
+    # --- Data source selector ---
+    _data_source = st.sidebar.selectbox(
+        "Data source",
+        ["Batch data (output/batch/)", "Session data (output/sessions/)"],
+        index=0,
+        help="Choose between batch-processed data or recorded sensor sessions.",
+    )
+
+    if _data_source == "Session data (output/sessions/)":
+        _sessions_root = REPO_ROOT / "output" / "sessions"
+        _session_dirs = sorted(
+            [d for d in _sessions_root.iterdir() if d.is_dir() and (d / "pipeline_results.csv").exists()],
+            reverse=True,
+        ) if _sessions_root.exists() else []
+
+        if not _session_dirs:
+            st.sidebar.warning("No sessions with `pipeline_results.csv` found in `output/sessions/`.")
+            st.info(
+                "No recorded sessions found. Run a live sensor session (Tab 4) or "
+                "use the CLI (`python run.py --mode sensor`) to generate session data."
+            )
+            return
+
+        _selected_session = st.sidebar.selectbox(
+            "Select session",
+            _session_dirs,
+            format_func=lambda d: d.name,
+        )
+        st.subheader(f"Session: {_selected_session.name}")
+
+        _results_csv = _selected_session / "pipeline_results.csv"
+        try:
+            _df_sess = pd.read_csv(_results_csv)
+        except Exception as _exc:
+            st.error(f"Failed to load `pipeline_results.csv`: {_exc}")
+            return
+
+        st.dataframe(_df_sess, use_container_width=True)
+
+        _expected_cols = {
+            "peak_wavelength": "Peak Wavelength (nm)",
+            "wavelength_shift": "Wavelength Shift (nm)",
+            "concentration_ppm": "Concentration (ppm)",
+        }
+        _available = [c for c in _expected_cols if c in _df_sess.columns]
+
+        if _available:
+            _x_col = "frame" if "frame" in _df_sess.columns else _df_sess.index.name or None
+            _x_vals = _df_sess["frame"] if "frame" in _df_sess.columns else _df_sess.index
+
+            if "peak_wavelength" in _df_sess.columns:
+                st.subheader("Peak Wavelength over Time")
+                _fig_wl, _ax_wl = plt.subplots(figsize=(9, 3))
+                _ax_wl.plot(_x_vals, _df_sess["peak_wavelength"], color="steelblue", linewidth=1.5)
+                _ax_wl.set_xlabel("Frame")
+                _ax_wl.set_ylabel("Peak Wavelength (nm)")
+                _ax_wl.grid(True, alpha=0.3)
+                st.pyplot(_fig_wl)
+                plt.close(_fig_wl)
+
+            if "concentration_ppm" in _df_sess.columns:
+                st.subheader("Concentration over Time")
+                _fig_conc, _ax_conc = plt.subplots(figsize=(9, 3))
+                _ax_conc.plot(_x_vals, _df_sess["concentration_ppm"], color="darkorange", linewidth=1.5)
+                if "ci_low" in _df_sess.columns and "ci_high" in _df_sess.columns:
+                    _ax_conc.fill_between(
+                        _x_vals, _df_sess["ci_low"], _df_sess["ci_high"],
+                        alpha=0.2, color="darkorange", label="95% CI",
+                    )
+                    _ax_conc.legend()
+                _ax_conc.set_xlabel("Frame")
+                _ax_conc.set_ylabel("Concentration (ppm)")
+                _ax_conc.grid(True, alpha=0.3)
+                st.pyplot(_fig_conc)
+                plt.close(_fig_conc)
+        else:
+            st.info("Session CSV loaded. Expected columns (peak_wavelength, concentration_ppm) not found — showing raw data above.")
+        return
 
     # Auto-detect best default data root: prefer output/batch (has real data)
     _default_root = REPO_ROOT / "output" / "batch"

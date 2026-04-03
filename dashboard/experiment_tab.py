@@ -464,9 +464,16 @@ def render() -> None:
                     help="Upper bound of the wavelength window to search for the sensor response peak.",
                 )
             with _sc2:
+                _sensor_preset = st.selectbox(
+                    "Sensor preset",
+                    ["Generic LSPR sensor (default)", "Custom (enter manually)"],
+                    index=0,
+                    help="Choose a preset to auto-fill calibration defaults, or enter manually.",
+                )
+                _default_slope = -0.116 if _sensor_preset == "Generic LSPR sensor (default)" else 0.0
                 slope = st.number_input(
                     "Calibration slope (nm / ppm)",
-                    value=-0.116,
+                    value=_default_slope,
                     format="%.4f",
                     help=(
                         "Slope of your calibration curve (Δλ / ppm). "
@@ -512,17 +519,22 @@ def render() -> None:
             f"Frames: **{cfg['n_frames']}**"
         )
 
-        src = st.radio("Source", ["CCS200 Spectrometer", "Upload CSV file"], horizontal=True)
+        src = st.radio(
+            "Source",
+            ["Connect hardware spectrometer (any USB spectrometer)", "Upload CSV file"],
+            horizontal=True,
+            help="Works with any spectrometer connected via the VISA driver (CCS200, Ocean Optics, etc.)",
+        )
 
-        if src == "CCS200 Spectrometer":
+        if src == "Connect hardware spectrometer (any USB spectrometer)":
             if not _HW_AVAILABLE:
-                st.error("CCS200 driver not available — check TLCCS_64.dll installation.")
+                st.error("Hardware spectrometer driver not available — check TLCCS_64.dll (CCS200) or your VISA driver installation.")
             else:
                 st.info(
                     "Ensure the sensing cell contains **air / blank** (no analyte). "
                     "Click **Acquire** when ready."
                 )
-                if st.button("Acquire Reference from CCS200", type="primary"):
+                if st.button("Acquire Reference from Hardware Spectrometer", type="primary"):
                     try:
                         with st.spinner("Connecting and acquiring…"):
                             live_chart = st.empty()
@@ -595,7 +607,7 @@ def render() -> None:
                     ss["exp_step"] = 3
                     st.rerun()
 
-        elif src == "CCS200 Spectrometer":
+        elif src == "Connect hardware spectrometer (any USB spectrometer)":
             pass  # waiting for user to click Acquire
 
         # Back button when no data yet
@@ -614,17 +626,22 @@ def render() -> None:
             f"Frames: **{cfg['n_frames']}**"
         )
 
-        src = st.radio("Source", ["CCS200 Spectrometer", "Upload CSV file"], horizontal=True)
+        src = st.radio(
+            "Source",
+            ["Connect hardware spectrometer (any USB spectrometer)", "Upload CSV file"],
+            horizontal=True,
+            help="Works with any spectrometer connected via the VISA driver (CCS200, Ocean Optics, etc.)",
+        )
 
-        if src == "CCS200 Spectrometer":
+        if src == "Connect hardware spectrometer (any USB spectrometer)":
             if not _HW_AVAILABLE:
-                st.error("CCS200 driver not available — check TLCCS_64.dll installation.")
+                st.error("Hardware spectrometer driver not available — check TLCCS_64.dll (CCS200) or your VISA driver installation.")
             else:
                 st.info(
                     f"Introduce **{cfg['gas']}** into the sensing cell. "
                     "Click **Acquire** when the gas is present."
                 )
-                if st.button("Acquire Sample from CCS200", type="primary"):
+                if st.button("Acquire Sample from Hardware Spectrometer", type="primary"):
                     try:
                         with st.spinner("Connecting and acquiring…"):
                             live_chart = st.empty()

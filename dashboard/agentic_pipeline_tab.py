@@ -482,6 +482,15 @@ def render() -> None:
         col.markdown(_step_badge(i, lbl, step > i, step == i), unsafe_allow_html=True)
     st.markdown("---")
 
+    with st.expander("📖 How to use this tab", expanded=False):
+        st.markdown("""
+- **Step 1 — Record spectra**: Connect live hardware (any USB spectrometer via VISA driver), load existing CSV files, or use built-in simulation to explore the pipeline without hardware.
+- **Step 2 — Preprocess**: Apply denoising (Savitzky-Golay / wavelet) and baseline correction to clean your spectra. Load a reference spectrum to compute differential signals (Δλ) for LSPR sensors.
+- **Step 3 — Train calibration model**: Build a concentration prediction model. GPR (Gaussian Process Regression) is recommended for LSPR — it provides confidence intervals and works well with small datasets.
+- **Step 4 — Deploy & validate**: Run the trained model on new sample spectra, inspect LOD/LOQ metrics, and check prediction confidence. Export results for reporting.
+- **Steps 5–6 — Analysis & Publication export**: Use Tab 5 (Data-Driven Science) for cross-dataset comparison, feature importance, and generating publication-quality figures.
+""")
+
     # ═══════════════════════════════════════════════════════════════════════
     # STEP 1 — Real-Time Acquisition & Logging  (Agents 01 + 02)
     # ═══════════════════════════════════════════════════════════════════════
