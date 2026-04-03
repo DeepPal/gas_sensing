@@ -213,6 +213,7 @@ def render() -> None:
         tab_bench,
         tab_figures,
         tab_tables,
+        tab_repro,
     ) = st.tabs([
         "📂 Dataset Explorer",
         "🧬 Feature Discovery",
@@ -220,6 +221,7 @@ def render() -> None:
         "📊 Cross-Dataset Analysis",
         "📄 Publication Figures",
         "📋 Publication Tables",
+        "📅 Reproducibility",
     ])
 
     with tab_explore:
@@ -234,6 +236,8 @@ def render() -> None:
         _render_publication_figures()
     with tab_tables:
         _render_publication_tables()
+    with tab_repro:
+        _render_reproducibility()
 
 
 # ===========================================================================
@@ -1858,3 +1862,177 @@ measurements used for Allan deviation noise analysis (gives a more rigorous LOD)
                 "n samples": adev.get("n_samples", "—"),
             } for gas, adev in adev_summaries])
             st.dataframe(adev_df, use_container_width=True, hide_index=True)
+
+
+# ===========================================================================
+# Reproducibility sub-tab
+# ===========================================================================
+
+def _render_reproducibility() -> None:
+    """Between-day and within-day reproducibility analysis from saved sessions."""
+    st.markdown("### 📅 Reproducibility Analysis")
+    st.markdown(
+        "Load multiple calibration sessions and compute intra-day (within a single measurement day) "
+        "and inter-day (across measurement days) RSDs for R², LOD, LOQ, and sensitivity.  "
+        "ICH Q2(R1) accepts **intra-day RSD < 5 %** and **inter-day RSD < 10 %**."
+    )
+
+    if not PANDAS_AVAILABLE:
+        st.error("pandas is required for reproducibility analysis.")
+        return
+
+    # Load saved sessions metadata
+    try:
+        from dashboard.project_store import list_saved_sessions
+        sessions = list_saved_sessions()
+        trained = [s for s in sessions if s.get("r_squared") is not None]
+    except Exception as _e:
+        st.error(f"Could not load session list: {_e}")
+        return
+
+    if len(trained) < 2:
+        st.info(
+            "Need at least 2 trained sessions for reproducibility analysis. "
+            "Complete more calibration sessions in the **Guided Calibration** tab."
+        )
+        return
+
+    # Build dataframe from session metadata
+    rows = []
+    for s in trained:
+        # Parse date from session_id (YYYYMMDD_HHMMSS)
+        sid = s.get("session_id", "")
+        date_str = sid[:8] if len(sid) >= 8 else "unknown"
+        try:
+            from datetime import datetime
+            date_parsed = datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            date_parsed = date_str
+        rows.append({
+            "session_id": sid,
+            "date": date_parsed,
+            "gas_name": s.get("gas_name", "?"),
+            "model_type": s.get("model_type", "?"),
+            "r_squared": s.get("r_squared"),
+            "lod_ppm": s.get("lod_ppm"),
+            "n_predictions": s.get("n_predictions", 0),
+            "steps_done": s.get("steps_done", 0),
+        })
+
+    df_all = pd.DataFrame(rows)
+
+    # Filter by analyte
+    analytes = sorted(df_all["gas_name"].unique().tolist())
+    selected_gas = st.selectbox("Analyte to analyse", analytes, key="repro_gas_sel")
+    df = df_all[df_all["gas_name"] == selected_gas].copy()
+
+    if df.empty:
+        st.warning(f"No trained sessions found for {selected_gas}.")
+        return
+
+    st.dataframe(
+        df[["session_id", "date", "model_type", "r_squared", "lod_ppm"]].rename(columns={
+            "session_id": "Session", "date": "Date", "model_type": "Model",
+            "r_squared": "R²", "lod_ppm": "LOD (ppm)"
+        }),
+        use_container_width=True, hide_index=True
+    )
+
+    # Compute per-day stats
+    def _rsd(vals):
+        """RSD = std/mean * 100 %."""
+        arr = np.array([v for v in vals if v is not None and not np.isnan(float(v))], dtype=float)
+        if len(arr) < 2:
+            return None
+        return float(np.std(arr, ddof=1) / np.mean(arr) * 100) if np.mean(arr) != 0 else None
+
+    # Intra-day: group by date, compute RSD within each day
+    intra_rows = []
+    for date_val, grp in df.groupby("date"):
+        r2_vals = grp["r_squared"].dropna().tolist()
+        lod_vals = grp["lod_ppm"].dropna().tolist()
+        intra_rows.append({
+            "Date": date_val,
+            "n sessions": len(grp),
+            "R² mean": f"{np.mean(r2_vals):.4f}" if r2_vals else "—",
+            "R² intra-day RSD %": f"{_rsd(r2_vals):.2f}" if _rsd(r2_vals) is not None else "—",
+            "LOD mean (ppm)": f"{np.mean(lod_vals):.3g}" if lod_vals else "—",
+            "LOD intra-day RSD %": f"{_rsd(lod_vals):.2f}" if _rsd(lod_vals) is not None else "—",
+        })
+
+    if intra_rows:
+        st.markdown("#### Intra-Day Reproducibility")
+        st.dataframe(pd.DataFrame(intra_rows), use_container_width=True, hide_index=True)
+
+    # Inter-day: use per-day means as replicates
+    if len(intra_rows) >= 2:
+        day_r2_means = [float(r["R² mean"]) for r in intra_rows if r["R² mean"] != "—"]
+        day_lod_means = [float(r["LOD mean (ppm)"]) for r in intra_rows if r["LOD mean (ppm)"] != "—"]
+
+        r2_inter = _rsd(day_r2_means)
+        lod_inter = _rsd(day_lod_means)
+
+        st.markdown("#### Inter-Day Reproducibility")
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        _c1.metric("Days measured", len(intra_rows))
+        _c2.metric("R² inter-day RSD", f"{r2_inter:.2f}%" if r2_inter is not None else "—")
+        _c3.metric("LOD inter-day RSD", f"{lod_inter:.2f}%" if lod_inter is not None else "—")
+
+        # ICH Q2(R1) assessment
+        _ich_r2 = r2_inter is not None and r2_inter < 10.0
+        _ich_lod = lod_inter is not None and lod_inter < 10.0
+        _c4.metric(
+            "ICH Q2(R1)",
+            "PASS" if (_ich_r2 and _ich_lod) else "CHECK",
+            delta="inter-day RSD < 10%" if (_ich_r2 and _ich_lod) else "inter-day RSD ≥ 10%",
+        )
+
+        if r2_inter is not None and r2_inter >= 10.0:
+            st.warning(
+                f"Inter-day R² RSD = {r2_inter:.2f}% ≥ 10%. "
+                "This may indicate sensor drift or inconsistent sample preparation between days."
+            )
+        if lod_inter is not None and lod_inter >= 10.0:
+            st.warning(
+                f"Inter-day LOD RSD = {lod_inter:.2f}% ≥ 10%. "
+                "Recalibrate with fresh reference standards — LOD drift suggests baseline instability."
+            )
+        if r2_inter is not None and r2_inter < 5.0 and lod_inter is not None and lod_inter < 5.0:
+            st.success(
+                "Excellent reproducibility: both R² and LOD RSDs < 5 % — "
+                "sensor is stable across measurement days."
+            )
+
+    # Trend plot
+    if PLOTLY_AVAILABLE and len(df) >= 2:
+        st.markdown("#### Metric Trend Over Sessions")
+        df_sorted = df.sort_values("session_id")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_sorted["session_id"], y=df_sorted["r_squared"],
+            mode="markers+lines", name="R²", yaxis="y1",
+        ))
+        if df_sorted["lod_ppm"].notna().any():
+            fig.add_trace(go.Scatter(
+                x=df_sorted["session_id"], y=df_sorted["lod_ppm"],
+                mode="markers+lines", name="LOD (ppm)", yaxis="y2",
+            ))
+        fig.update_layout(
+            xaxis_title="Session",
+            yaxis={"title": "R²", "range": [0.9, 1.0]},
+            yaxis2={"title": "LOD (ppm)", "overlaying": "y", "side": "right"},
+            height=350,
+            legend={"orientation": "h"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # CSV export
+    if st.button("Export reproducibility summary (CSV)", key="repro_export_csv"):
+        csv_buf = df_all[df_all["gas_name"] == selected_gas].to_csv(index=False)
+        st.download_button(
+            "Download CSV",
+            data=csv_buf,
+            file_name=f"reproducibility_{selected_gas}.csv",
+            mime="text/csv",
+            key="repro_dl_btn",
+        )

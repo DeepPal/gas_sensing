@@ -416,6 +416,107 @@ def render() -> None:
                 )
                 st.plotly_chart(fig2, use_container_width=True)
 
+    # ── Analysis Report ──────────────────────────────────────────────────
+    try:
+        from dashboard.report_generator import render_report_download_button
+        render_report_download_button(proj)
+    except Exception as _rpt_e:
+        log.warning("report_generator unavailable: %s", _rpt_e)
+
+    # ── Mixture Deconvolution ────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("🧪 Mixture Deconvolution (multi-analyte)", expanded=False):
+        st.markdown(
+            "Estimate concentrations of **multiple analytes simultaneously** from a single sensor response. "
+            "Requires one sensitivity value per analyte (from individual calibrations). "
+            "Uses linear pseudo-inverse for the linear regime; switches to Langmuir solver when saturation is expected."
+        )
+
+        # Analyte table input
+        st.markdown("##### Define analyte sensitivities")
+        st.caption(
+            "Enter one row per analyte. Sensitivity = slope of Δλ vs concentration (nm/ppm) "
+            "from individual calibration curves."
+        )
+
+        _md_n = st.number_input(
+            "Number of analytes", min_value=2, max_value=8, value=int(st.session_state.get("md_n_analytes", 2)),
+            step=1, key="md_n_analytes",
+        )
+        _md_analytes, _md_sens, _md_kds = [], [], []
+        _md_use_langmuir = st.checkbox(
+            "Use Langmuir solver (non-linear / saturation regime)",
+            value=False, key="md_use_langmuir",
+            help="Enable if any analyte concentration approaches sensor saturation (C ~ Kd).",
+        )
+
+        for _i in range(int(_md_n)):
+            _mc1, _mc2, _mc3 = st.columns([2, 1, 1])
+            _name = _mc1.text_input(
+                f"Analyte {_i+1}", value=f"Analyte_{_i+1}", key=f"md_name_{_i}"
+            )
+            _sens = _mc2.number_input(
+                "Sensitivity (nm/ppm)", min_value=0.0, value=0.001, format="%.5f",
+                step=0.0001, key=f"md_sens_{_i}",
+            )
+            _kd = _mc3.number_input(
+                "Kd (ppm)", value=1e6, format="%.1f", key=f"md_kd_{_i}",
+                help="Langmuir dissociation constant. Set very high (1e6) for linear model.",
+                disabled=not _md_use_langmuir,
+            )
+            _md_analytes.append(_name)
+            _md_sens.append(_sens)
+            _md_kds.append(_kd)
+
+        st.markdown("##### Observed peak shifts (nm)")
+        st.caption("Enter the peak shift observed from each sensor channel (1 value if single-channel sensor).")
+        _md_shift_str = st.text_input(
+            "Observed Δλ values (nm, comma-separated)",
+            value="", key="md_obs_shifts",
+            placeholder="e.g. 0.045  (single channel) or  0.045, 0.032  (two channels)",
+        )
+
+        if st.button("Deconvolve mixture", key="md_deconvolve_btn", type="primary"):
+            try:
+                from src.calibration.mixture_deconvolution import deconvolve_mixture
+                _obs = np.array([float(x.strip()) for x in _md_shift_str.split(",") if x.strip()])
+                if len(_obs) == 0:
+                    st.error("Enter at least one observed peak shift.")
+                else:
+                    # Build S matrix: shape (N_analytes, M_channels)
+                    # For single-channel: each analyte contributes its sensitivity to channel 0
+                    _M = len(_obs)
+                    _N = len(_md_analytes)
+                    _S = np.zeros((_N, _M))
+                    for _ai in range(_N):
+                        _S[_ai, 0] = _md_sens[_ai]  # all analytes share channel 0 in single-channel case
+                    _Kd = np.array(_md_kds)[:, np.newaxis] * np.ones((_N, _M)) if _md_use_langmuir else None
+
+                    _result = deconvolve_mixture(
+                        delta_lambda=_obs,
+                        analytes=_md_analytes,
+                        S=_S,
+                        Kd=_Kd,
+                        use_nonlinear=_md_use_langmuir,
+                    )
+
+                    st.success(f"Deconvolution complete (solver: {_result.solver})")
+                    _cols_res = st.columns(len(_md_analytes))
+                    for _ci, (_an, _conc) in enumerate(_result.concentrations.items()):
+                        _cols_res[_ci].metric(_an, f"{_conc:.4g} ppm")
+
+                    _rsd_c1, _rsd_c2 = st.columns(2)
+                    _rsd_c1.metric("RMS residual", f"{_result.residual_nm:.4g} nm")
+                    _rsd_c2.metric("Solver converged", "Yes" if _result.success else "No")
+
+                    if _result.residual_nm > 0.05:
+                        st.warning(
+                            f"RMS residual = {_result.residual_nm:.4g} nm is relatively large. "
+                            "Consider: wrong analytes, missing components, or out-of-range concentrations."
+                        )
+            except Exception as _md_e:
+                st.error(f"Deconvolution failed: {_md_e}")
+
 
 def _render_calibration_status(proj: "ProjectStore") -> None:
     """Show a compact calibration status card."""

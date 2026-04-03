@@ -254,6 +254,65 @@ with st.sidebar:
     if PROJECT_STORE_AVAILABLE:
         render_session_browser()
 
+    # ── Quality Dashboard ─────────────────────────────────────────────
+    if PROJECT_STORE_AVAILABLE:
+        st.divider()
+        st.markdown("### 🩺 Session Quality")
+        try:
+            _qd_proj = get_project()
+            _qd_perf = _qd_proj.performance or {}
+            _qd_r2 = _qd_perf.get("r_squared")
+            _qd_lod = _qd_perf.get("lod_ppm")
+            _qd_rdiag = _qd_perf.get("residual_diagnostics") or {}
+            _qd_steps = _qd_proj.step_complete
+
+            # Step completion pipeline
+            _step_icons = {
+                "acquisition": ("📡", "acquisition"),
+                "preprocessing": ("⚗️", "preprocessing"),
+                "training": ("🧠", "training"),
+                "validation": ("✅", "validation"),
+            }
+            _step_html = ""
+            for _k, (_icon, _label) in _step_icons.items():
+                _done = _qd_steps.get(_k, False)
+                _color = "#16a34a" if _done else "#9ca3af"
+                _step_html += (
+                    f"<span style='color:{_color};font-size:1.1em' title='{_label}'>"
+                    f"{_icon}</span> "
+                )
+            st.sidebar.markdown(_step_html + "<br><small>Pipeline steps</small>", unsafe_allow_html=True)
+
+            # R² traffic light
+            if _qd_r2 is not None:
+                if _qd_r2 >= 0.99:
+                    st.sidebar.success(f"R² = {_qd_r2:.4f} — Publication grade")
+                elif _qd_r2 >= 0.95:
+                    st.sidebar.warning(f"R² = {_qd_r2:.4f} — Acceptable")
+                else:
+                    st.sidebar.error(f"R² = {_qd_r2:.4f} — Low quality")
+            else:
+                st.sidebar.caption("R²: not trained yet")
+
+            # LOD
+            if _qd_lod is not None:
+                st.sidebar.caption(f"LOD: {_qd_lod:.3g} ppm")
+
+            # Residuals
+            if _qd_rdiag:
+                _overall = _qd_rdiag.get("overall_pass")
+                if _overall is True:
+                    st.sidebar.success("Residuals: PASS")
+                elif _overall is False:
+                    st.sidebar.warning("Residuals: issues found")
+
+            # Predictions count
+            _n_pred = len(_qd_proj.predictions)
+            if _n_pred > 0:
+                st.sidebar.caption(f"Predictions recorded: {_n_pred}")
+        except Exception as _qd_e:
+            st.sidebar.caption(f"Quality dashboard error: {_qd_e}")
+
     st.divider()
 
 # ---------------------------------------------------------------------------

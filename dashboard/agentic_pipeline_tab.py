@@ -656,6 +656,92 @@ def render() -> None:
                 key="ap_sim_peak_input",
             )
 
+        # ── Pre-calibration Advisor ───────────────────────────────────────
+        with st.expander("🎯 Pre-Calibration Advisor", expanded=not ss.get("ap_advisor_dismissed")):
+            st.markdown(
+                "Answer a few questions to get a recommended calibration design "
+                "before you record spectra. This prevents wasted measurements."
+            )
+            adv_col1, adv_col2, adv_col3 = st.columns(3)
+            adv_gas = adv_col1.text_input(
+                "Analyte name", value=ss.get("ap_gas", ""), key="adv_gas",
+                help="e.g. Ethanol, Acetone, NH3"
+            )
+            adv_cmin = adv_col2.number_input(
+                "Min concentration (ppm)", min_value=0.0, value=float(ss.get("adv_cmin", 1.0)),
+                key="adv_cmin", help="Lowest calibration point (should be near expected LOD)"
+            )
+            adv_cmax = adv_col3.number_input(
+                "Max concentration (ppm)", min_value=0.0, value=float(ss.get("adv_cmax", 500.0)),
+                key="adv_cmax", help="Highest calibration point (should be within linear range)"
+            )
+
+            adv_model = st.selectbox(
+                "Expected model type",
+                ["GPR / Linear OLS (linear range)", "PLS (multivariate)", "Langmuir (saturation expected)"],
+                key="adv_model_hint",
+            )
+            adv_purpose = st.selectbox(
+                "Publication target",
+                ["Screening / exploration (R² ≥ 0.95)", "Peer-reviewed journal (R² ≥ 0.99, ICH Q2(R1))"],
+                key="adv_purpose",
+            )
+
+            if st.button("Get recommendation", key="adv_compute"):
+                _pub = "icq2" if "ICH" in adv_purpose else "screening"
+                _lang = "Langmuir" in adv_model
+
+                # Minimum N logic
+                if _pub == "icq2":
+                    _n_min = 9 if _lang else 7  # ICH Q2(R1): ≥ 5 concentrations, 3 replicates each → 9 pts min; linear: 7
+                    _r2_target = 0.99
+                else:
+                    _n_min = 5
+                    _r2_target = 0.95
+
+                # Spacing advice
+                _range_ratio = adv_cmax / max(adv_cmin, 1e-9)
+                _spacing = "logarithmic" if _range_ratio >= 20 else "linear"
+
+                # Suggest concentration series
+                if _spacing == "logarithmic":
+                    _suggested = np.geomspace(adv_cmin, adv_cmax, _n_min).tolist()
+                else:
+                    _suggested = np.linspace(adv_cmin, adv_cmax, _n_min).tolist()
+
+                ss["ap_gas"] = adv_gas or ss.get("ap_gas", "unknown")
+                ss["adv_cmin"] = adv_cmin
+                ss["adv_cmax"] = adv_cmax
+
+                st.success(f"Recommended design for **{adv_gas or 'analyte'}**:")
+                _adv_c1, _adv_c2, _adv_c3 = st.columns(3)
+                _adv_c1.metric("Min calibration points", _n_min)
+                _adv_c2.metric("R² target", f"≥ {_r2_target}")
+                _adv_c3.metric("Suggested spacing", _spacing.capitalize())
+
+                _conc_strs = ", ".join(f"{c:.3g}" for c in _suggested)
+                st.info(
+                    f"Suggested concentrations (ppm): **{_conc_strs}**  \n"
+                    f"{'Use geometric spacing — your range spans >20× (log-spaced points give uniform '
+                       'coverage in log-concentration space).' if _spacing == 'logarithmic' else
+                       'Linear spacing is appropriate for this narrow range.'}"
+                )
+                if _lang:
+                    st.info(
+                        "Langmuir model detected: include at least 3 points below estimated Kd "
+                        "(low-end linear region) for reliable LOD calculation."
+                    )
+                st.caption(
+                    "Collect ≥ 3 replicate spectra at each concentration and average, "
+                    "or use the steady-state frames from your sensor."
+                )
+                ss["ap_advisor_dismissed"] = True
+
+            if ss.get("ap_advisor_dismissed"):
+                if st.button("Reset advisor", key="adv_reset"):
+                    ss["ap_advisor_dismissed"] = False
+                    st.rerun()
+
         # ── Section A: Live Spectral Preview (Agent 01) ───────────────────
         st.markdown("#### 📡 Live Data View")
         st.caption(
@@ -715,6 +801,99 @@ def render() -> None:
             chart_preview_ph.info(
                 "Press **👁️ Preview Spectrum** to display a live frame from the spectrometer."
             )
+
+        # ── Allan Deviation — Optimal Integration Time ────────────────────
+        with st.expander("⏱️ Optimal Integration Time (Allan Deviation)", expanded=False):
+            st.markdown(
+                "Capture a baseline (clean carrier / blank gas) to find the "
+                "**optimal averaging time τ_opt** — the integration time that minimises noise. "
+                "Too short → shot noise dominates. Too long → drift dominates."
+            )
+            _ad_col1, _ad_col2 = st.columns(2)
+            _ad_n_frames = _ad_col1.number_input(
+                "Baseline frames to capture", min_value=20, max_value=500,
+                value=100, step=10, key="ad_n_frames",
+                help="More frames = better Allan deviation estimate. ~100 frames takes ~10s at 30ms integration."
+            )
+            _ad_int_ms = _ad_col2.number_input(
+                "Integration time (ms)", min_value=10, max_value=5000,
+                value=int(ss.get("ap_meta", {}).get("integration_ms", 30)),
+                step=5, key="ad_int_ms",
+                help="Use the same integration time you plan to use for measurements."
+            )
+            if st.button("Capture baseline & compute Allan deviation", key="ad_capture_btn"):
+                with st.spinner(f"Capturing {_ad_n_frames} baseline frames…"):
+                    try:
+                        _ad_wl, _ad_frame = _acquire_frames(
+                            _ad_int_ms, _ad_n_frames, 100.0, st.empty(),
+                            sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
+                        )
+                        # Use peak wavelength time series as the baseline signal
+                        try:
+                            from src.signal.peak import find_peak_wavelength
+                            _ad_peak_nm = float(find_peak_wavelength(_ad_wl, _ad_frame))
+                        except Exception:
+                            _ad_peak_nm = float(_ad_wl[np.argmax(_ad_frame)])
+                        # Build a synthetic time series by repeatedly calling acquire
+                        # (single frame already captured — build baseline from repeated single acquisitions)
+                        _ad_baseline_vals = []
+                        for _fi in range(max(20, _ad_n_frames)):
+                            _, _fr_i = _acquire_frames(
+                                _ad_int_ms, 1, 100.0, st.empty(),
+                                sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
+                            )
+                            try:
+                                from src.signal.peak import find_peak_wavelength
+                                _ad_baseline_vals.append(float(find_peak_wavelength(_ad_wl, _fr_i)))
+                            except Exception:
+                                _ad_baseline_vals.append(float(_ad_wl[np.argmax(_fr_i)]))
+
+                        from src.scientific.allan_deviation import allan_deviation
+                        _ad_result = allan_deviation(
+                            np.array(_ad_baseline_vals),
+                            dt_s=_ad_int_ms / 1000.0,
+                        )
+                        ss["ap_allan_tau_opt_s"] = _ad_result.tau_opt
+                        ss["ap_allan_sigma_min"] = _ad_result.sigma_min
+                        ss["ap_allan_noise_type"] = _ad_result.noise_type
+
+                        _tau_ms = _ad_result.tau_opt * 1000.0
+                        st.success(
+                            f"Allan deviation computed:  "
+                            f"**τ_opt = {_ad_result.tau_opt:.3g} s ({_tau_ms:.1f} ms)**  "
+                            f"| σ_min = {_ad_result.sigma_min:.4g} nm  "
+                            f"| Noise type: {_ad_result.noise_type}"
+                        )
+                        _ad_c1, _ad_c2, _ad_c3 = st.columns(3)
+                        _ad_c1.metric("τ_opt", f"{_tau_ms:.1f} ms")
+                        _ad_c2.metric("σ_min (noise floor)", f"{_ad_result.sigma_min:.4g} nm")
+                        _ad_c3.metric("Noise regime", _ad_result.noise_type)
+
+                        if _tau_ms > _ad_int_ms * 1.5:
+                            st.info(
+                                f"Suggested: increase integration time to ~**{_tau_ms:.0f} ms** "
+                                f"(current: {_ad_int_ms} ms) to reach the noise floor."
+                            )
+                        elif _tau_ms < _ad_int_ms * 0.5:
+                            st.info(
+                                f"Suggested: reduce integration time to ~**{_tau_ms:.0f} ms** "
+                                f"(current: {_ad_int_ms} ms) to avoid drift-dominated averaging."
+                            )
+                        else:
+                            st.success(
+                                f"Current integration time ({_ad_int_ms} ms) is close to τ_opt — good setting."
+                            )
+                    except Exception as _ad_e:
+                        st.error(f"Allan deviation calculation failed: {_ad_e}")
+
+            # Show last stored result
+            if ss.get("ap_allan_tau_opt_s"):
+                _tau_ms_s = ss["ap_allan_tau_opt_s"] * 1000
+                st.caption(
+                    f"Last estimate: τ_opt = {_tau_ms_s:.1f} ms  |  "
+                    f"σ_min = {ss.get('ap_allan_sigma_min', 0):.4g} nm  |  "
+                    f"Noise: {ss.get('ap_allan_noise_type', '—')}"
+                )
 
         st.markdown("---")
         # ── Section B: Pre-Acquisition Logging & Labeled Recording (Agent 02) ─
@@ -2184,6 +2363,86 @@ def render() -> None:
             ss["ap_pp_items"] = pp
             ss["ap_has_diff"] = has_diff  # pin feature-extraction mode for inference
 
+        # ── Model Version Control ──────────────────────────────────────────
+        if ss.get("ap_model_trained"):
+            with st.expander("🔖 Model Version Control", expanded=False):
+                st.markdown(
+                    "Manage versioned snapshots of trained models. "
+                    "**Promote** a version to make it the active production model. "
+                    "**Rollback** by promoting an older version."
+                )
+                try:
+                    from src.models.versioning import ModelVersionStore
+                    import pickle
+                    _vc_gas = str(ss.get("ap_gas", "unknown")).replace(" ", "_")
+                    _vc_store = ModelVersionStore(_REPO / "output" / "model_versions")
+                    _vc_model_name = f"calibration_{_vc_gas}"
+
+                    _vc_c1, _vc_c2 = st.columns(2)
+                    # Save current model as new version
+                    if _vc_c1.button("💾 Save current model as new version", key="vc_save_btn"):
+                        _vc_model_obj = ss.get("ap_gpr_sklearn")
+                        _vc_model_path = ss.get("ap_model_path")
+                        if _vc_model_obj is None and _vc_model_path and Path(_vc_model_path).exists():
+                            with open(_vc_model_path, "rb") as _fhv:
+                                _vc_model_obj = pickle.load(_fhv)
+                        if _vc_model_obj is not None:
+                            _vc_metrics = {
+                                "r_squared": ss.get("ap_r2"),
+                                "lod_ppm": ss.get("ap_lod"),
+                                "model_type": str(ss.get("ap_model_type", "GPR")),
+                                "gas_name": _vc_gas,
+                                "n_cal_points": len(ss.get("ap_y_concs", [])),
+                            }
+                            _vc_rec = _vc_store.save(_vc_model_name, _vc_model_obj, metrics=_vc_metrics)
+                            st.success(f"Saved version **{_vc_rec.version_id}**")
+                        else:
+                            st.warning("No model in memory — train a model first.")
+
+                    # List existing versions
+                    _vc_versions = _vc_store.list_versions(_vc_model_name)
+                    if _vc_versions:
+                        _vc_opts = [
+                            f"{'★ ' if v.is_promoted else ''}{v.version_id}  "
+                            f"R²={v.metrics.get('r_squared', '?'):.4f}  "
+                            f"LOD={v.metrics.get('lod_ppm', '?'):.3g} ppm  "
+                            f"[{v.metrics.get('model_type', '?')}]"
+                            if isinstance(v.metrics.get('r_squared'), float) else
+                            f"{'★ ' if v.is_promoted else ''}{v.version_id}"
+                            for v in _vc_versions
+                        ]
+                        _vc_sel = st.selectbox(
+                            "Select version", range(len(_vc_opts)),
+                            format_func=lambda i: _vc_opts[i], key="vc_sel",
+                        )
+                        _vc_col1, _vc_col2, _vc_col3 = st.columns(3)
+
+                        if _vc_col1.button("⭐ Promote to production", key="vc_promote_btn"):
+                            _vc_store.promote(_vc_model_name, _vc_versions[_vc_sel].version_id)
+                            st.success(f"Promoted: {_vc_versions[_vc_sel].version_id}")
+                            st.rerun()
+
+                        if _vc_col2.button("⬇️ Load this version", key="vc_load_btn"):
+                            try:
+                                _loaded_model = _vc_store.load(_vc_model_name,
+                                                               version_id=_vc_versions[_vc_sel].version_id)
+                                ss["ap_gpr_sklearn"] = _loaded_model
+                                st.success(f"Loaded version: {_vc_versions[_vc_sel].version_id}")
+                            except Exception as _le:
+                                st.error(f"Load failed: {_le}")
+
+                        if _vc_col3.button("🗑️ Delete", key="vc_delete_btn"):
+                            try:
+                                _vc_store.delete(_vc_model_name, _vc_versions[_vc_sel].version_id)
+                                st.warning(f"Deleted: {_vc_versions[_vc_sel].version_id}")
+                                st.rerun()
+                            except ValueError as _de:
+                                st.error(str(_de))
+                    else:
+                        st.caption("No saved versions yet. Click 'Save current model as new version' above.")
+                except Exception as _vc_e:
+                    st.caption(f"Version control unavailable: {_vc_e}")
+
         # ── Save to Calibration Library ──────────────────────────────────────
         if ss.get("ap_model_trained"):
             try:
@@ -2212,6 +2471,105 @@ def render() -> None:
                     )
             except Exception as _lib_e:
                 st.caption(f"Calibration library widget unavailable: {_lib_e}")
+
+        # ── Spike Recovery Gate (optional, ICH Q2(R1)) ──────────────────────
+        if ss.get("ap_model_trained"):
+            with st.expander("💉 Spike Recovery Validation (optional, ICH Q2(R1))", expanded=False):
+                st.markdown(
+                    "Verify the sensor correctly recovers known added concentrations in a real matrix. "
+                    "ICH Q2(R1) accepts 98–102 %; routine QC accepts 90–110 %."
+                )
+                sr_col1, sr_col2 = st.columns(2)
+                sr_added_str = sr_col1.text_area(
+                    "Added concentrations (ppm, comma-separated)",
+                    value=ss.get("sr_added_str", ""),
+                    key="sr_added_input",
+                    placeholder="e.g. 50, 100, 200",
+                    height=80,
+                )
+                sr_found_str = sr_col2.text_area(
+                    "Found concentrations (ppm, comma-separated, same order)",
+                    value=ss.get("sr_found_str", ""),
+                    key="sr_found_input",
+                    placeholder="e.g. 49.8, 101.2, 197.5",
+                    height=80,
+                )
+                sr_bg = st.number_input(
+                    "Background concentration (ppm, blank measurement)",
+                    min_value=0.0,
+                    value=float(ss.get("sr_bg", 0.0)),
+                    key="sr_bg_input",
+                    help="Pre-spike measurement in clean carrier / blank matrix. 0 for clean gas.",
+                )
+
+                if st.button("Compute spike recovery", key="sr_compute_btn"):
+                    try:
+                        from src.scientific.ruggedness import spike_recovery
+                        _added = [float(x.strip()) for x in sr_added_str.split(",") if x.strip()]
+                        _found = [float(x.strip()) for x in sr_found_str.split(",") if x.strip()]
+                        if len(_added) == 0 or len(_added) != len(_found):
+                            st.error("Added and found lists must be non-empty and equal length.")
+                        else:
+                            sr_result = spike_recovery(
+                                added_concentrations=_added,
+                                found_concentrations=_found,
+                                background_concentration=sr_bg,
+                            )
+                            ss["sr_added_str"] = sr_added_str
+                            ss["sr_found_str"] = sr_found_str
+                            ss["sr_bg"] = sr_bg
+                            ss["sr_result"] = sr_result.as_dict()
+
+                            # Display table
+                            _sr_rows = [
+                                {
+                                    "Added (ppm)": p.added_conc,
+                                    "Found (ppm)": p.found_conc,
+                                    "Recovery %": f"{p.recovery_pct:.2f}",
+                                    "ICH Q2(R1)": "✅ PASS" if p.pass_ich else "⚠️ FAIL",
+                                    "Routine QC": "✅ PASS" if p.pass_routine else "⚠️ FAIL",
+                                }
+                                for p in sr_result.points
+                            ]
+                            st.dataframe(pd.DataFrame(_sr_rows), use_container_width=True)
+
+                            _sr_c1, _sr_c2, _sr_c3 = st.columns(3)
+                            _sr_c1.metric(
+                                "Mean recovery",
+                                f"{sr_result.mean_recovery * 100:.2f}%",
+                                delta=f"±{sr_result.std_recovery * 100:.2f}%",
+                            )
+                            _sr_c2.metric(
+                                "ICH Q2(R1)",
+                                "PASS" if sr_result.overall_pass_ich else "FAIL",
+                            )
+                            _sr_c3.metric(
+                                "Routine QC",
+                                "PASS" if sr_result.overall_pass_routine else "FAIL",
+                            )
+
+                            if sr_result.overall_pass_routine:
+                                st.success(
+                                    "Spike recovery within routine QC bounds (90–110 %). "
+                                    "Results are matrix-validated."
+                                )
+                            else:
+                                st.warning(
+                                    "Recovery outside 90–110 %. Check for matrix interference, "
+                                    "carry-over, or incorrect concentration assignments."
+                                )
+                    except Exception as _sr_e:
+                        st.error(f"Spike recovery calculation failed: {_sr_e}")
+
+                # Show previously computed result
+                if ss.get("sr_result"):
+                    _sr = ss["sr_result"]
+                    st.caption(
+                        f"Last run: Mean recovery {_sr['mean_recovery_pct']:.2f}% ± "
+                        f"{_sr['std_recovery_pct']:.2f}%  |  "
+                        f"ICH: {'PASS' if _sr['overall_pass_ich'] else 'FAIL'}  |  "
+                        f"Routine: {'PASS' if _sr['overall_pass_routine'] else 'FAIL'}"
+                    )
 
         col_nav = st.columns(2)
         if col_nav[0].button("⬅️ Back to Step 2"):
@@ -2938,6 +3296,14 @@ def render() -> None:
                 st.info("MLflow not installed — run `pip install mlflow` to enable experiment tracking.")
             except Exception as _mlf_hist_e:
                 st.warning(f"Could not load experiment history: {_mlf_hist_e}")
+
+        # ── One-Click Analysis Report ─────────────────────────────────────
+        try:
+            from dashboard.report_generator import render_report_download_button
+            from dashboard.project_store import get_project
+            render_report_download_button(get_project())
+        except Exception as _rep_e:
+            st.caption(f"Report generator unavailable: {_rep_e}")
 
         if st.button("⬅️ Back to Step 3"):
             ss["ap_step"] = 3

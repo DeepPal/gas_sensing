@@ -159,7 +159,26 @@
       "Bash(grep -r pass$ /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/spectraagent/webapp/agents/)",
       "Bash(ls -d \"c:/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula\"/*/)",
       "Bash(find c:/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/tests -maxdepth 1 -type f -name *.py)",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/spectraagent/webapp/*.py)",
+      "Bash(ls -la /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
+      "Bash(python -m pytest --collect-only)",
+      "Bash(python -m pytest --collect-only -q)",
+      "Bash(grep -r \"spectraagent start\\\\|run_spectraagent\\\\|run_dashboard\" *.md)",
+      "Bash(python -m pytest tests/ --collect-only -q)",
+      "Bash(ls -la *.bat *.sh *.spec)",
+      "Bash(findstr \":8766 \")",
+      "Bash(cat \"C:/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/logs/\"*.log)",
+      "Bash(find \"/c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula\" -name \"*.py\" -type f -exec grep -l \"NotImplementedError\" {} \\\\;)",
+      "Bash(echo \"PID=$!\")",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(grep -n \"from dashboard\\\\|import dashboard\" /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
+      "Bash(grep -n \"from src.inference.orchestrator\" /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
+      "Bash(curl -s http://localhost:8502)",
+      "Bash(wc -l /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
+      "Bash(find /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/src -name \"*.py\" -exec grep -l \"RSD\\\\|coefficient.*variation\\\\|relative.*standard\" {} \\\\;)",
+      "Bash(/c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/.venv/Scripts/python.exe -m mypy src/scientific/residual_diagnostics.py src/scientific/publication_tables.py --no-site-packages --ignore-missing-imports)"
     ]
   }
 }
