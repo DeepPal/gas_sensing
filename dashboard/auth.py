@@ -25,8 +25,6 @@ import logging
 from pathlib import Path
 from typing import Final
 
-import streamlit as st
-
 log = logging.getLogger(__name__)
 
 PBKDF2_PREFIX: Final[str] = "pbkdf2_sha256"
@@ -130,6 +128,11 @@ def check_password() -> bool:
     - Sets st.session_state.password_correct on successful auth
     - Displays error message on failed auth
     """
+    try:
+        import streamlit as st
+    except ModuleNotFoundError:
+        raise RuntimeError("Streamlit is required to run dashboard authentication UI.") from None
+
     # Check if already authenticated in this session
     if st.session_state.get("password_correct", False):
         return True
@@ -219,6 +222,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--set-password", action="store_true", help="Create or overwrite the hashed password file.")
     parser.add_argument("--password", help="Password to hash. If omitted, prompt securely.")
     parser.add_argument("--print-hash", metavar="PASSWORD", help="Print a PBKDF2 verifier for the supplied password.")
+    parser.add_argument(
+        "--verify",
+        nargs="?",
+        const="__PROMPT__",
+        metavar="PASSWORD",
+        help="Verify a password against the currently configured secret. Prompts if omitted.",
+    )
     return parser.parse_args()
 
 
@@ -242,6 +252,20 @@ def main() -> int:
         set_password(password)
         print(f"Wrote hashed password file to {Path.home() / PASSWORD_HASH_FILE}")
         return 0
+
+    if args.verify is not None:
+        configured = _get_stored_password()
+        if not configured:
+            print("Dashboard password is not configured.")
+            return 1
+
+        password = getpass.getpass("Dashboard password to verify: ") if args.verify == "__PROMPT__" else args.verify
+        if _verify_password(password, configured):
+            print("Password verification: OK")
+            return 0
+
+        print("Password verification: FAILED")
+        return 2
 
     configured = _get_stored_password()
     if configured:
