@@ -482,11 +482,15 @@ def sensor_performance_summary(
     responses: np.ndarray,
     baseline_noise_std: float | None = None,
     gas_name: str = "unknown",
+    baseline_time_series: np.ndarray | None = None,
+    dt_s: float = 0.05,
 ) -> dict[str, object]:
     """Full sensor performance characterisation for one gas analyte.
 
-    Computes sensitivity, R², LOD, LOQ, and (if provided) a signal-to-noise
-    estimate at each calibration point.
+    Computes sensitivity, R², LOD, LOQ with bootstrap CI, residual
+    diagnostics (Durbin-Watson / Shapiro-Wilk / Breusch-Pagan), and
+    optionally Allan deviation noise characterisation when a baseline
+    time series is provided.
 
     Parameters
     ----------
@@ -497,14 +501,23 @@ def sensor_performance_summary(
     baseline_noise_std:
         Noise standard deviation of the blank measurement.  If None,
         estimated as the std of the residuals from the linear fit.
+        If ``baseline_time_series`` is also provided, the Allan deviation
+        σ_min is used instead (more physically meaningful).
     gas_name:
         Gas analyte label (used only for the returned dict key).
+    baseline_time_series:
+        Optional 1-D array of blank / zero-gas measurements used for
+        Allan deviation noise analysis.  If provided, ``sigma_min``
+        (optimal-τ noise floor) replaces the OLS residual σ for LOD.
+    dt_s:
+        Sample interval for ``baseline_time_series`` in seconds.
 
     Returns
     -------
     dict
         Keys: ``gas``, ``sensitivity``, ``intercept``, ``r_squared``,
-        ``lod_ppm``, ``loq_ppm``, ``noise_std``, ``n_calibration_points``.
+        ``lod_ppm``, ``loq_ppm``, ``noise_std``, ``n_calibration_points``,
+        ``residual_diagnostics``, and optionally ``allan_deviation``.
 
     Example
     -------
@@ -581,6 +594,59 @@ def sensor_performance_summary(
         except Exception:
             pass
 
+    # ── Allan deviation: if a baseline time series is provided, use sigma_min
+    # as the noise estimate — it is more conservative and physically meaningful
+    # than the OLS-residual estimate because it captures the actual sensor noise
+    # floor at the optimal averaging time.
+    allan_result_dict: dict | None = None
+    if baseline_time_series is not None:
+        try:
+            from src.scientific.allan_deviation import allan_deviation as _adev
+            bts = np.asarray(baseline_time_series, dtype=float).ravel()
+            if len(bts) >= 10:
+                adev_result = _adev(bts, dt=dt_s)
+                allan_result_dict = {
+                    "tau_opt_s": round(float(adev_result.tau_opt), 4),
+                    "sigma_min": round(float(adev_result.sigma_min), 8),
+                    "noise_type": str(adev_result.noise_type),
+                    "white_noise_coeff": round(float(adev_result.white_noise_coeff), 8)
+                    if not np.isnan(adev_result.white_noise_coeff) else None,
+                    "n_samples": int(adev_result.n_samples),
+                }
+                # Use sigma_min as a more rigorous noise estimate for LOD
+                sigma_for_lod = float(adev_result.sigma_min)
+                lod = calculate_lod_3sigma(sigma_for_lod, slope)
+                loq = calculate_loq_10sigma(sigma_for_lod, slope)
+                lod_point, lod_ci_lo, lod_ci_hi = lod_bootstrap_ci(c, r, sigma_for_lod)
+                loq_ci_lo = lod_ci_lo * (10.0 / 3.0)
+                loq_ci_hi = lod_ci_hi * (10.0 / 3.0)
+                if abs(slope) > 1e-12 and np.isfinite(lod):
+                    lod_propagated_std = float(lod * slope_se / abs(slope))
+                if abs(slope) > 1e-12:
+                    lob = max(
+                        (1.645 * sigma_for_lod) / abs(slope), 1e-7
+                    )
+                log.info(
+                    "Allan deviation [%s]: σ_min=%.4g at τ_opt=%.3g s "
+                    "(noise_type=%s) → LOD updated to %.4f ppm",
+                    gas_name,
+                    adev_result.sigma_min,
+                    adev_result.tau_opt,
+                    adev_result.noise_type,
+                    lod if np.isfinite(lod) else float("nan"),
+                )
+        except Exception as _e:
+            log.warning("Allan deviation computation failed (%s); using OLS noise.", _e)
+
+    # ── Residual diagnostics: Durbin-Watson, Shapiro-Wilk, Breusch-Pagan
+    residual_diag_dict: dict | None = None
+    try:
+        from src.scientific.residual_diagnostics import residual_diagnostics as _rdiag
+        rdiag = _rdiag(c, r, slope=slope, intercept=intercept)
+        residual_diag_dict = rdiag.as_dict()
+    except Exception as _e:
+        log.warning("Residual diagnostics failed (%s); skipping.", _e)
+
     summary = {
         # ICH Q2(R1) mandatory fields
         "gas": gas_name,
@@ -607,16 +673,24 @@ def sensor_performance_summary(
         "lol_ppm": round(lol_ppm, 6) if lol_ppm is not None else None,
         # Mandel's linearity test result (full range)
         "mandel_linearity": linearity_result,
+        # Residual diagnostics (Durbin-Watson, Shapiro-Wilk, Breusch-Pagan)
+        "residual_diagnostics": residual_diag_dict,
+        # Allan deviation noise characterisation (populated if baseline_time_series given)
+        "allan_deviation": allan_result_dict,
         # Methodology tag for audit trail
-        "lod_method": "ICH Q2(R1) 3.3σ/S with bootstrap 95% CI (n=1000)",
+        "lod_method": (
+            "ICH Q2(R1) 3σ/S from Allan σ_min (τ_opt) with bootstrap 95% CI (n=1000)"
+            if allan_result_dict is not None
+            else "ICH Q2(R1) 3σ/S (OLS residuals) with bootstrap 95% CI (n=1000)"
+        ),
         "loq_method": "ICH Q2(R1) 10σ/S with bootstrap 95% CI (n=1000)",
-        "lob_method": "IUPAC 2012: (|μ_blank| + 1.645·σ_blank) / |S|",
+        "lob_method": "IUPAC 2012: 1.645·σ_noise / |S|",
         "lol_method": "ICH Q2(R1) §4.2 Mandel F-test progressive truncation",
     }
 
     log.info(
         "Sensor performance [%s]: S=%.4f/ppm (SE=%.4f), R²=%.4f, "
-        "LOD=%.4f [%.4f–%.4f] ppm, LOQ=%.4f ppm",
+        "LOD=%.4f [%.4f–%.4f] ppm, LOQ=%.4f ppm  diag=%s",
         gas_name,
         slope,
         slope_se,
@@ -625,6 +699,7 @@ def sensor_performance_summary(
         lod_ci_lo if np.isfinite(lod_ci_lo) else float("nan"),
         lod_ci_hi if np.isfinite(lod_ci_hi) else float("nan"),
         loq if np.isfinite(loq) else float("nan"),
+        "PASS" if (residual_diag_dict or {}).get("overall_pass", True) else "FAIL",
     )
 
     return summary

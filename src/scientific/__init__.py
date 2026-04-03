@@ -8,6 +8,11 @@ Modules
 lod
     LOD / LOQ (IUPAC 3σ/slope), bootstrap confidence intervals,
     robust Theil-Sen sensitivity, Mandel's linearity F-test.
+residual_diagnostics
+    OLS residual validation suite: Durbin-Watson (autocorrelation),
+    Shapiro-Wilk (normality), Breusch-Pagan (heteroscedasticity),
+    and lack-of-fit F-test.  Mandatory for Analytical Chemistry /
+    Sensors & Actuators B submissions.
 selectivity
     Cross-sensitivity matrix and selectivity coefficients (IUPAC).
 allan_deviation
@@ -20,6 +25,24 @@ ruggedness
     analytical method validation in chemistry / sensor journals.
 """
 
+from src.scientific.publication_tables import (
+    BatchReproducibilityRow,
+    DiagnosticsRow,
+    SensorPerformanceRow,
+    build_supplementary_s1,
+    build_supplementary_s2,
+    build_table1,
+    format_supplementary_s1_text,
+    format_supplementary_s2_text,
+    format_table1_csv,
+    format_table1_latex,
+    format_table1_text,
+)
+from src.scientific.residual_diagnostics import (
+    ResidualDiagnostics,
+    format_diagnostics_report,
+    residual_diagnostics,
+)
 from src.scientific.lod import (
     calculate_lod_3sigma,
     calculate_loq_10sigma,
@@ -52,6 +75,22 @@ from src.scientific.ruggedness import (
 )
 
 __all__ = [
+    # publication tables
+    "BatchReproducibilityRow",
+    "DiagnosticsRow",
+    "SensorPerformanceRow",
+    "build_supplementary_s1",
+    "build_supplementary_s2",
+    "build_table1",
+    "format_supplementary_s1_text",
+    "format_supplementary_s2_text",
+    "format_table1_csv",
+    "format_table1_latex",
+    "format_table1_text",
+    # residual diagnostics
+    "ResidualDiagnostics",
+    "format_diagnostics_report",
+    "residual_diagnostics",
     # lod
     "calculate_lod_3sigma",
     "calculate_loq_10sigma",

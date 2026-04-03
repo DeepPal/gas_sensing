@@ -81,6 +81,27 @@ except Exception as _e:
     _IMPORT_ERRORS["loader"] = str(_e)
 
 try:
+    from src.scientific.lod import sensor_performance_summary
+    from src.scientific.residual_diagnostics import (
+        format_diagnostics_report,
+        residual_diagnostics,
+    )
+    from src.scientific.publication_tables import (
+        build_supplementary_s1,
+        build_supplementary_s2,
+        build_table1,
+        format_supplementary_s1_text,
+        format_supplementary_s2_text,
+        format_table1_csv,
+        format_table1_latex,
+        format_table1_text,
+    )
+    PUBTABLES_AVAILABLE = True
+except Exception as _e:
+    PUBTABLES_AVAILABLE = False
+    _IMPORT_ERRORS["pub_tables"] = str(_e)
+
+try:
     from src.models.spectral_autoencoder import (
         AutoencoderConfig,
         SpectralAutoencoder,
@@ -191,12 +212,14 @@ def render() -> None:
         tab_train,
         tab_bench,
         tab_figures,
+        tab_tables,
     ) = st.tabs([
         "📂 Dataset Explorer",
         "🧬 Feature Discovery",
         "🏋️ Model Training",
         "📊 Cross-Dataset Analysis",
         "📄 Publication Figures",
+        "📋 Publication Tables",
     ])
 
     with tab_explore:
@@ -209,6 +232,8 @@ def render() -> None:
         _render_cross_dataset()
     with tab_figures:
         _render_publication_figures()
+    with tab_tables:
+        _render_publication_tables()
 
 
 # ===========================================================================
@@ -1525,3 +1550,309 @@ def _build_pub_figure(
         return _loss_curve_figure(hist, title="Model Training Loss")
 
     return None
+
+
+# ===========================================================================
+# Sub-tab 6 — Publication Tables (Table 1, Supp. S1, Supp. S2)
+# ===========================================================================
+
+def _render_publication_tables() -> None:
+    """Generate publication-ready Table 1 and Supplementary tables."""
+    st.subheader("Publication Tables")
+    st.markdown(
+        "Auto-generate **Table 1: Sensor Performance Summary** "
+        "(LOD, LOQ, R², sensitivity, linear range) and "
+        "**Supplementary Tables S1/S2** (batch reproducibility + "
+        "residual diagnostics checklist) from your calibration data."
+    )
+
+    if not PUBTABLES_AVAILABLE:
+        st.error(
+            f"Publication tables module unavailable: "
+            f"{_IMPORT_ERRORS.get('pub_tables', 'import failed')}"
+        )
+        return
+
+    with st.expander("ℹ️ How to use — input format", expanded=False):
+        st.markdown(
+            """
+**Input:** One CSV file per analyte with columns `concentration_ppm` and `signal`
+(or `wavelength_shift_nm`).  Each row is one calibration measurement.
+
+**Optional:** A `baseline` CSV with a single `signal` column — sequential blank
+measurements used for Allan deviation noise analysis (gives a more rigorous LOD).
+
+**Output:**
+- **Table 1** (ASCII / LaTeX / CSV) — one row per analyte
+- **Supp. S1** — batch reproducibility (one row per batch/session)
+- **Supp. S2** — residual diagnostics checklist (Durbin-Watson, Shapiro-Wilk, Breusch-Pagan)
+            """
+        )
+
+    st.markdown("---")
+    st.markdown("### Step 1 — Upload calibration data")
+    cal_files = st.file_uploader(
+        "Calibration CSV files (one per analyte)",
+        type=["csv"],
+        accept_multiple_files=True,
+        key="pt_cal_files",
+    )
+    baseline_file = st.file_uploader(
+        "Baseline / blank time-series CSV (optional — for Allan deviation)",
+        type=["csv"],
+        accept_multiple_files=False,
+        key="pt_baseline_file",
+    )
+
+    if not cal_files:
+        st.info("Upload at least one calibration CSV to continue.")
+        return
+
+    import pandas as pd
+
+    # Parse baseline time series if provided
+    baseline_ts: np.ndarray | None = None
+    if baseline_file is not None:
+        try:
+            bdf = pd.read_csv(baseline_file)
+            sig_col = next(
+                (c for c in bdf.columns
+                 if any(k in c.lower() for k in ["signal", "shift", "intens", "response"])),
+                bdf.columns[0],
+            )
+            baseline_ts = bdf[sig_col].dropna().astype(float).values
+            st.success(
+                f"Baseline loaded: {len(baseline_ts)} frames from column '{sig_col}'"
+            )
+        except Exception as exc:
+            st.warning(f"Could not parse baseline file: {exc}")
+
+    # Parse each calibration file
+    summaries: list[dict] = []
+    batch_data: list[dict] = []
+    parse_errors: list[str] = []
+
+    for f in cal_files:
+        try:
+            df = pd.read_csv(f)
+            f.seek(0)
+            # Detect column names flexibly
+            conc_col = next(
+                (c for c in df.columns
+                 if any(k in c.lower() for k in ["conc", "ppm", "concentration"])),
+                None,
+            )
+            sig_col = next(
+                (c for c in df.columns
+                 if any(k in c.lower() for k in
+                        ["signal", "shift", "intens", "response", "delta"])),
+                None,
+            )
+            if conc_col is None or sig_col is None:
+                if df.shape[1] >= 2:
+                    conc_col = df.columns[0]
+                    sig_col = df.columns[1]
+                else:
+                    parse_errors.append(
+                        f"{f.name}: need at least 2 columns "
+                        "(concentration, signal)"
+                    )
+                    continue
+
+            concs = df[conc_col].dropna().astype(float).values
+            signals = df[sig_col].dropna().astype(float).values
+            n = min(len(concs), len(signals))
+            if n < 2:
+                parse_errors.append(f"{f.name}: fewer than 2 valid rows")
+                continue
+
+            concs, signals = concs[:n], signals[:n]
+            # Derive gas name from filename (strip extension)
+            gas_name = Path(f.name).stem
+
+            with st.spinner(f"Computing performance metrics for {gas_name}…"):
+                summary = sensor_performance_summary(
+                    concs,
+                    signals,
+                    gas_name=gas_name,
+                    baseline_time_series=baseline_ts,
+                    dt_s=0.05,
+                )
+            summaries.append(summary)
+
+            # Batch row: treat the signal column as a within-batch replicate set
+            batch_data.append({
+                "analyte": gas_name,
+                "session_id": f.name,
+                "signals": signals,
+                "concentration_ppm": float(np.mean(concs)),
+            })
+
+        except Exception as exc:
+            parse_errors.append(f"{f.name}: {exc}")
+
+    for err in parse_errors:
+        st.warning(f"Parse error — {err}")
+
+    if not summaries:
+        st.error("No valid calibration files could be parsed.")
+        return
+
+    # Build tables
+    table1_rows = build_table1(summaries)
+    s1_rows = build_supplementary_s1(batch_data)
+    s2_rows = build_supplementary_s2(summaries)
+
+    st.markdown("---")
+    st.markdown("### Table 1: Sensor Performance Summary")
+
+    # Display as Streamlit dataframe first
+    if PANDAS_AVAILABLE:
+        table1_df = pd.DataFrame([{
+            "Analyte": r.analyte,
+            "Sensitivity": r._fmt_sensitivity(),
+            "R²": f"{r.r_squared:.4f}",
+            "LOD [95%CI] (ppm)": r._fmt_lod(),
+            "LOQ (ppm)": f"{r.loq_ppm:.3g}" if r.loq_ppm else "N/A",
+            "Lin. Range (ppm)": r._fmt_range(),
+            "RSD%": r._fmt_rsd(),
+            "n": r.n_cal_points,
+            "Residual diag.": "PASS" if r.residual_pass else ("FAIL" if r.residual_pass is False else "—"),
+        } for r in table1_rows])
+        st.dataframe(table1_df, use_container_width=True, hide_index=True)
+
+    # ASCII text
+    ascii_text = format_table1_text(table1_rows, title="Table 1: Sensor Performance Summary")
+    with st.expander("View as text (for lab notebook)", expanded=False):
+        st.code(ascii_text, language="text")
+
+    # Downloads
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "Download Table 1 as CSV",
+            data=format_table1_csv(table1_rows),
+            file_name="table1_sensor_performance.csv",
+            mime="text/csv",
+            key="pt_dl_csv",
+        )
+    with c2:
+        latex_str = format_table1_latex(
+            table1_rows,
+            caption=(
+                "Sensor performance summary. LOD = $3\\sigma/S$ (IUPAC); "
+                "LOQ = $10\\sigma/S$; 95\\,\\% CI from bootstrap ($n = 1000$)."
+            ),
+        )
+        st.download_button(
+            "Download Table 1 as LaTeX",
+            data=latex_str,
+            file_name="table1_sensor_performance.tex",
+            mime="text/plain",
+            key="pt_dl_latex",
+        )
+
+    # Residual diagnostics checklist
+    st.markdown("### Supplementary Table S2: Residual Diagnostics Checklist")
+    st.caption(
+        "Required by Analytical Chemistry / Sensors & Actuators B peer review. "
+        "FAIL in any column means OLS LOD assumptions are violated — see recommendations below."
+    )
+    if PANDAS_AVAILABLE:
+        s2_df = pd.DataFrame([{
+            "Analyte": r.analyte,
+            "n": r.n,
+            "Durbin-Watson": f"{r.durbin_watson:.3f}" if np.isfinite(r.durbin_watson) else "N/A",
+            "Autocorr.": "PASS" if r.dw_pass else "FAIL",
+            "Shapiro-Wilk p": f"{r.shapiro_wilk_p:.4f}" if np.isfinite(r.shapiro_wilk_p) else "N/A",
+            "Normality": "PASS" if r.sw_pass else "FAIL",
+            "Breusch-Pagan p": f"{r.breusch_pagan_p:.4f}" if np.isfinite(r.breusch_pagan_p) else "N/A",
+            "Homoscedast.": "PASS" if r.bp_pass else "FAIL",
+            "Overall": "PASS" if r.overall_pass else "FAIL",
+        } for r in s2_rows])
+        st.dataframe(s2_df, use_container_width=True, hide_index=True)
+
+    with st.expander("View full diagnostics report", expanded=False):
+        for summary in summaries:
+            gas = str(summary.get("gas", ""))
+            rdiag = summary.get("residual_diagnostics")
+            if rdiag:
+                # Reconstruct ResidualDiagnostics dataclass for formatting
+                from src.scientific.residual_diagnostics import ResidualDiagnostics
+                c_arr = np.array([])  # residuals are embedded in dict
+                rdiag_obj = ResidualDiagnostics(
+                    n=int(rdiag.get("n", 0)),
+                    residuals=np.zeros(int(rdiag.get("n", 1))),
+                    noise_std_ols=float(rdiag.get("noise_std_ols", 0)),
+                    durbin_watson=float(rdiag.get("durbin_watson", 2)),
+                    dw_interpretation=str(rdiag.get("dw_interpretation", "")),
+                    dw_pass=bool(rdiag.get("dw_pass", True)),
+                    shapiro_wilk_stat=float(rdiag.get("shapiro_wilk_stat", 1)),
+                    shapiro_wilk_p=float(rdiag.get("shapiro_wilk_p", 1)),
+                    sw_pass=bool(rdiag.get("sw_pass", True)),
+                    breusch_pagan_stat=float(rdiag.get("breusch_pagan_stat", 0)),
+                    breusch_pagan_p=float(rdiag.get("breusch_pagan_p", 1)),
+                    bp_pass=bool(rdiag.get("bp_pass", True)),
+                    overall_pass=bool(rdiag.get("overall_pass", True)),
+                    warnings=list(rdiag.get("warnings", [])),
+                    recommendations=list(rdiag.get("recommendations", [])),
+                    lof_f_stat=rdiag.get("lof_f_stat"),
+                    lof_p_value=rdiag.get("lof_p_value"),
+                    lof_pass=rdiag.get("lof_pass"),
+                )
+                st.code(format_diagnostics_report(rdiag_obj, gas_name=gas), language="text")
+
+    s2_txt = format_supplementary_s2_text(s2_rows)
+    st.download_button(
+        "Download Supp. S2 as text",
+        data=s2_txt,
+        file_name="supplementary_S2_residual_diagnostics.txt",
+        mime="text/plain",
+        key="pt_dl_s2",
+    )
+
+    # Batch reproducibility
+    if s1_rows:
+        st.markdown("### Supplementary Table S1: Batch Reproducibility")
+        if PANDAS_AVAILABLE:
+            s1_df = pd.DataFrame([{
+                "Analyte": r.analyte,
+                "Session": r.session_id,
+                "n": r.n_frames,
+                "Mean signal": f"{r.mean_signal:.5g}",
+                "SD": f"{r.std_signal:.4g}",
+                "RSD%": f"{r.rsd_pct:.1f}%",
+                "ICH Q2(R1)": "PASS" if r.passes_ich else "FAIL",
+            } for r in s1_rows])
+            st.dataframe(s1_df, use_container_width=True, hide_index=True)
+
+        s1_txt = format_supplementary_s1_text(s1_rows)
+        st.download_button(
+            "Download Supp. S1 as text",
+            data=s1_txt,
+            file_name="supplementary_S1_batch_reproducibility.txt",
+            mime="text/plain",
+            key="pt_dl_s1",
+        )
+
+    # Allan deviation summary (if available)
+    adev_summaries = [
+        (str(s.get("gas")), s.get("allan_deviation"))
+        for s in summaries
+        if s.get("allan_deviation")
+    ]
+    if adev_summaries:
+        st.markdown("### Allan Deviation Noise Analysis")
+        st.caption(
+            "Noise floor (σ_min) at optimal averaging time τ_opt — "
+            "used as the noise estimate for LOD when baseline time series was provided."
+        )
+        if PANDAS_AVAILABLE:
+            adev_df = pd.DataFrame([{
+                "Analyte": gas,
+                "τ_opt (s)": f"{adev['tau_opt_s']:.3g}",
+                "σ_min": f"{adev['sigma_min']:.4g}",
+                "Noise type": adev.get("noise_type", "—"),
+                "n samples": adev.get("n_samples", "—"),
+            } for gas, adev in adev_summaries])
+            st.dataframe(adev_df, use_container_width=True, hide_index=True)
