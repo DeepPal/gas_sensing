@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Serve the SPA under /app/ so FastAPI's /docs and /openapi.json are reachable
+  base: '/app/',
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',

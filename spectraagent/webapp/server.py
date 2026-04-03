@@ -28,7 +28,7 @@ import numpy as np
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -219,6 +219,38 @@ class DriftSettings(BaseModel):
 
 
 _ASK_MODEL = "claude-sonnet-4-6"
+
+
+class SensitivityFitRequest(BaseModel):
+    """Fit sensitivity matrix from single-analyte calibration data."""
+    analytes: list[str]
+    n_peaks: int
+    calibration_data: list[dict]
+    # Each entry: {analyte, peak_idx, conc_ppm: [..], shifts_nm: [..]}
+
+
+class MixtureInferenceRequest(BaseModel):
+    """Estimate analyte concentrations from observed peak shifts."""
+    delta_lambda: list[float]          # observed peak shifts (nm), one per peak
+    analytes: list[str]
+    S_matrix: list[list[float]]        # [[S_00, S_01, ...], [S_10, ...]] (N×M)
+    Kd_matrix: list[list[float]] | None = None   # K_d matrix (ppm), same shape; null = linear
+    use_nonlinear: bool = False
+
+
+class SimGenerateRequest(BaseModel):
+    """Generate a batch of synthetic spectra from the physics simulation."""
+    peak_nm: float = 700.0
+    fwhm_nm: float = 20.0
+    wl_start: float = 500.0
+    wl_end: float = 900.0
+    analyte_name: str = "Gas"
+    sensitivity_nm_per_ppm: float = -0.5
+    tau_s: float = 30.0
+    kd_ppm: float = 100.0
+    concentrations: list[float] = [0.1, 0.5, 1.0, 2.0, 5.0]
+    n_sessions: int = 5
+    random_seed: int = 42
 
 
 def _build_research_flow_payload(app: FastAPI) -> dict[str, Any]:
@@ -1456,35 +1488,6 @@ def create_app(simulate: bool = False) -> FastAPI:
     # Multi-analyte calibration API (sensitivity matrix + mixture deconvolution)
     # ------------------------------------------------------------------
 
-    class SensitivityFitRequest(BaseModel):
-        """Fit sensitivity matrix from single-analyte calibration data."""
-        analytes: list[str]
-        n_peaks: int
-        calibration_data: list[dict]
-        # Each entry: {analyte, peak_idx, conc_ppm: [..], shifts_nm: [..]}
-
-    class MixtureInferenceRequest(BaseModel):
-        """Estimate analyte concentrations from observed peak shifts."""
-        delta_lambda: list[float]          # observed peak shifts (nm), one per peak
-        analytes: list[str]
-        S_matrix: list[list[float]]        # [[S_00, S_01, ...], [S_10, ...]] (N×M)
-        Kd_matrix: list[list[float]] | None = None   # K_d matrix (ppm), same shape; null = linear
-        use_nonlinear: bool = False
-
-    class SimGenerateRequest(BaseModel):
-        """Generate a batch of synthetic spectra from the physics simulation."""
-        peak_nm: float = 700.0
-        fwhm_nm: float = 20.0
-        wl_start: float = 500.0
-        wl_end: float = 900.0
-        analyte_name: str = "Gas"
-        sensitivity_nm_per_ppm: float = -0.5
-        tau_s: float = 30.0
-        kd_ppm: float = 100.0
-        concentrations: list[float] = [0.1, 0.5, 1.0, 2.0, 5.0]
-        n_sessions: int = 5
-        random_seed: int = 42
-
     @app.post("/api/calibration/sensitivity-matrix/fit")
     async def calibration_sensitivity_fit(req: SensitivityFitRequest) -> JSONResponse:
         """Fit a sensitivity matrix from single-analyte calibration runs.
@@ -1783,14 +1786,20 @@ def create_app(simulate: bool = False) -> FastAPI:
         return StreamingResponse(_generate(), media_type="text/event-stream")
 
     # ------------------------------------------------------------------
-    # Static files (React SPA) — mounted last so API routes take priority
+    # Static files (React SPA) — mounted at /app so FastAPI's /docs,
+    # /openapi.json, and /redoc routes remain reachable.
     # ------------------------------------------------------------------
     _has_real_content = (
         _STATIC_DIST.exists()
         and any(f for f in _STATIC_DIST.iterdir() if f.name != ".gitkeep")
     )
     if _has_real_content:
-        app.mount("/", StaticFiles(directory=str(_STATIC_DIST), html=True), name="static")
+        # Root redirect: / → /app/ so browser bookmarks still work
+        @app.get("/")
+        async def _root_redirect() -> RedirectResponse:
+            return RedirectResponse(url="/app/", status_code=302)
+
+        app.mount("/app", StaticFiles(directory=str(_STATIC_DIST), html=True), name="static")
     else:
         @app.get("/")
         async def index_placeholder() -> JSONResponse:
