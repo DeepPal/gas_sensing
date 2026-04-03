@@ -362,9 +362,25 @@ def _scan_dataset_dir() -> list[Path]:
 
 @st.cache_data(show_spinner=False)
 def _load_csv_spectrum(path_str: str) -> tuple[np.ndarray, np.ndarray]:
-    """Load wavelength + intensity from a two-column CSV. Cached per file path."""
-    df = pd.read_csv(path_str, header=None, names=["wl", "intensity"])
-    return df["wl"].values, df["intensity"].values
+    """Load wavelength + intensity from a CSV. Handles both headered and bare files.
+
+    Accepts:
+    - Two-column bare CSV (no header): wavelength, intensity
+    - Multi-column headered CSV: columns named 'wavelength'/'intensity' (our standard format)
+    """
+    df = pd.read_csv(path_str)
+
+    # Detect if first row is actually data (no header) or a named header
+    try:
+        float(df.columns[0])
+        # First column name is a number → no header; re-read
+        df = pd.read_csv(path_str, header=None, names=["wavelength", "intensity"])
+    except (ValueError, TypeError):
+        pass  # has header row
+
+    wl_col = next((c for c in df.columns if str(c).lower().startswith("wavel")), df.columns[0])
+    int_col = next((c for c in df.columns if str(c).lower().startswith("intens")), df.columns[1])
+    return df[wl_col].astype(float).values, df[int_col].astype(float).values
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -790,9 +806,12 @@ def render() -> None:
         items = []  # list of (label, wl_array, intensity_array)
 
         # ── Source selector ───────────────────────────────────────────────
+        # Resolve Joy_Data / batch data root — check all known locations
         joy_root = _REPO / "data" / "JOY_Data"
         if not joy_root.exists():
-            joy_root = _REPO / "Joy_Data"  # legacy fallback
+            joy_root = _REPO / "Joy_Data"  # legacy path
+        if not joy_root.exists():
+            joy_root = _REPO / "output" / "batch"  # aggregated batch results
 
         source_options = ["Session recordings (in memory)", "Load from automation_dataset/"]
         if joy_root.exists():

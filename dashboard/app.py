@@ -273,10 +273,18 @@ def _render_batch() -> None:
 
     # ---- Sidebar --------------------------------------------------------
     st.sidebar.header("Data Configuration")
+
+    # Auto-detect best default data root: prefer output/batch (has real data)
+    _default_root = REPO_ROOT / "output" / "batch"
+    if not _default_root.exists() or not any(_default_root.iterdir()):
+        _joy = REPO_ROOT / "data" / "JOY_Data"
+        _joy_legacy = REPO_ROOT / "Joy_Data"
+        _default_root = _joy if _joy.exists() else (_joy_legacy if _joy_legacy.exists() else REPO_ROOT / "data")
+
     data_root = st.sidebar.text_input(
         "Data Root",
-        str(REPO_ROOT / "data"),
-        help="Directory containing gas sub-folders (e.g. data/JOY_Data/)",
+        str(_default_root),
+        help="Directory containing gas sub-folders (e.g. output/batch/ or data/JOY_Data/)",
     )
 
     root_path = Path(data_root).resolve()
@@ -295,9 +303,11 @@ def _render_batch() -> None:
     if not available_gases:
         st.sidebar.warning("No gas directories found. Check the Data Root path.")
         st.info(
-            "Expected structure:\n```\ndata/JOY_Data/\n"
-            "├── Ethanol/\n│   ├── 0.5 ppm-1/\n│   └── ...\n"
-            "└── ref_EtOH.csv\n```"
+            "Expected structure (e.g. `output/batch/`):\n```\nbatch/\n"
+            "├── Ethanol/\n│   ├── aggregated/\n│   │   ├── 0.1/ → *.csv\n│   │   └── ...\n"
+            "└── ...\n```\n\n"
+            "Or point to your own folder:\n```\nMyData/\n"
+            "├── Ethanol/\n│   └── *.csv\n└── ref_EtOH.csv\n```"
         )
         return
 

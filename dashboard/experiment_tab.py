@@ -88,10 +88,39 @@ def _step_badge(n: int, label: str, done: bool, active: bool) -> str:
 
 
 def _csv_to_spectrum(uploaded_file) -> tuple[np.ndarray, np.ndarray] | None:
-    """Parse an uploaded CSV into (wavelengths, intensities)."""
+    """Parse an uploaded CSV into (wavelengths, intensities).
+
+    Handles both headered CSVs (wavelength, intensity, ...) and
+    bare two-column CSVs with no header row.
+    """
     try:
-        df = pd.read_csv(uploaded_file, header=None)
-        if df.shape[1] >= 2:
+        # Try with auto-detected header first
+        df = pd.read_csv(uploaded_file)
+        uploaded_file.seek(0)  # reset for potential re-read
+
+        # If first column is numeric use it directly; otherwise it has a header
+        try:
+            float(df.iloc[0, 0])
+            has_header = False
+        except (ValueError, TypeError):
+            has_header = True
+
+        if not has_header:
+            df = pd.read_csv(uploaded_file, header=None)
+            uploaded_file.seek(0)
+
+        # Resolve wavelength and intensity columns by name or position
+        wl_col = next(
+            (c for c in df.columns if str(c).lower().startswith("wavel")), None
+        )
+        int_col = next(
+            (c for c in df.columns if str(c).lower().startswith("intens")), None
+        )
+
+        if wl_col is not None and int_col is not None:
+            wl = df[wl_col].astype(float).values
+            it = df[int_col].astype(float).values
+        elif df.shape[1] >= 2:
             wl = df.iloc[:, 0].astype(float).values
             it = df.iloc[:, 1].astype(float).values
         elif df.shape[1] == 1:
