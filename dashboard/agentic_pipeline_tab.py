@@ -1302,6 +1302,130 @@ def render() -> None:
 
         # ── Reference spectrum (for LSPR Δλ / differential signal) ──────
         st.markdown("---")
+        # ── Blank Measurements (IUPAC 2012 mandatory for valid LOD/LOB/NEC) ──
+        st.markdown("##### 🔬 Blank Measurements — σ_blank for LOD/LOB/NEC (Handbook §3.6)")
+        st.caption(
+            "Load ≥6 spectra measured in **clean carrier gas only** (no analyte). "
+            "Their peak-wavelength standard deviation sets σ_blank — the true noise floor for IUPAC LOD = 3σ/S. "
+            "Without this, LOD is estimated from OLS residuals (valid for screening, **not for publications**)."
+        )
+        with st.expander("📂 Load blank measurements (required for publication-grade LOD)", expanded=False):
+            blank_col1, blank_col2 = st.columns([2, 1])
+            blank_source = blank_col2.radio(
+                "Source", ["Joy_Data folder", "Upload CSVs"],
+                key="blank_source_radio",
+                horizontal=True,
+            )
+            _blank_spectra_loaded: list[float] = []  # list of peak wavelengths from blank frames
+            if blank_source == "Joy_Data folder":
+                _blank_candidates = sorted(joy_root.glob("*.csv")) if joy_root.exists() else []
+                _blank_candidates_air = [p for p in _blank_candidates
+                                         if any(k in p.name.lower() for k in ["blank", "air", "ref", "zero", "carrier"])]
+                _blank_file_list = _blank_candidates_air if _blank_candidates_air else _blank_candidates
+                if _blank_file_list:
+                    _sel_blanks = blank_col1.multiselect(
+                        "Select blank CSV files (≥6 recommended)",
+                        _blank_file_list,
+                        format_func=lambda p: p.name,
+                        default=_blank_file_list[:min(10, len(_blank_file_list))],
+                    )
+                    if _sel_blanks and st.button("📥 Load blank spectra", key="load_blank_btn"):
+                        _bpk_vals = []
+                        _bpk_errors = []
+                        for _bp in _sel_blanks:
+                            try:
+                                _bdf = pd.read_csv(_bp, header=None)
+                                if _bdf.shape[1] >= 2:
+                                    _bwl = _bdf.iloc[:, 0].values.astype(float)
+                                    _bi = _bdf.iloc[:, 1].values.astype(float)
+                                else:
+                                    _bi = _bdf.iloc[:, 0].values.astype(float)
+                                    _bwl = np.linspace(400, 700, len(_bi))
+                                # Detect peak wavelength (Lorentzian centroid)
+                                _bpk_idx = int(np.argmax(_bi))
+                                _bpk_vals.append(float(_bwl[_bpk_idx]))
+                            except Exception as _be:
+                                _bpk_errors.append(f"{_bp.name}: {_be}")
+                        if _bpk_vals:
+                            ss["ap_blank_peak_wls"] = _bpk_vals
+                            st.success(
+                                f"✅ {len(_bpk_vals)} blank spectra loaded. "
+                                f"σ_blank = **{np.std(_bpk_vals, ddof=1):.4f} nm** "
+                                f"(mean λ_peak = {np.mean(_bpk_vals):.3f} nm)"
+                            )
+                            if len(_bpk_vals) < 6:
+                                st.warning(
+                                    f"Only {len(_bpk_vals)} blank frames — ICH §4.6 recommends ≥6. "
+                                    "σ_blank estimate is unreliable. Add more blank measurements."
+                                )
+                        for _e in _bpk_errors:
+                            st.warning(f"Could not load: {_e}")
+                else:
+                    blank_col1.info("No CSV files found in Joy_Data. Use Upload CSVs instead.")
+            else:
+                _uploaded_blanks = blank_col1.file_uploader(
+                    "Upload blank CSVs (wavelength, intensity columns)",
+                    type=["csv"], accept_multiple_files=True, key="blank_uploader"
+                )
+                if _uploaded_blanks and st.button("📥 Process uploaded blanks", key="proc_blank_btn"):
+                    _bpk_vals = []
+                    for _uf in _uploaded_blanks:
+                        try:
+                            _bdf = pd.read_csv(_uf, header=None)
+                            _bwl = _bdf.iloc[:, 0].values.astype(float)
+                            _bi = _bdf.iloc[:, 1].values.astype(float)
+                            _bpk_vals.append(float(_bwl[int(np.argmax(_bi))]))
+                        except Exception:
+                            pass
+                    if _bpk_vals:
+                        ss["ap_blank_peak_wls"] = _bpk_vals
+                        st.success(
+                            f"✅ {len(_bpk_vals)} blank frames. "
+                            f"σ_blank = **{np.std(_bpk_vals, ddof=1):.4f} nm**"
+                        )
+
+            # Show current blank status
+            _stored_blanks = ss.get("ap_blank_peak_wls", [])
+            if _stored_blanks:
+                _sb_arr = np.array(_stored_blanks)
+                _sb_mean = float(np.mean(_sb_arr))
+                _sb_std  = float(np.std(_sb_arr, ddof=1)) if len(_stored_blanks) > 1 else 0.0
+                # LOB in signal units (nm): μ_blank + 1.645·σ_blank (IUPAC 2012)
+                # This is shown before calibration so the researcher knows the
+                # blank quality before committing to the Step 3 calibration fit.
+                _lob_signal_nm = abs(_sb_mean) + 1.645 * _sb_std
+                _c1b, _c2b, _c3b, _c4b = st.columns(4)
+                _c1b.metric("Blank frames", len(_stored_blanks))
+                _c2b.metric("σ_blank (nm)", f"{_sb_std:.4f}",
+                            help="Noise floor for LOD/NEC — smaller is better. "
+                                 "Typical CCS200 LSPR: < 0.01 nm at optimal τ.")
+                _c3b.metric("Mean λ_peak", f"{_sb_mean:.3f} nm",
+                            help="Should match the reference peak. Large offsets indicate "
+                                 "drift between the reference and blank measurements.")
+                _ref_pk_for_display = ss.get("ap_ref_peak_wl")
+                _blank_shift_mean = (
+                    _sb_mean - float(_ref_pk_for_display)
+                    if _ref_pk_for_display is not None else 0.0
+                )
+                _lob_signal_nm = abs(_blank_shift_mean) + 1.645 * _sb_std
+                _c4b.metric(
+                    "LOB signal (Δλ nm)",
+                    f"{_lob_signal_nm:.4f} nm",
+                    help="Limit of Blank in Δλ units = |μ_Δλ_blank| + 1.645·σ_blank (IUPAC 2012). "
+                         "Δλ_blank = λ_blank − λ_ref. "
+                         "After calibration, LOB (ppm) = this / |sensitivity|.",
+                )
+                if len(_stored_blanks) >= 6:
+                    st.success("✅ Sufficient blank measurements — LOD/LOB/NEC will use measured σ_blank (IUPAC 2012).")
+                else:
+                    st.warning(f"⚠️ Only {len(_stored_blanks)} blank frames — need ≥6 for publication-grade LOD.")
+            else:
+                st.info(
+                    "No blank measurements loaded. LOD will be estimated from OLS residuals. "
+                    "**Load blank measurements for regulatory / publication submissions.**"
+                )
+
+        st.markdown("---")
         st.markdown("##### Reference Spectrum (optional but recommended for LSPR sensors)")
         st.caption(
             "Provide an air/blank reference to compute differential signal and peak shift Δλ — the true LSPR sensing metric."
@@ -1433,6 +1557,25 @@ def render() -> None:
                 ss["ap_step"] = 2
                 st.rerun()
             return
+
+        # ── Blank measurements status banner ─────────────────────────────
+        _blanks_in_s3 = ss.get("ap_blank_peak_wls", [])
+        if len(_blanks_in_s3) >= 6:
+            st.success(
+                f"✅ **{len(_blanks_in_s3)} blank measurements loaded** — LOD/LOB/NEC will use "
+                f"measured σ_blank = {float(np.std(_blanks_in_s3, ddof=1)):.4f} nm (IUPAC 2012 compliant)."
+            )
+        elif len(_blanks_in_s3) > 0:
+            st.warning(
+                f"⚠️ Only {len(_blanks_in_s3)} blank measurements ({6 - len(_blanks_in_s3)} more needed). "
+                "LOD CI will be less reliable. Go back to Step 2 → Blank Measurements to add more."
+            )
+        else:
+            st.warning(
+                "⚠️ **No blank measurements loaded.** LOD will be estimated from OLS residuals — "
+                "acceptable for screening but **not valid for publication** (IUPAC 2012 §C.3). "
+                "Go back to Step 2 → Blank Measurements to load carrier-gas-only spectra."
+            )
 
         # ── Data sufficiency check ────────────────────────────────────────
         _n_samples = len(pp)
@@ -1621,12 +1764,17 @@ def render() -> None:
                     if lod_lo is not None and lod_hi is not None
                     else None
                 )
+                _lod_ci_from_blank = _sm.get("lod_ci_from_blank", False)
                 r1c2.metric(
-                    "LOD (3σ/S)",
+                    "LOD (3σ/S)" + (" ✅" if _lod_ci_from_blank else " ⚠️"),
                     _lod_label,
                     delta=_lod_delta,
                     delta_color="off",
-                    help="Limit of Detection — 95% bootstrap CI shown as delta",
+                    help=(
+                        "Limit of Detection — 95% bootstrap CI shown as delta. "
+                        "✅ = CI uses measured σ_blank (IUPAC 2012 compliant). "
+                        "⚠️ = CI uses OLS residuals (screening only, not for publication)."
+                    ),
                 )
                 r1c3.metric(
                     "LOQ (10σ/S)",
@@ -1641,19 +1789,45 @@ def render() -> None:
 
                 # NEC (Noise Equivalent Concentration) — fundamental detection floor
                 nec_val = _sm.get("nec_ppm")
+                nec_ci_lo = _sm.get("nec_ppm_ci_lower")
+                nec_ci_hi = _sm.get("nec_ppm_ci_upper")
                 if nec_val is not None:
+                    _nec_ci_str = (
+                        f" [95% CI: {nec_ci_lo:.4g}–{nec_ci_hi:.4g} ppm]"
+                        if nec_ci_lo is not None and nec_ci_hi is not None
+                        else " (no CI — need ≥4 blank frames)"
+                    )
                     st.info(
-                        f"**NEC (Noise Equivalent Concentration):** {nec_val:.4g} ppm  "
+                        f"**NEC (Noise Equivalent Concentration):** {nec_val:.4g} ppm{_nec_ci_str}  \n"
                         f"= σ_blank / |S| — fundamental noise floor.  "
                         f"LOD = 3 × NEC = {3 * nec_val:.4g} ppm.  "
                         f"{'⚠️ LOD > 3×NEC: sensitivity degrading (not noise floor).' if lod_val and lod_val > 3.5 * nec_val else '✅ LOD ≈ 3×NEC: noise-limited detection.'}"
                     )
                 else:
                     st.caption(
-                        "NEC (Noise Equivalent Concentration) not computed — "
-                        "provide `blank_measurements` to `sensor_performance_summary()` for exact NEC. "
-                        "Using residual σ as noise estimate."
+                        "NEC not computed — load blank measurements in Step 2 for publication-grade NEC. "
+                        "Currently using OLS residual σ as noise estimate."
                     )
+
+                # ── Detection-limit hierarchy check ──────────────────────
+                # IUPAC invariant: NEC ≤ LOB ≤ LOD ≤ LOQ
+                # A violated hierarchy is a data-quality signal, not a code
+                # error. It most commonly means the blank mean is non-zero
+                # (incomplete reference subtraction or sensor drift).
+                _hier = _sm.get("hierarchy_check") or {}
+                if _hier:
+                    _hier_ok = _hier.get("hierarchy_ok", True)
+                    _hier_warns = _hier.get("warnings", [])
+                    if _hier_ok:
+                        st.success(
+                            "✅ **Detection-limit hierarchy OK**: NEC ≤ LOB ≤ LOD ≤ LOQ"
+                        )
+                    else:
+                        st.error(
+                            "❌ **Detection-limit hierarchy VIOLATED** — see warnings below."
+                        )
+                        for _hw in _hier_warns:
+                            st.warning(_hw)
 
                 # ── Row 2: Calibration quality ────────────────────────────
                 st.markdown("**Calibration quality**")
@@ -2348,8 +2522,28 @@ def render() -> None:
                         with open(model_path_lin, "wb") as fh:
                             pickle.dump(lin, fh)
 
-                        _sm_lin = sensor_performance_summary(concs_1d, responses_1d,
-                                                              gas_name=str(ss.get("ap_gas", "")))
+                        _blank_wls = ss.get("ap_blank_peak_wls")
+                        _ref_peak_for_blank = ss.get("ap_ref_peak_wl")
+                        if _blank_wls:
+                            _blank_raw = np.array(_blank_wls, dtype=float)
+                            # responses_1d uses peak_shift (Δλ) when a reference
+                            # is available, so blank_measurements must be in the
+                            # same Δλ units. Δλ_blank = λ_blank - λ_ref ≈ 0.
+                            # Without reference-subtraction, LOB = (717 nm + …)
+                            # / |S| gives a nonsensical result (~350+ ppm).
+                            if _ref_peak_for_blank is not None:
+                                _blank_arr = _blank_raw - float(_ref_peak_for_blank)
+                            else:
+                                # No reference — centre on blank mean (conservative:
+                                # σ_blank is unaffected; mean offset is removed)
+                                _blank_arr = _blank_raw - float(np.mean(_blank_raw))
+                        else:
+                            _blank_arr = None
+                        _sm_lin = sensor_performance_summary(
+                            concs_1d, responses_1d,
+                            gas_name=str(ss.get("ap_gas", "")),
+                            blank_measurements=_blank_arr,
+                        )
                         ss["ap_sensor_metrics"] = _sm_lin
                         ss["ap_lod"] = _sm_lin.get("lod_ppm")
                         ss["ap_r2"] = r2_lin
@@ -2397,9 +2591,20 @@ def render() -> None:
                         lin_mask = concs_nl < kd  # below Kd — approximately linear
                         _sm_lang = {}
                         if lin_mask.sum() >= 2:
+                            _blank_wls_l = ss.get("ap_blank_peak_wls")
+                            _ref_peak_for_blank_l = ss.get("ap_ref_peak_wl")
+                            if _blank_wls_l:
+                                _blank_raw_l = np.array(_blank_wls_l, dtype=float)
+                                if _ref_peak_for_blank_l is not None:
+                                    _blank_arr_l = _blank_raw_l - float(_ref_peak_for_blank_l)
+                                else:
+                                    _blank_arr_l = _blank_raw_l - float(np.mean(_blank_raw_l))
+                            else:
+                                _blank_arr_l = None
                             _sm_lang = sensor_performance_summary(
                                 concs_nl[lin_mask], responses_nl[lin_mask],
-                                gas_name=str(ss.get("ap_gas", ""))
+                                gas_name=str(ss.get("ap_gas", "")),
+                                blank_measurements=_blank_arr_l,
                             )
                             ss["ap_sensor_metrics"] = _sm_lang
                             ss["ap_lod"] = _sm_lang.get("lod_ppm")

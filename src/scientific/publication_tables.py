@@ -108,6 +108,14 @@ class SensorPerformanceRow:
     allan_tau_opt: float | None = None
     allan_sigma_min: float | None = None
     residual_pass: bool | None = None
+    lod_ci_from_blank: bool = False
+    """True when LOD bootstrap CI used measured σ_blank (not OLS residuals)."""
+    missing_reasons: dict[str, str] = field(default_factory=dict)
+    """Maps field name → reason string for any None field. Used in table footnotes.
+    Example: {"lod_ppm": "blank_measurements_not_provided",
+              "linear_range_high": "mandel_low_power_n4"}
+    Reviewers ask *why* a field is missing — this provides the audit trail.
+    """
 
     def _fmt_lod(self) -> str:
         if self.lod_ppm is None:
@@ -232,6 +240,24 @@ def build_table1(
         if batch_rsds and gas in batch_rsds:
             rsd = float(batch_rsds[gas])
 
+        # Build missing_reasons audit trail — reviewers ask WHY a field is None
+        missing: dict[str, str] = {}
+        if lod is None:
+            missing["lod_ppm"] = str(s.get("lod_method", "not_computed"))
+        if loq is None:
+            missing["loq_ppm"] = "not_computed"
+        if linear_hi is None:
+            if s.get("mandel_low_power_warning"):
+                missing["linear_range_high"] = (
+                    f"mandel_low_power (n={s.get('n_calibration_points', '?')} ≤ 5)"
+                )
+            else:
+                missing["linear_range_high"] = "mandel_test_not_run_or_failed"
+        if rsd is None:
+            missing["reproducibility_rsd_pct"] = "batch_rsd_not_provided"
+        if not s.get("lob_from_blank_measurements", False):
+            missing["lob_ppm"] = "estimated_from_ols_residuals_not_blank_measurements"
+
         rows.append(SensorPerformanceRow(
             analyte=gas,
             sensitivity=float(s.get("sensitivity", 0)),
@@ -249,6 +275,8 @@ def build_table1(
             allan_tau_opt=float(adev["tau_opt_s"]) if adev.get("tau_opt_s") else None,
             allan_sigma_min=float(adev["sigma_min"]) if adev.get("sigma_min") else None,
             residual_pass=bool(rdiag["overall_pass"]) if "overall_pass" in rdiag else None,
+            lod_ci_from_blank=bool(s.get("lod_ci_from_blank", False)),
+            missing_reasons=missing,
         ))
 
     rows.sort(key=lambda r: r.analyte.lower())
@@ -381,11 +409,14 @@ def format_table1_text(rows: list[SensorPerformanceRow], title: str = "") -> str
     lines += [header, sep]
 
     for r in rows:
+        lod_cell = r._fmt_lod()
+        if r.lod_ci_from_blank:
+            lod_cell += " ‡"
         data = [
             r.analyte,
             r._fmt_sensitivity(),
             f"{r.r_squared:.4f}",
-            r._fmt_lod(),
+            lod_cell,
             f"{r.loq_ppm:.3g}" if r.loq_ppm is not None else "N/A",
             r._fmt_range(),
             r._fmt_rsd(),
@@ -395,9 +426,25 @@ def format_table1_text(rows: list[SensorPerformanceRow], title: str = "") -> str
 
     lines.append("")
     lines.append("  LOD = 3σ/S (IUPAC); LOQ = 10σ/S; CI = bootstrap 95% (n=1000)")
-    lines.append("  * RSD > 20% — fails ICH Q2(R1) batch reproducibility criterion")
+    lines.append("  * RSD > 20% — fails ICH Q2(R1) intra-batch reproducibility criterion")
     if any(r.residual_pass is False for r in rows):
         lines.append("  † Residual diagnostics failed — see Supplementary Table S2")
+    if any(r.lod_ci_from_blank for r in rows):
+        lines.append("  ‡ LOD CI: σ_blank from dedicated blank measurements (IUPAC 2012)")
+    else:
+        lines.append("  ! LOD CI: σ_blank estimated from OLS residuals — provide blank")
+        lines.append("    measurements for regulatory submissions (IUPAC 2012 §3.3)")
+    # Missing-field audit trail: reviewers ask *why* a field is None
+    missing_notes: list[str] = []
+    for r in rows:
+        for field_name, reason in (r.missing_reasons or {}).items():
+            missing_notes.append(
+                f"  [{r.analyte}] {field_name}: {reason.replace('_', ' ')}"
+            )
+    if missing_notes:
+        lines.append("")
+        lines.append("  Missing fields (audit trail):")
+        lines.extend(missing_notes)
     return "\n".join(lines)
 
 
@@ -453,6 +500,16 @@ def format_table1_latex(
             f" & {loq_str} & {range_str} & {rsd_str} \\\\"
         )
 
+    # Collect all missing-reason footnotes across all rows
+    footnote_items: list[str] = []
+    for r in rows:
+        for field_name, reason in (r.missing_reasons or {}).items():
+            footnote_items.append(
+                f"\\item {_esc(r.analyte)}: {_esc(field_name)} not reported — "
+                f"{_esc(reason.replace('_', ' '))}."
+            )
+    lob_from_blank_note = all(r.lod_ci_from_blank for r in rows)
+
     lines += [
         r"    \bottomrule",
         r"  \end{tabular}",
@@ -460,7 +517,16 @@ def format_table1_latex(
         r"    \small",
         r"    \item LOD = $3\sigma/S$ (IUPAC); LOQ = $10\sigma/S$;"
         r" 95\,\% CI from bootstrap ($n = 1000$).",
+        "    \\item " + (
+            r"LOD CI: $\sigma_{\text{blank}}$ from dedicated blank measurements (IUPAC 2012)."
+            if lob_from_blank_note
+            else r"LOD CI: $\sigma_{\text{blank}}$ estimated from OLS residuals"
+                 r" — provide blank measurements for regulatory submissions."
+        ),
+        r"    \item Bonferroni-corrected residual diagnostics: $\alpha = 0.05/3 \approx 0.0167$"
+        r" per test (DW, SW, BP).",
         r"    \item * RSD $> 20\%$ fails ICH Q2(R1) intra-batch reproducibility.",
+    ] + footnote_items + [
         r"  \end{tablenotes}",
         r"\end{table}",
     ]
@@ -479,7 +545,8 @@ def format_table1_csv(rows: list[SensorPerformanceRow]) -> str:
         "R2,LOD (ppm),LOD CI lower (ppm),LOD CI upper (ppm),"
         "LOQ (ppm),Linear range low (ppm),Linear range high (ppm),"
         "Reproducibility RSD (%),n cal points,LOD method,"
-        "Allan tau_opt (s),Allan sigma_min,Residual diagnostics pass"
+        "Allan tau_opt (s),Allan sigma_min,Residual diagnostics pass,"
+        "LOD CI from blank measurements,Missing fields (audit trail)"
     )
     csv_lines = [header]
     for r in rows:
@@ -490,6 +557,9 @@ def format_table1_csv(rows: list[SensorPerformanceRow]) -> str:
                 return ""
             return str(x)
 
+        missing_summary = "; ".join(
+            f"{k}={v}" for k, v in (r.missing_reasons or {}).items()
+        )
         csv_lines.append(",".join([
             r.analyte,
             _v(r.sensitivity),
@@ -507,6 +577,8 @@ def format_table1_csv(rows: list[SensorPerformanceRow]) -> str:
             _v(r.allan_tau_opt),
             _v(r.allan_sigma_min),
             _v(r.residual_pass),
+            "yes" if r.lod_ci_from_blank else "no (OLS residuals)",
+            f'"{missing_summary}"' if missing_summary else "",
         ]))
     return "\n".join(csv_lines)
 

@@ -185,6 +185,8 @@ class CalibrationLibrary:
             The newly saved entry.
         """
         import pickle
+        import sys
+        import importlib.metadata as _meta
 
         entry_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{gas_name.replace(' ', '_')}"
         entry_dir = self._dir / entry_id
@@ -194,6 +196,28 @@ class CalibrationLibrary:
         model_path = entry_dir / "model.pkl"
         with open(model_path, "wb") as fh:
             pickle.dump(model_obj, fh)
+
+        # Save version manifest alongside the pickle so load_model() can
+        # detect sklearn / Python version mismatches before returning a
+        # potentially corrupt model. Mismatch ≠ guaranteed failure, but
+        # unpinned sklearn upgrades (especially 1.x→1.x minor bumps) have
+        # silently changed GPR hyperparameter shapes in the past.
+        def _pkg_version(name: str) -> str:
+            try:
+                return _meta.version(name)
+            except Exception:
+                return "unknown"
+
+        versions = {
+            "python": sys.version,
+            "sklearn": _pkg_version("scikit-learn"),
+            "numpy": _pkg_version("numpy"),
+            "scipy": _pkg_version("scipy"),
+            "joblib": _pkg_version("joblib"),
+            "saved_at": datetime.now().isoformat(),
+        }
+        with open(entry_dir / "_versions.json", "w", encoding="utf-8") as fh:
+            json.dump(versions, fh, indent=2)
 
         # Save arrays
         np.save(entry_dir / "concentrations.npy", calibration_concentrations)
@@ -231,14 +255,71 @@ class CalibrationLibrary:
         log.info("CalibrationLibrary: saved %s (%s) as %s", gas_name, model_type, entry_id)
         return entry
 
-    def load_model(self, entry_id: str) -> Any:
-        """Load the serialised model for an entry."""
+    def load_model(self, entry_id: str) -> tuple[Any, list[str]]:
+        """Load the serialised model for an entry.
+
+        Returns
+        -------
+        tuple (model_object, version_warnings)
+            ``version_warnings`` is a list of human-readable strings describing
+            any package version mismatches between save-time and load-time.
+            An empty list means the environment matches. Warnings do NOT prevent
+            loading — the caller decides whether to block or alert the user.
+        """
         import pickle
+        import sys
+        import importlib.metadata as _meta
+
         model_path = self._dir / entry_id / "model.pkl"
         if not model_path.exists():
             raise FileNotFoundError(f"No model.pkl for entry {entry_id}")
+
+        # Check version manifest before unpickling
+        version_warnings: list[str] = []
+        versions_path = self._dir / entry_id / "_versions.json"
+        if versions_path.exists():
+            try:
+                with open(versions_path, encoding="utf-8") as fh:
+                    saved_versions: dict = json.load(fh)
+                checks = [
+                    ("sklearn", "scikit-learn"),
+                    ("numpy", "numpy"),
+                    ("scipy", "scipy"),
+                ]
+                for key, pkg in checks:
+                    saved_v = saved_versions.get(key, "unknown")
+                    try:
+                        current_v = _meta.version(pkg)
+                    except Exception:
+                        current_v = "unknown"
+                    if saved_v != "unknown" and current_v != "unknown" and saved_v != current_v:
+                        version_warnings.append(
+                            f"{pkg}: saved={saved_v}, current={current_v} — "
+                            "model may behave differently. Re-save to update."
+                        )
+                py_saved = saved_versions.get("python", "")[:6]
+                py_now = sys.version[:6]
+                if py_saved and py_saved != py_now:
+                    version_warnings.append(
+                        f"Python: saved={py_saved}, current={py_now} — "
+                        "pickle compatibility not guaranteed across major Python versions."
+                    )
+            except Exception as _ve:
+                version_warnings.append(f"Could not read version manifest: {_ve}")
+        else:
+            version_warnings.append(
+                "No _versions.json found — this model was saved before version pinning "
+                "was added. Re-save to enable mismatch detection."
+            )
+
+        if version_warnings:
+            for w in version_warnings:
+                log.warning("CalibrationLibrary version mismatch [%s]: %s", entry_id, w)
+
         with open(model_path, "rb") as fh:
-            return pickle.load(fh)
+            model = pickle.load(fh)
+
+        return model, version_warnings
 
     def load_arrays(self, entry_id: str) -> tuple[np.ndarray, np.ndarray]:
         """Load (concentrations, responses) for an entry."""
@@ -380,9 +461,19 @@ def render_load_from_library() -> tuple[Any, np.ndarray, np.ndarray, dict] | Non
 
     if st.button("Load this calibration", key="cal_lib_load_btn", type="primary"):
         try:
-            model = lib.load_model(chosen.entry_id)
+            model, version_warnings = lib.load_model(chosen.entry_id)
             concs, resps = lib.load_arrays(chosen.entry_id)
-            st.success(f"Loaded: {chosen.gas_name} ({chosen.model_type}), {chosen.n_cal_points} cal points")
+            # Show version mismatch warnings before returning so the researcher
+            # can decide whether to retrain before making predictions.
+            if version_warnings:
+                for _vw in version_warnings:
+                    st.warning(f"⚠️ Version mismatch: {_vw}")
+                st.caption(
+                    "These warnings do not prevent loading, but may indicate the model "
+                    "behaves differently than when saved. Re-save after upgrading packages."
+                )
+            else:
+                st.success(f"Loaded: {chosen.gas_name} ({chosen.model_type}), {chosen.n_cal_points} cal points")
             # Merge entry metadata into the performance dict for downstream consumers
             perf = dict(chosen.performance)
             perf.setdefault("model_type", chosen.model_type)

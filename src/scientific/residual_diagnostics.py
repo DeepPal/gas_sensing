@@ -57,8 +57,13 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-# Significance level for hypothesis tests
-_ALPHA: float = 0.05
+# Significance level for hypothesis tests — Bonferroni-corrected for 3 simultaneous tests.
+# Running DW + SW + BP each at α=0.05 gives a joint false-positive rate of ~14.3%.
+# Bonferroni correction: α_per_test = 0.05 / 3 ≈ 0.0167 controls family-wise error at 5%.
+# Reference: Bland & Altman (1995), BMJ 310:170 — multiple testing in diagnostic studies.
+_N_TESTS: int = 3          # number of simultaneous tests (DW, SW, BP)
+_FAMILY_ALPHA: float = 0.05
+_ALPHA: float = _FAMILY_ALPHA / _N_TESTS   # ≈ 0.01667 per test
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +428,8 @@ def residual_diagnostics(
     if not dw_ok:
         if dw < 1.5:
             warnings_list.append(
-                f"Positive autocorrelation in residuals (DW = {dw:.3f} < 1.5). "
+                f"Positive autocorrelation in residuals (DW = {dw:.3f} < 1.5; "
+                f"α={_ALPHA:.4f} Bonferroni). "
                 "Calibration points may not be at equilibrium."
             )
             recs.append(
@@ -432,7 +438,8 @@ def residual_diagnostics(
             )
         else:
             warnings_list.append(
-                f"Negative autocorrelation in residuals (DW = {dw:.3f} > 2.5). "
+                f"Negative autocorrelation in residuals (DW = {dw:.3f} > 2.5; "
+                f"α={_ALPHA:.4f} Bonferroni). "
                 "May indicate over-correction or oscillating baseline."
             )
             recs.append(
@@ -442,7 +449,8 @@ def residual_diagnostics(
 
     if not sw_ok:
         warnings_list.append(
-            f"Residuals fail Shapiro-Wilk normality test (W = {sw_stat:.4f}, p = {sw_p:.4f} < 0.05). "
+            f"Residuals fail Shapiro-Wilk normality test "
+            f"(W = {sw_stat:.4f}, p = {sw_p:.4f} < {_ALPHA:.4f} Bonferroni). "
             "LOD bootstrap CI may be underestimated."
         )
         recs.append(
@@ -453,7 +461,8 @@ def residual_diagnostics(
 
     if not bp_ok:
         warnings_list.append(
-            f"Heteroscedastic residuals detected (BP LM = {bp_stat:.3f}, p = {bp_p:.4f} < 0.05). "
+            f"Heteroscedastic residuals detected "
+            f"(BP LM = {bp_stat:.3f}, p = {bp_p:.4f} < {_ALPHA:.4f} Bonferroni). "
             "Variance increases with concentration; OLS LOD is biased."
         )
         recs.append(
@@ -464,7 +473,8 @@ def residual_diagnostics(
     if lof_ok is False:
         warnings_list.append(
             f"Significant lack of fit detected (F = {lof_f:.3f}, p = {lof_p:.4f} < 0.05). "
-            "Linear model may be inadequate over this concentration range."
+            "Linear model may be inadequate over this concentration range. "
+            "(LOF F-test uses α=0.05 — not Bonferroni-adjusted because it is independent of DW/SW/BP.)"
         )
         recs.append(
             "Consider restricting the calibration range to the linear region "

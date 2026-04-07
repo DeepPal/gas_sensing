@@ -69,6 +69,13 @@ class GPRCalibration:
         self.scaler_X = StandardScaler()
         self.is_fitted: bool = False
         self._n_train: int = 0
+        self._aleatoric_noise_std: float = 0.0
+        """Residual noise σ from training data (aleatoric uncertainty).
+        Added in quadrature to the GPR posterior std during prediction so that
+        total_std = √(epistemic² + aleatoric²).  This prevents overconfident
+        predictions in noisy concentration ranges where the GPR has seen many
+        training points (epistemic → 0) but sensor noise remains.
+        """
 
     # ------------------------------------------------------------------
     # Fitting
@@ -106,6 +113,14 @@ class GPRCalibration:
         self.is_fitted = True
         self._n_train = len(y)
 
+        # Compute aleatoric (sensor) noise from training residuals.
+        # This is distinct from the GPR epistemic uncertainty (posterior std):
+        # epistemic → 0 near training points; aleatoric is fixed by sensor noise floor.
+        # We combine both in predict() so CIs don't collapse to zero near training data.
+        y_pred_train = self.model.predict(X_scaled, return_std=False)
+        train_residuals = y - y_pred_train
+        self._aleatoric_noise_std = float(np.std(train_residuals, ddof=1)) if len(y) > 1 else 0.0
+
         return {
             "log_marginal_likelihood": float(
                 self.model.log_marginal_likelihood(self.model.kernel_.theta)
@@ -116,6 +131,7 @@ class GPRCalibration:
                 if isinstance(v, (int, float))
             },
             "n_samples": self._n_train,
+            "aleatoric_noise_std": round(self._aleatoric_noise_std, 6),
         }
 
     # Alias
@@ -162,7 +178,11 @@ class GPRCalibration:
         X_scaled = self.scaler_X.transform(X)
 
         if return_std:
-            y_mean, y_std = self.model.predict(X_scaled, return_std=True)
+            y_mean, y_epistemic = self.model.predict(X_scaled, return_std=True)
+            # Combine epistemic (model) and aleatoric (sensor noise) uncertainty:
+            #   total_std = √(epistemic² + aleatoric²)
+            # Without this, CI collapses near training points even when sensor is noisy.
+            y_std = np.sqrt(y_epistemic ** 2 + self._aleatoric_noise_std ** 2)
             return y_mean, y_std
         else:
             y_mean = self.model.predict(X_scaled, return_std=False)
@@ -207,6 +227,7 @@ class GPRCalibration:
                 "n_restarts_optimizer": self.n_restarts_optimizer,
                 "is_fitted": self.is_fitted,
                 "n_train": self._n_train,
+                "aleatoric_noise_std": self._aleatoric_noise_std,
             },
             path,
         )
@@ -236,6 +257,7 @@ class GPRCalibration:
         obj.scaler_X = state["scaler_X"]
         obj.is_fitted = state.get("is_fitted", True)
         obj._n_train = state.get("n_train", 0)
+        obj._aleatoric_noise_std = state.get("aleatoric_noise_std", 0.0)
         # Sync self.kernel with the optimised kernel_ so inspecting obj.kernel
         # returns the fitted hyperparameters rather than the unfitted template.
         if obj.is_fitted and hasattr(obj.model, "kernel_"):

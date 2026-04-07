@@ -1175,10 +1175,18 @@ Methods section as evidence of sensor-agnostic generalisation.
 
     registry: dict[str, SpectralDataset] = st.session_state.get("ds_registry", {})
 
-    if len(registry) < 2:
-        st.info(
-            "Register **at least 2 datasets** (one per sensor configuration) "
-            "in the Dataset Explorer tab first."
+    # Minimum dataset requirement: LOCO requires ≥3 configurations to produce
+    # a meaningful generalisation estimate. With only 2 configs, LOCO degenerates
+    # into a single train/test split — indistinguishable from a standard holdout
+    # and NOT a benchmark of cross-sensor generalisation. Handbook §8.1 requires
+    # "≥3 distinct sensor configurations".
+    if len(registry) < 3:
+        st.warning(
+            f"**Cross-dataset benchmark requires ≥3 registered sensor configurations** "
+            f"(currently: {len(registry)}).  \n\n"
+            "With fewer than 3 configs, leave-one-config-out degenerates to a single "
+            "train/test split — this is not a generalisation benchmark per Handbook §8.1. "
+            "Register at least one more sensor configuration in the Dataset Explorer tab."
         )
         if registry:
             st.caption(f"Currently registered: {list(registry.keys())}")
@@ -2025,6 +2033,112 @@ def _render_reproducibility() -> None:
             legend={"orientation": "h"},
         )
         st.plotly_chart(fig, use_container_width=True)
+
+    # ── Formal cross-session statistical testing ─────────────────────────────
+    # ISO 5725-2 / ICH Q2(R1) require more than RSD: a paired t-test confirms
+    # there is no systematic bias between sessions; the F-test checks that
+    # measurement variability is the same; Bland-Altman quantifies agreement.
+    st.markdown("#### Formal Session-Pair Comparison (ISO 5725-2)")
+    st.caption(
+        "Select two sessions to run paired t-test, F-test, Mann-Whitney U, "
+        "and Bland-Altman analysis.  ICH Q2(R1) §3.4 requires this for "
+        "inter-laboratory and ruggedness claims."
+    )
+
+    session_ids_for_sel = sorted(df["session_id"].tolist())
+    if len(session_ids_for_sel) >= 2:
+        _col_a, _col_b = st.columns(2)
+        _sess_a = _col_a.selectbox("Session A", session_ids_for_sel,
+                                   index=0, key="repro_sess_a")
+        _sess_b = _col_b.selectbox("Session B", session_ids_for_sel,
+                                   index=min(1, len(session_ids_for_sel)-1),
+                                   key="repro_sess_b")
+
+        if _sess_a != _sess_b and st.button("Run statistical comparison", key="repro_run_stats"):
+            try:
+                from src.scientific.cross_session import compare_sessions, SessionData
+                from dashboard.project_store import ProjectStore as _PS
+
+                _proj_a = _PS.load(_sess_a)
+                _proj_b = _PS.load(_sess_b)
+
+                _c_a  = list(_proj_a.calibration_concentrations.ravel()) \
+                    if _proj_a.calibration_concentrations is not None else []
+                _c_b  = list(_proj_b.calibration_concentrations.ravel()) \
+                    if _proj_b.calibration_concentrations is not None else []
+                _dl_a = list(_proj_a.calibration_responses.ravel()) \
+                    if _proj_a.calibration_responses is not None else []
+                _dl_b = list(_proj_b.calibration_responses.ravel()) \
+                    if _proj_b.calibration_responses is not None else []
+
+                if len(_dl_a) < 3 or len(_dl_b) < 3:
+                    st.warning(
+                        "At least 3 calibration points are needed per session for "
+                        "statistical testing.  Complete more calibration steps in both sessions."
+                    )
+                else:
+                    _perf_a = _proj_a.performance or {}
+                    _perf_b = _proj_b.performance or {}
+                    _sdata_a = SessionData(
+                        concentrations=_c_a,
+                        delta_lambdas=_dl_a,
+                        session_id=_sess_a,
+                        lod_ppm=_perf_a.get("lod_ppm"),
+                        sensitivity_nm_per_ppm=_perf_a.get("sensitivity"),
+                    )
+                    _sdata_b = SessionData(
+                        concentrations=_c_b,
+                        delta_lambdas=_dl_b,
+                        session_id=_sess_b,
+                        lod_ppm=_perf_b.get("lod_ppm"),
+                        sensitivity_nm_per_ppm=_perf_b.get("sensitivity"),
+                    )
+                    _lod_hi = _perf_a.get("lod_ppm_ci_upper") or _perf_b.get("lod_ppm_ci_upper")
+                    _lod_pt = _perf_a.get("lod_ppm") or _perf_b.get("lod_ppm")
+                    _cmp = compare_sessions(
+                        _sdata_a, _sdata_b,
+                        lod_ppm=_lod_pt,
+                        lod_ppm_ci_upper=_lod_hi,
+                    )
+
+                    _r1, _r2, _r3, _r4 = st.columns(4)
+                    _r1.metric(
+                        "Paired t-test p",
+                        f"{_cmp.paired_t_p_value:.4f}" if _cmp.paired_t_p_value is not None else "—",
+                        delta="significant bias" if _cmp.paired_t_significant else "no bias",
+                    )
+                    _r2.metric(
+                        "BA Bias (nm)",
+                        f"{_cmp.bland_altman_bias:.4f}" if _cmp.bland_altman_bias is not None else "—",
+                    )
+                    _r3.metric(
+                        "F-test p",
+                        f"{_cmp.f_p_value:.4f}" if _cmp.f_p_value is not None else "—",
+                        delta="unequal variance" if _cmp.f_variances_equal is False else "equal variance",
+                    )
+                    _r4.metric(
+                        "Reproducible?",
+                        "YES" if _cmp.sessions_reproducible else
+                        "NO" if _cmp.sessions_reproducible is False else "—",
+                    )
+
+                    if _cmp.bland_altman_loa_lower is not None:
+                        st.info(
+                            f"Bland-Altman 95% LoA: [{_cmp.bland_altman_loa_lower:.4f}, "
+                            f"{_cmp.bland_altman_loa_upper:.4f}] nm  "
+                            f"(bias = {_cmp.bland_altman_bias:.4f} nm, "
+                            f"n = {_cmp.bland_altman_n} pairs)"
+                        )
+                    if _cmp.warnings:
+                        for _w in _cmp.warnings:
+                            st.warning(_w)
+
+            except ImportError:
+                st.error("Could not import cross_session or project_store — check src/ installation.")
+            except Exception as _e:
+                st.error(f"Statistical comparison failed: {_e}")
+    else:
+        st.info("Need at least 2 sessions for pair comparison.")
 
     # CSV export
     if st.button("Export reproducibility summary (CSV)", key="repro_export_csv"):

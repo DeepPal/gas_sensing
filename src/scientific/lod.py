@@ -138,6 +138,8 @@ def lod_bootstrap_ci(
     n_bootstrap: int = 1000,
     confidence: float = 0.95,
     random_state: int = 42,
+    blank_measurements: np.ndarray | None = None,
+    fix_noise_std: bool = False,
 ) -> tuple[float, float, float]:
     """Bootstrap confidence interval for the LOD (ICH Q2(R1) compliant).
 
@@ -146,19 +148,39 @@ def lod_bootstrap_ci(
     variability — the preferred method when the LOD distribution is non-normal
     (ICH Q2(R2) Appendix B, 2022).
 
+    When ``blank_measurements`` is supplied the blank noise is held fixed at
+    the measured σ_blank during bootstrap (only the calibration slope varies).
+    This is the correct procedure: blank noise is a *separate* measurement and
+    should not be re-estimated from calibration residuals on each resample.
+    When ``blank_measurements`` is None the noise is re-estimated from OLS
+    residuals on each resample — acceptable for screening but will produce
+    artificially tight CIs.
+
     Parameters
     ----------
     concentrations, responses:
         Calibration data.
     baseline_noise_std:
-        Blank noise σ.  If ``None``, estimated from OLS residuals (acceptable
-        for screening; blank measurement preferred for regulatory submissions).
+        Blank noise σ.  If ``None`` and ``blank_measurements`` is also None,
+        estimated from OLS residuals (acceptable for screening; blank
+        measurement preferred for regulatory submissions).
     n_bootstrap:
         Number of resamples (≥ 1 000 for 95 % CI stability).
     confidence:
         Confidence level (default 0.95).
     random_state:
         Seed for reproducibility.
+    blank_measurements:
+        Raw blank-signal array (same units as ``responses``).  When provided,
+        σ_blank is computed from this array and held fixed during bootstrap —
+        making the CI capture only slope uncertainty, as intended.
+    fix_noise_std:
+        When ``True``, ``baseline_noise_std`` is treated as a known constant
+        and held fixed during every bootstrap iteration (only the calibration
+        slope varies).  Use this when ``baseline_noise_std`` comes from an
+        independent experiment (e.g., Allan deviation σ_min computed from a
+        separate baseline time series).  Has no effect when
+        ``blank_measurements`` is also provided (blank σ always takes precedence).
 
     Returns
     -------
@@ -170,9 +192,25 @@ def lod_bootstrap_ci(
     n = len(c)
 
     slope_full, intercept_full, _, _ = calculate_sensitivity(c, r)
+
+    # Determine the fixed blank noise to use throughout bootstrap.
+    # Priority: blank_measurements σ > fix_noise_std > re-estimate each resample.
+    if blank_measurements is not None and len(blank_measurements) >= 2:
+        _bm = np.asarray(blank_measurements, dtype=float).ravel()
+        fixed_sigma_blank: float | None = float(np.std(_bm, ddof=1))
+    elif fix_noise_std and baseline_noise_std is not None:
+        # Caller guarantees this σ came from an independent measurement —
+        # hold it fixed so CI captures only calibration slope uncertainty.
+        fixed_sigma_blank = float(baseline_noise_std)
+    else:
+        fixed_sigma_blank = None  # will re-estimate from residuals each resample
+
     if baseline_noise_std is None:
-        residuals = r - (slope_full * c + intercept_full)
-        baseline_noise_std = float(np.std(residuals))
+        if fixed_sigma_blank is not None:
+            baseline_noise_std = fixed_sigma_blank
+        else:
+            residuals = r - (slope_full * c + intercept_full)
+            baseline_noise_std = float(np.std(residuals))
 
     lod_point = calculate_lod_3sigma(baseline_noise_std, slope_full)
 
@@ -184,7 +222,12 @@ def lod_bootstrap_ci(
             continue
         try:
             sb, ib, _, _ = calculate_sensitivity(cb, rb)
-            noise_b = float(np.std(rb - (sb * cb + ib)))
+            if fixed_sigma_blank is not None:
+                # Hold blank noise fixed: CI captures only slope uncertainty
+                # (blank/Allan noise is a separate, independent measurement)
+                noise_b = fixed_sigma_blank
+            else:
+                noise_b = float(np.std(rb - (sb * cb + ib)))
             lod_b = calculate_lod_3sigma(noise_b, sb)
             if np.isfinite(lod_b) and lod_b > 0:
                 lod_boot.append(lod_b)
@@ -543,16 +586,48 @@ def sensor_performance_summary(
 
     slope, intercept, r2, slope_se = calculate_sensitivity(c, r)
 
-    if baseline_noise_std is None:
-        # Estimate noise from linear fit residuals (ICH Q2(R1) §5.1)
-        residuals = r - (slope * c + intercept)
-        baseline_noise_std = float(np.std(residuals))
+    # ── Determine authoritative σ_blank ──────────────────────────────────────
+    # Correct σ_blank hierarchy (IUPAC 2012):
+    #   1. Explicit blank_measurements array   → σ_blank = std(blanks)   [preferred]
+    #   2. Explicit baseline_noise_std argument → use as-is              [user override]
+    #   3. Fallback → std of OLS calibration residuals                    [screening only]
+    #
+    # CRITICAL: OLS residuals measure how well the linear model fits the
+    # calibration data — they are NOT a measurement of the sensor noise floor
+    # at zero analyte concentration.  Using OLS σ for LOD systematically
+    # under- or over-estimates the true detection limit depending on
+    # calibration data density.  Blank measurements are always preferred.
+    _user_provided_noise = baseline_noise_std  # remember if user explicitly supplied
+    if blank_measurements is not None and len(blank_measurements) >= 2:
+        _bm = np.asarray(blank_measurements, dtype=float).ravel()
+        blank_mean_signal = float(np.mean(_bm))
+        blank_std_signal = float(np.std(_bm, ddof=1))
+        _lob_method = "blank_measurements"
+        if baseline_noise_std is None:
+            # Use blank σ as authoritative noise estimate for LOD/LOQ/NEC
+            baseline_noise_std = blank_std_signal
+    else:
+        # Reference-subtracted sensor: blank mean ≈ 0; σ_blank ≈ OLS residuals
+        blank_mean_signal = 0.0
+        _lob_method = "residual_std"
+        if baseline_noise_std is None:
+            residuals = r - (slope * c + intercept)
+            baseline_noise_std = float(np.std(residuals))
+        blank_std_signal = baseline_noise_std
 
     lod = calculate_lod_3sigma(baseline_noise_std, slope)
     loq = calculate_loq_10sigma(baseline_noise_std, slope)
 
-    # Bootstrap 95 % CI for LOD and LOQ (ICH Q2(R1) Appendix)
-    lod_point, lod_ci_lo, lod_ci_hi = lod_bootstrap_ci(c, r, baseline_noise_std)
+    # Bootstrap 95 % CI for LOD and LOQ (ICH Q2(R1) Appendix).
+    # When blank_measurements are provided, σ_blank is held fixed so the CI
+    # captures only calibration slope uncertainty (not noise uncertainty) —
+    # the correct treatment when blanks are an independent experiment.
+    # When no blanks: fix_noise_std=False → re-estimate σ from each resample.
+    lod_point, lod_ci_lo, lod_ci_hi = lod_bootstrap_ci(
+        c, r, baseline_noise_std,
+        blank_measurements=blank_measurements,
+        fix_noise_std=(_user_provided_noise is not None),
+    )
     loq_ci_lo = lod_ci_lo * (10.0 / 3.0)  # LOQ = 10σ/S, LOD = 3σ/S → ratio = 10/3
     loq_ci_hi = lod_ci_hi * (10.0 / 3.0)
 
@@ -569,17 +644,6 @@ def sensor_performance_summary(
     # LOB (Limit of Blank): highest signal expected from a blank sample
     # = μ_blank + 1.645·σ_blank (IUPAC 2012, one-sided 95th percentile)
     # In concentration units: (|μ_blank| + 1.645·σ_blank) / |slope|
-    if blank_measurements is not None and len(blank_measurements) >= 2:
-        _bm = np.asarray(blank_measurements, dtype=float).ravel()
-        blank_mean_signal = float(np.mean(_bm))
-        blank_std_signal = float(np.std(_bm, ddof=1))
-        _lob_method = "blank_measurements"
-    else:
-        # Reference-subtracted sensor: blank mean ≈ 0; σ_blank ≈ baseline_noise_std
-        blank_mean_signal = 0.0
-        blank_std_signal = baseline_noise_std
-        _lob_method = "residual_std"
-
     if abs(slope) > 1e-12:
         lob = max(
             (abs(blank_mean_signal) + 1.645 * blank_std_signal) / abs(slope), 1e-7
@@ -590,13 +654,47 @@ def sensor_performance_summary(
     # NEC (Noise Equivalent Concentration) = σ_blank / |sensitivity|
     # The theoretical minimum detectable concentration (LOD = 3 × NEC by definition)
     nec_ppm: float | None = None
+    nec_ci_lower: float | None = None
+    nec_ci_upper: float | None = None
     if abs(slope) > 1e-12 and blank_std_signal > 0:
         nec_ppm = float(blank_std_signal / abs(slope))
+        # Bootstrap CI on NEC (when actual blank measurements are available)
+        # Resample blank measurements to capture σ_blank uncertainty; bootstrap
+        # the calibration slope to capture slope uncertainty; propagate both.
+        if blank_measurements is not None and len(blank_measurements) >= 4:
+            rng_nec = np.random.default_rng(42)
+            _bm_arr = np.asarray(blank_measurements, dtype=float).ravel()
+            n_bm = len(_bm_arr)
+            nec_boot: list[float] = []
+            for _ in range(1000):
+                # Resample blank measurements
+                bm_b = _bm_arr[rng_nec.integers(0, n_bm, size=n_bm)]
+                sigma_b = float(np.std(bm_b, ddof=1))
+                # Resample calibration data
+                idx = rng_nec.integers(0, len(c), size=len(c))
+                cb, rb = c[idx], r[idx]
+                if len(np.unique(cb)) < 2:
+                    continue
+                try:
+                    sb, _, _, _ = calculate_sensitivity(cb, rb)
+                    if abs(sb) > 1e-12 and sigma_b > 0:
+                        nec_boot.append(sigma_b / abs(sb))
+                except Exception:
+                    continue
+            if len(nec_boot) >= 10:
+                nec_ci_lower = float(np.percentile(nec_boot, 2.5))
+                nec_ci_upper = float(np.percentile(nec_boot, 97.5))
 
-    # Mandel's linearity test on the full calibration range
+    # Mandel's linearity test on the full calibration range.
+    # IMPORTANT: With n ≤ 5 calibration points the F-test has very low statistical
+    # power — it will almost always accept linearity not because the data IS linear
+    # but because there are too few points to detect curvature. LOL is unreliable
+    # and is flagged accordingly.
     linearity_result: dict | None = None
     lol_ppm: float | None = None
+    _mandel_low_power = False
     if len(c) >= 5:
+        _mandel_low_power = len(c) <= 5  # n=5 is borderline; flag it
         # LOL = highest conc where Mandel p ≥ 0.05 (progressive truncation)
         sort_idx = np.argsort(c)
         sc = c[sort_idx]
@@ -605,16 +703,25 @@ def sensor_performance_summary(
             try:
                 lin = mandel_linearity_test(sc[:n_keep], sr[:n_keep])
                 if lin.get("is_linear", False):
-                    lol_ppm = float(sc[n_keep - 1])
+                    lol_ppm = float(sc[n_keep - 1]) if not _mandel_low_power else None
                     linearity_result = lin
+                    if _mandel_low_power:
+                        linearity_result["low_power_warning"] = (
+                            f"n={len(c)} calibration points: F-test has low power. "
+                            "LOL is not reported. Add ≥6 points (ideally ≥8) for reliable LOL."
+                        )
                     break
             except Exception:
                 continue
     elif len(c) >= 4:
+        _mandel_low_power = True
         try:
             linearity_result = mandel_linearity_test(c, r)
-            if linearity_result.get("is_linear", False):
-                lol_ppm = float(np.max(c))
+            linearity_result["low_power_warning"] = (
+                f"n={len(c)} calibration points: F-test has low power (n ≤ 5). "
+                "LOL is not reported. Add ≥6 points for reliable linearity assessment."
+            )
+            # Do NOT set lol_ppm — unreliable at n=4
         except Exception:
             pass
 
@@ -641,7 +748,12 @@ def sensor_performance_summary(
                 sigma_for_lod = float(adev_result.sigma_min)
                 lod = calculate_lod_3sigma(sigma_for_lod, slope)
                 loq = calculate_loq_10sigma(sigma_for_lod, slope)
-                lod_point, lod_ci_lo, lod_ci_hi = lod_bootstrap_ci(c, r, sigma_for_lod)
+                # Allan σ_min comes from an independent baseline time series —
+                # hold it fixed in bootstrap so CI captures only slope
+                # uncertainty (not Allan noise uncertainty).
+                lod_point, lod_ci_lo, lod_ci_hi = lod_bootstrap_ci(
+                    c, r, sigma_for_lod, fix_noise_std=True
+                )
                 loq_ci_lo = lod_ci_lo * (10.0 / 3.0)
                 loq_ci_hi = lod_ci_hi * (10.0 / 3.0)
                 if abs(slope) > 1e-12 and np.isfinite(lod):
@@ -660,7 +772,74 @@ def sensor_performance_summary(
                     lod if np.isfinite(lod) else float("nan"),
                 )
         except Exception as _e:
-            log.warning("Allan deviation computation failed (%s); using OLS noise.", _e)
+            log.error(
+                "Allan deviation computation failed (%s); falling back to OLS noise estimate. "
+                "The lod_method tag in the summary dict reflects this fallback. "
+                "If baseline_time_series data is available, investigate and re-run.",
+                _e,
+            )
+            allan_result_dict = {"error": str(_e), "fallback": "OLS_residual_sigma"}
+
+    # ── Detection-limit hierarchy validation ─────────────────────────────────
+    # IUPAC hierarchy: NEC ≤ LOB ≤ LOD ≤ LOQ (all in concentration units).
+    # NEC = σ_blank / |S|          (fundamental noise-equivalent concentration)
+    # LOB = (|μ_blank| + 1.645·σ) / |S|   (one-sided 95th percentile of blank)
+    # LOD = 3·σ / |S|              (3-sigma detection criterion)
+    # LOQ = 10·σ / |S|             (10-sigma quantification criterion)
+    #
+    # Hierarchy should hold by construction when μ_blank ≈ 0 (reference-
+    # subtracted sensor). LOB ≥ LOD occurs when |μ_blank| > 1.355·σ_blank,
+    # indicating significant blank offset (drift, incomplete reference
+    # subtraction, or wrong reference spectrum).  This is not a code error —
+    # it is a data-quality finding that the researcher must investigate.
+    _hier_warnings: list[str] = []
+    _lob_for_hier = lob if np.isfinite(lob) else None
+    _lod_for_hier = lod if np.isfinite(lod) else None
+    _loq_for_hier = loq if np.isfinite(loq) else None
+
+    _nec_lt_lob: bool | None = None
+    _lob_lt_lod: bool | None = None
+    _lod_lt_loq: bool | None = None
+
+    if nec_ppm is not None and _lob_for_hier is not None:
+        _nec_lt_lob = bool(nec_ppm <= _lob_for_hier + 1e-9)
+        if not _nec_lt_lob:
+            _hier_warnings.append(
+                f"NEC ({nec_ppm:.4g} ppm) > LOB ({_lob_for_hier:.4g} ppm): "
+                "unexpected — check blank measurements and reference subtraction."
+            )
+
+    if _lob_for_hier is not None and _lod_for_hier is not None:
+        _lob_lt_lod = bool(_lob_for_hier <= _lod_for_hier + 1e-9)
+        if not _lob_lt_lod:
+            _hier_warnings.append(
+                f"LOB ({_lob_for_hier:.4g} ppm) > LOD ({_lod_for_hier:.4g} ppm): "
+                "blank mean signal is large relative to blank std "
+                f"(|μ_blank|={abs(blank_mean_signal):.4g}, σ_blank={blank_std_signal:.4g}). "
+                "Check: (1) reference subtraction applied? (2) sensor drift corrected? "
+                "(3) correct carrier gas used as blank?"
+            )
+
+    if _lod_for_hier is not None and _loq_for_hier is not None:
+        _lod_lt_loq = bool(_lod_for_hier <= _loq_for_hier + 1e-9)
+        # LOD < LOQ is guaranteed by the 3σ vs 10σ definition — violations
+        # should not occur unless floating-point issues arise.
+
+    if _hier_warnings:
+        for _w in _hier_warnings:
+            log.warning("Hierarchy check [%s]: %s", gas_name, _w)
+
+    hierarchy_check: dict[str, object] = {
+        "nec_lt_lob": _nec_lt_lob,
+        "lob_lt_lod": _lob_lt_lod,
+        "lod_lt_loq": _lod_lt_loq,
+        "hierarchy_ok": (
+            (_nec_lt_lob is None or _nec_lt_lob)
+            and (_lob_lt_lod is None or _lob_lt_lod)
+            and (_lod_lt_loq is None or _lod_lt_loq)
+        ),
+        "warnings": _hier_warnings,
+    }
 
     # ── Residual diagnostics: Durbin-Watson, Shapiro-Wilk, Breusch-Pagan
     residual_diag_dict: dict | None = None
@@ -682,8 +861,11 @@ def sensor_performance_summary(
         "n_calibration_points": int(len(c)),
         # LOB (IUPAC 2012 mandatory for publication) — from blank measurements when available
         "lob_ppm": round(lob, 6) if np.isfinite(lob) else None,
+        "lob_from_blank_measurements": blank_measurements is not None and len(blank_measurements) >= 2,
         # NEC (Noise Equivalent Concentration) = σ_blank / |S| — fundamental detection limit
         "nec_ppm": round(nec_ppm, 6) if nec_ppm is not None and np.isfinite(nec_ppm) else None,
+        "nec_ppm_ci_lower": round(nec_ci_lower, 6) if nec_ci_lower is not None else None,
+        "nec_ppm_ci_upper": round(nec_ci_upper, 6) if nec_ci_upper is not None else None,
         # LOD
         "lod_ppm": round(lod, 6) if np.isfinite(lod) else None,
         "lod_ppm_ci_lower": round(lod_ci_lo, 6) if np.isfinite(lod_ci_lo) else None,
@@ -703,11 +885,19 @@ def sensor_performance_summary(
         "residual_diagnostics": residual_diag_dict,
         # Allan deviation noise characterisation (populated if baseline_time_series given)
         "allan_deviation": allan_result_dict,
+        # Detection-limit hierarchy: NEC ≤ LOB ≤ LOD ≤ LOQ
+        # hierarchy_ok=False signals a data-quality issue (usually blank offset)
+        "hierarchy_check": hierarchy_check,
+        # Audit trail flags (important for publication reproducibility)
+        "lod_ci_from_blank": blank_measurements is not None and len(blank_measurements) >= 2,
+        "mandel_low_power_warning": _mandel_low_power,
         # Methodology tag for audit trail
         "lod_method": (
-            "ICH Q2(R1) 3σ/S from Allan σ_min (τ_opt) with bootstrap 95% CI (n=1000)"
-            if allan_result_dict is not None
-            else "ICH Q2(R1) 3σ/S (OLS residuals) with bootstrap 95% CI (n=1000)"
+            "ICH Q2(R1) 3σ/S from Allan σ_min (τ_opt) with bootstrap 95% CI (n=1000, σ_blank fixed)"
+            if (allan_result_dict is not None and "error" not in (allan_result_dict or {}))
+            else "ICH Q2(R1) 3σ/S (OLS residuals — no blank measurements provided) with bootstrap 95% CI (n=1000)"
+            if blank_measurements is None
+            else "ICH Q2(R1) 3σ/S from measured σ_blank with bootstrap 95% CI (n=1000, σ_blank fixed)"
         ),
         "loq_method": "ICH Q2(R1) 10σ/S with bootstrap 95% CI (n=1000)",
         "lob_method": (

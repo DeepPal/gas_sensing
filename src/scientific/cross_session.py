@@ -148,6 +148,7 @@ def compare_sessions(
     *,
     alpha: float = 0.05,
     lod_ppm: Optional[float] = None,
+    lod_ppm_ci_upper: Optional[float] = None,
 ) -> CrossSessionComparison:
     """Compare two LSPR measurement sessions statistically.
 
@@ -155,8 +156,15 @@ def compare_sessions(
     ----------
     session_a, session_b : Sessions to compare.
     alpha                : Significance level (default 0.05).
-    lod_ppm              : Sensor LOD used for reproducibility verdict.
-                           Falls back to ``session_a.lod_ppm`` if not provided.
+    lod_ppm              : Sensor LOD (point estimate, ppm) used for
+                           reproducibility verdict. Falls back to
+                           ``session_a.lod_ppm`` if not provided.
+    lod_ppm_ci_upper     : Upper 95% CI bound on LOD (ppm). When provided,
+                           the reproducibility verdict uses this conservative
+                           bound instead of the point estimate, correctly
+                           accounting for LOD uncertainty. If None and
+                           ``lod_ppm`` is provided, a 50% safety margin is
+                           applied automatically (lod_effective = 1.5×lod_ppm).
 
     Returns
     -------
@@ -164,7 +172,16 @@ def compare_sessions(
         All statistical test results.
     """
     result = CrossSessionComparison()
-    effective_lod = lod_ppm or session_a.lod_ppm
+    _lod_pt = lod_ppm or session_a.lod_ppm
+    # Use upper CI bound for the verdict gate — using the point estimate risks
+    # accepting as "reproducible" sessions that are marginal once LOD uncertainty
+    # is accounted for. If no CI is provided, apply a conservative 50% margin.
+    if lod_ppm_ci_upper is not None:
+        effective_lod: Optional[float] = lod_ppm_ci_upper
+    elif _lod_pt is not None:
+        effective_lod = _lod_pt * 1.5  # conservative: 50% safety margin
+    else:
+        effective_lod = None
 
     a_dl = np.asarray(session_a.delta_lambdas, dtype=float)
     b_dl = np.asarray(session_b.delta_lambdas, dtype=float)
@@ -191,14 +208,26 @@ def compare_sessions(
         sd_diff = float(np.std(diffs, ddof=1))
         result.bland_altman_bias = bias
         result.bland_altman_sd = sd_diff
-        result.bland_altman_loa_lower = bias - 1.96 * sd_diff
-        result.bland_altman_loa_upper = bias + 1.96 * sd_diff
         result.bland_altman_n = n_paired
 
-        if sd_diff > 0 and n_paired < 10:
+        # ISO 5725-2: Bland-Altman LoA are unreliable below n=30; below n=10
+        # they should not be reported at all (risk of misleadingly narrow bands).
+        # We suppress LoA for n < 10 to prevent silent misuse in publications.
+        if n_paired >= 10:
+            result.bland_altman_loa_lower = bias - 1.96 * sd_diff
+            result.bland_altman_loa_upper = bias + 1.96 * sd_diff
+            if n_paired < 30:
+                result.warnings.append(
+                    f"Bland-Altman LoA based on n={n_paired} pairs — "
+                    "LoA reliability improves above n=30 (ISO 5725-2). "
+                    "Interpret with caution."
+                )
+        else:
+            result.bland_altman_loa_lower = None
+            result.bland_altman_loa_upper = None
             result.warnings.append(
-                f"Bland-Altman LoA based on n={n_paired} pairs — "
-                "LoA are unreliable below n=30 (ISO 5725)."
+                f"Bland-Altman LoA suppressed: n={n_paired} < 10 (ISO 5725-2 minimum). "
+                "Collect ≥10 paired sessions before reporting limits of agreement."
             )
     else:
         result.warnings.append(

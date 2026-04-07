@@ -437,6 +437,51 @@ Archive this report alongside raw data for long-term reproducibility.</em></p>
 # Streamlit widget
 # ---------------------------------------------------------------------------
 
+def _check_report_metadata(proj: Any) -> tuple[list[str], list[str]]:
+    """Check which mandatory metadata fields are missing before report generation.
+
+    Returns (blocking_gaps, advisory_gaps).
+    blocking_gaps  — fields required by ICH Q2(R1) §2.3 / Handbook §7 for
+                     publication; report is blocked until these are filled.
+    advisory_gaps  — fields recommended but not strictly required; report is
+                     allowed but will have placeholder text.
+    """
+    perf = getattr(proj, "performance", None) or {}
+    _meta = getattr(proj, "_session_meta", {}) or {}
+
+    def _get(key: str) -> Any:
+        return perf.get(key) or _meta.get(key)
+
+    blocking: list[str] = []
+    advisory: list[str] = []
+
+    # ICH Q2(R1) §2.3 — mandatory environmental conditions
+    if _get("temperature_c") is None:
+        blocking.append("temperature_c — required: LSPR sensitivity shifts ~0.02 nm/°C (Handbook §4.1)")
+    if _get("humidity_pct") is None:
+        advisory.append("humidity_pct — recommended for completeness")
+
+    # Handbook §7 hardware traceability
+    if not _get("hw_serial"):
+        blocking.append("hw_serial (spectrometer serial #) — required for hardware traceability")
+    if not _get("chip_serial"):
+        blocking.append("chip_serial (sensor chip serial #) — required for chip-level traceability")
+
+    # Calibration completeness
+    if not getattr(proj, "has_calibration", False):
+        blocking.append("calibration_data — Step 3 must be completed before generating a report")
+
+    # LOD must be computed
+    if perf.get("lod_ppm") is None:
+        advisory.append("lod_ppm — not yet computed; train a model in Step 3")
+
+    # Residual diagnostics
+    if not perf.get("residual_diagnostics"):
+        advisory.append("residual_diagnostics — run after training in Step 3 for SI-ready diagnostics")
+
+    return blocking, advisory
+
+
 def render_report_download_button(proj: Any) -> None:
     """Render a "Generate & Download Report" button in the Streamlit UI.
 
@@ -454,10 +499,23 @@ def render_report_download_button(proj: Any) -> None:
             "Methods section ready for your manuscript."
         )
 
-        if not proj.has_calibration:
-            st.info("Complete calibration first (Step 3) to include calibration data in the report.")
+        # Check metadata completeness before allowing generation
+        blocking_gaps, advisory_gaps = _check_report_metadata(proj)
 
-        if st.button("Generate report", key="report_gen_btn", type="primary"):
+        if blocking_gaps:
+            st.error(
+                "⛔ **Report blocked** — the following mandatory fields are missing "
+                "(ICH Q2(R1) §2.3 / Handbook §7):\n\n"
+                + "\n".join(f"- `{g}`" for g in blocking_gaps)
+                + "\n\nFill these in Step 1 metadata form or Step 3 training before generating the report."
+            )
+        if advisory_gaps:
+            st.warning(
+                "⚠️ **Advisory gaps** — report will have placeholder text for:\n\n"
+                + "\n".join(f"- `{g}`" for g in advisory_gaps)
+            )
+
+        if not blocking_gaps and st.button("Generate report", key="report_gen_btn", type="primary"):
             with st.spinner("Generating report…"):
                 try:
                     html = generate_html_report(proj)
@@ -482,3 +540,11 @@ def render_report_download_button(proj: Any) -> None:
 
                 except Exception as exc:
                     st.error(f"Report generation failed: {exc}")
+        elif blocking_gaps:
+            st.button(
+                "Generate report",
+                key="report_gen_btn_disabled",
+                type="primary",
+                disabled=True,
+                help="Fill all mandatory fields listed above first.",
+            )
