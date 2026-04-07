@@ -272,7 +272,13 @@ class SessionAnalyzer:
                 result.loq_ppm = max(calculate_loq_10sigma(sigma_blank_nm, abs_m), 3e-6)
 
                 # Bootstrap 95% CI on LOD/LOQ using low-concentration data
-                # (Henry's law region gives the relevant sensitivity estimate)
+                # (Henry's law region gives the relevant sensitivity estimate).
+                # When σ_blank comes from dedicated blank events it is an
+                # independent measurement — hold it fixed so the CI captures
+                # only calibration slope uncertainty (not noise uncertainty).
+                # When σ_blank is estimated from OLS residuals, re-estimating
+                # each resample is correct (the noise estimate is not separable
+                # from the calibration data).
                 try:
                     _, ci_lo, ci_hi = lod_bootstrap_ci(
                         low_concs,
@@ -280,6 +286,7 @@ class SessionAnalyzer:
                         baseline_noise_std=sigma_blank_nm,
                         n_bootstrap=1000,
                         confidence=0.95,
+                        fix_noise_std=result.lod_used_blanks,
                     )
                     result.lod_ci_lower = max(ci_lo, 1e-7)
                     result.lod_ci_upper = max(ci_hi, result.lod_ci_lower)
@@ -289,6 +296,23 @@ class SessionAnalyzer:
                     result.loq_ci_upper = result.lod_ci_upper * scale
                 except Exception as exc:
                     log.debug("LOD bootstrap CI failed: %s", exc)
+
+                # ── Hierarchy validation: LOB ≤ LOD ≤ LOQ ───────────────
+                # LOB > LOD means the blank mean signal is large relative to
+                # σ_blank — indicates drift, incomplete reference subtraction,
+                # or wrong reference spectrum.  This is a data-quality warning,
+                # not a code error. Log so it surfaces in spectraagent output.
+                _lob_ok = np.isfinite(result.lob_ppm)
+                _lod_ok = np.isfinite(result.lod_ppm)
+                if _lob_ok and _lod_ok and result.lob_ppm > result.lod_ppm + 1e-9:
+                    log.warning(
+                        "Hierarchy violation [%s]: LOB (%.4g ppm) > LOD (%.4g ppm). "
+                        "Blank mean shift = %.4g nm — check reference subtraction / sensor drift.",
+                        getattr(result, "analyte", "unknown"),
+                        result.lob_ppm,
+                        result.lod_ppm,
+                        blank_mean_nm,
+                    )
 
         elif meas_events:
             # Rough estimate when no calibration data: 3σ of concentration spread

@@ -586,8 +586,16 @@ def compute_comprehensive_sensor_characterization(
         else float("inf")
     )
 
-    # Bootstrap 95% CI
-    lod_point, ci_lo, ci_hi = lod_bootstrap_ci(c, r, baseline_noise_std, n_bootstrap=1000)
+    # Bootstrap 95% CI.
+    # When σ_blank comes from dedicated blank measurements it is independent of
+    # the calibration data — hold it fixed so the CI captures only slope
+    # uncertainty.  When estimated from OLS residuals, re-estimating each
+    # resample is the correct treatment.
+    lod_point, ci_lo, ci_hi = lod_bootstrap_ci(
+        c, r, baseline_noise_std,
+        n_bootstrap=1000,
+        fix_noise_std=(sigma_source == "blank_measurements"),
+    )
     loq_ci_lo = ci_lo * (10.0 / 3.0)
     loq_ci_hi = ci_hi * (10.0 / 3.0)
 
