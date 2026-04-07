@@ -154,7 +154,9 @@ def test_start_simulate_persists_session_with_nonzero_frames():
         session_id = start_resp.json()["session_id"]
 
         # Allow the acquisition thread to collect several simulated frames.
-        time.sleep(0.5)
+        # ok events are throttled (ok_emit_every=5); at ~3–5 fps CI pipeline
+        # rate, 2.0 s guarantees >= 6 frames and therefore at least 1 ok event.
+        time.sleep(2.0)
 
         stop_resp = httpx.post(
             f"http://127.0.0.1:{port}/api/acquisition/stop",
