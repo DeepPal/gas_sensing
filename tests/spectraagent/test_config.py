@@ -86,8 +86,23 @@ def test_start_simulate_no_browser_serves_health():
         stderr=subprocess.PIPE,
     )
     try:
-        time.sleep(4)
-        resp = httpx.get("http://127.0.0.1:8765/api/health", timeout=5)
+        health_url = "http://127.0.0.1:8765/api/health"
+        for _ in range(50):
+            try:
+                resp = httpx.get(health_url, timeout=2)
+                if resp.status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.2)
+        else:
+            stderr = ""
+            try:
+                stderr = (proc.stderr.read() or b"")[-2000:].decode(errors="ignore")
+            except Exception:
+                pass
+            raise AssertionError(f"Server did not become healthy in time. stderr tail:\n{stderr}")
+
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
         assert resp.json()["simulate"] is True
