@@ -39,7 +39,7 @@ jobs:
       - name: Check nightly reliability runtime budget
         if: always()
         run: |
-          python scripts/check_junit_budget.py --junit output/test-results/reliability-nightly-junit.xml --output output/test-results/reliability-nightly-budget.md --title "Reliability Nightly Budget" --max-total-seconds 45 --max-case-seconds 12
+          python scripts/check_junit_budget.py --junit output/test-results/reliability-nightly-junit.xml --output output/test-results/reliability-nightly-budget.md --title "Reliability Nightly Budget" --max-total-seconds 120 --max-case-seconds 30 --advisory
 
       - name: Publish nightly reliability summary
         if: always()

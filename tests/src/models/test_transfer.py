@@ -1,7 +1,8 @@
 """Tests for src.models.transfer — cross-config domain adaptation."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from src.models.transfer import (
     DomainAdaptConfig,

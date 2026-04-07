@@ -1,7 +1,8 @@
 """Tests for src.models.spectral_autoencoder — physics-agnostic feature learning."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from src.models.spectral_autoencoder import (
     AutoencoderConfig,

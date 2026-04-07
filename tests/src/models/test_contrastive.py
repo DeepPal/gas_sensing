@@ -1,7 +1,8 @@
 """Tests for src.models.contrastive — analyte fingerprinting."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from src.models.contrastive import (
     ContrastiveConfig,

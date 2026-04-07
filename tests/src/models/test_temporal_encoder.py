@@ -1,7 +1,8 @@
 """Tests for src.models.temporal_encoder — physics-agnostic kinetic feature extraction."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from src.models.temporal_encoder import (
     TemporalConfig,

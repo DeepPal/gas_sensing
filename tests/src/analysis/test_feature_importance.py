@@ -1,7 +1,8 @@
 """Tests for src.analysis.feature_importance — SHAP & gradient attribution."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 import torch.nn as nn
 
 from src.analysis.feature_importance import (

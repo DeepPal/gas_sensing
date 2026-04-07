@@ -1,7 +1,8 @@
 """Tests for src.models.multi_task — multi-task spectral model."""
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from src.models.multi_task import (
     MultiTaskConfig,
