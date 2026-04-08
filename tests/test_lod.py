@@ -378,3 +378,123 @@ class TestRobustSensitivity:
     def test_too_few_points_raises(self):
         with pytest.raises(ValueError):
             robust_sensitivity(np.array([1.0, 2.0]), np.array([-1.0, -2.0]))
+
+
+# ---------------------------------------------------------------------------
+# New features: FOM, WLS auto-correction, prediction interval
+# ---------------------------------------------------------------------------
+
+class TestFigureOfMerit:
+    """FOM = |sensitivity| / FWHM is a standard LSPR publication metric."""
+    _CONCS = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    _RESPONSES = np.array([-1.05, -2.0, -4.05, -10.1, -20.0])
+
+    def test_fom_computed_when_fwhm_provided(self):
+        summary = sensor_performance_summary(
+            self._CONCS, self._RESPONSES, reference_fwhm_nm=40.0
+        )
+        assert summary["fom"] is not None
+        assert cast(float, summary["fom"]) > 0
+
+    def test_fom_none_when_fwhm_not_provided(self):
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert summary["fom"] is None
+
+    def test_fom_value_correct(self):
+        """FOM = |slope| / fwhm; slope ≈ -2.0, fwhm = 50.0 → FOM ≈ 0.04."""
+        summary = sensor_performance_summary(
+            self._CONCS, self._RESPONSES, reference_fwhm_nm=50.0
+        )
+        slope = abs(cast(float, summary["sensitivity"]))
+        expected_fom = slope / 50.0
+        assert cast(float, summary["fom"]) == pytest.approx(expected_fom, rel=1e-4)
+
+    def test_reference_fwhm_stored(self):
+        summary = sensor_performance_summary(
+            self._CONCS, self._RESPONSES, reference_fwhm_nm=35.0
+        )
+        assert summary["reference_fwhm_nm"] == pytest.approx(35.0)
+
+    def test_fom_zero_fwhm_not_stored(self):
+        """Zero FWHM should not produce a FOM (guard against division by zero)."""
+        summary = sensor_performance_summary(
+            self._CONCS, self._RESPONSES, reference_fwhm_nm=0.0
+        )
+        assert summary["fom"] is None
+
+
+class TestPredictionInterval:
+    """Prediction interval is wider than CI band; correct for LOD derivation."""
+    # Use realistic data with small noise so s_e > 0 and PI is wider than CI
+    _CONCS = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    _RESPONSES = np.array([-1.02, -1.98, -4.05, -9.92, -20.1])  # ±0.1 noise
+
+    def test_prediction_interval_key_present(self):
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        assert "prediction_interval_at_lod" in summary
+
+    def test_prediction_interval_has_required_subkeys(self):
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        pi = summary["prediction_interval_at_lod"]
+        assert pi is not None
+        for k in ("x0_ppm", "y_hat", "pred_lower", "pred_upper", "ci_lower", "ci_upper"):
+            assert k in pi, f"Missing key: {k}"
+
+    def test_prediction_wider_than_ci(self):
+        """Prediction interval must be strictly wider than the CI band."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        pi = cast(dict, summary["prediction_interval_at_lod"])
+        pred_width = pi["pred_upper"] - pi["pred_lower"]
+        ci_width = pi["ci_upper"] - pi["ci_lower"]
+        assert pred_width > ci_width, (
+            f"Prediction interval ({pred_width:.6f}) should be wider than CI ({ci_width:.6f})"
+        )
+
+    def test_x0_is_lod(self):
+        """x0 should equal the LOD point estimate."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        lod = cast(float, summary["lod_ppm"])
+        pi = cast(dict, summary["prediction_interval_at_lod"])
+        assert pi["x0_ppm"] == pytest.approx(lod, rel=1e-4)
+
+    def test_y_hat_on_regression_line(self):
+        """y_hat at x0 = slope * x0 + intercept."""
+        summary = sensor_performance_summary(self._CONCS, self._RESPONSES)
+        slope = cast(float, summary["sensitivity"])
+        intercept = cast(float, summary["intercept"])
+        pi = cast(dict, summary["prediction_interval_at_lod"])
+        expected_y = slope * pi["x0_ppm"] + intercept
+        assert pi["y_hat"] == pytest.approx(expected_y, rel=1e-4)
+
+
+class TestWLSAutoCorrection:
+    """WLS is applied when Breusch-Pagan detects heteroscedasticity."""
+
+    def test_wls_applied_key_always_present(self):
+        concs = np.array([0.5, 1.0, 2.0, 5.0])
+        resps = np.array([-1.1, -2.0, -4.1, -10.0])
+        summary = sensor_performance_summary(concs, resps)
+        assert "wls_applied" in summary
+        assert isinstance(summary["wls_applied"], bool)
+
+    def test_wls_applied_false_for_homoscedastic_data(self):
+        """Perfect linear data with constant residuals should NOT trigger WLS."""
+        np.random.seed(42)
+        concs = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+        noise = np.random.normal(0, 0.005, size=len(concs))  # constant noise
+        resps = -2.0 * concs + noise
+        summary = sensor_performance_summary(concs, resps)
+        # Homoscedastic data: BP test should pass, WLS should not be applied
+        assert summary["wls_applied"] is False
+
+    def test_wls_slope_present_when_applied(self):
+        """When WLS is applied, wls_slope key must be populated."""
+        # Heteroscedastic data: noise variance proportional to concentration
+        np.random.seed(7)
+        concs = np.array([0.1, 0.5, 1.0, 5.0, 10.0, 50.0])
+        noise = np.array([c * 0.1 * np.random.randn() for c in concs])
+        resps = -1.5 * concs + noise
+        summary = sensor_performance_summary(concs, resps)
+        if summary["wls_applied"]:
+            assert summary["wls_slope"] is not None
+            assert summary["wls_note"] is not None

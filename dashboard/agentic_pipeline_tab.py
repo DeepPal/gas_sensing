@@ -324,6 +324,25 @@ def _acquire_frames(
                 spec.close()
 
 
+def _store_ref_fwhm(ss: dict, wl: np.ndarray, intensity: np.ndarray) -> None:
+    """Compute Lorentzian FWHM of the reference spectrum and store in session state.
+
+    Stores ``ss["ap_ref_fwhm_nm"]`` — used downstream for FOM = |S|/FWHM.
+    Silently skips on any failure (FWHM is optional for core pipeline).
+    """
+    try:
+        from src.features.spectral_features import fit_lorentzian_peak
+        peak_idx = int(np.argmax(intensity))
+        peak_wl = float(wl[peak_idx])
+        fit = fit_lorentzian_peak(wl, intensity, peak_wl, half_width_nm=30.0)
+        if fit is not None:
+            _fwhm = float(fit[1])  # fit = (center_nm, fwhm_nm, amplitude, center_std_nm)
+            if 1.0 < _fwhm < 200.0:  # sanity bounds for LSPR peak
+                ss["ap_ref_fwhm_nm"] = round(_fwhm, 4)
+    except Exception:
+        pass
+
+
 def _preprocess(
     wl: np.ndarray, intensity: np.ndarray, denoise: str, baseline: str, norm: str
 ) -> np.ndarray:
@@ -1444,14 +1463,17 @@ def render() -> None:
                 ss["ap_ref_spectrum"] = ss_ref
                 ss["ap_ref_wl"] = df_ref["wl"].values
                 ref_col2.success(f"Loaded: {chosen_ref.name}")
+                _store_ref_fwhm(ss, df_ref["wl"].values, ss_ref)
             else:
                 uploaded_ref = ref_col1.file_uploader("Upload reference CSV", type=["csv"])
                 if uploaded_ref:
                     df_ref = pd.read_csv(uploaded_ref, header=None, names=["wl", "intensity"])
                     ss_ref = df_ref["intensity"].values
                     ss["ap_ref_spectrum"] = ss_ref
+                    _store_ref_fwhm(ss, df_ref["wl"].values, ss_ref)
         elif "ap_ref_spectrum" in ss:
             del ss["ap_ref_spectrum"]
+            ss.pop("ap_ref_fwhm_nm", None)
 
         # ── Preprocessing configuration ───────────────────────────────────
         st.markdown("---")
@@ -1720,9 +1742,18 @@ def render() -> None:
 
                 # Use the comprehensive function when available (preferred):
                 # gives LOB, LOD + bootstrap CI, LOQ, LOL, Mandel linearity
+                _blank_wls_s3 = ss.get("ap_blank_peak_wls")
+                _ref_pk_s3 = ss.get("ap_ref_peak_wl")
+                _blank_arr_s3: np.ndarray | None = None
+                if _blank_wls_s3:
+                    _br = np.array(_blank_wls_s3, dtype=float)
+                    _blank_arr_s3 = _br - float(_ref_pk_s3) if _ref_pk_s3 is not None else _br - float(np.mean(_br))
+
                 if compute_comprehensive_sensor_characterization is not None:
                     _sm = compute_comprehensive_sensor_characterization(
-                        concs_arr, peak_arr, gas_name=ss.get("ap_gas", "analyte")
+                        concs_arr, peak_arr,
+                        gas_name=ss.get("ap_gas", "analyte"),
+                        blank_measurements=_blank_arr_s3,
                     )
                 else:
                     # Fallback for environments where src.reporting is unavailable
@@ -1740,6 +1771,68 @@ def render() -> None:
                         "lol_ppm": None,
                         "mandel_linearity": None,
                     }
+
+                # ── Augment _sm with FOM, WLS, prediction interval ─────────
+                # These require: (a) reference FWHM from Step 2, (b) residual
+                # diagnostics (already in _sm if compute_comprehensive used),
+                # (c) calibration data (concs_arr, peak_arr).
+                try:
+                    from src.scientific.lod import calculate_sensitivity as _cs
+                    from scipy.stats import t as _t_dist_s3
+                    _slope_s3 = float(_sm.get("sensitivity", 0.0))
+                    _int_s3 = float(_sm.get("intercept", 0.0))
+                    _lod_s3 = _sm.get("lod_ppm")
+
+                    # FOM = |S| / FWHM
+                    _ref_fwhm_s3 = ss.get("ap_ref_fwhm_nm")
+                    if _ref_fwhm_s3 is not None and float(_ref_fwhm_s3) > 0:
+                        _sm["fom"] = round(abs(_slope_s3) / float(_ref_fwhm_s3), 8)
+                        _sm["reference_fwhm_nm"] = round(float(_ref_fwhm_s3), 4)
+
+                    # WLS auto-correction when Breusch-Pagan fails
+                    _rdiag_s3 = (_sm.get("residual_diagnostics") or {})
+                    if _rdiag_s3.get("bp_pass") is False:
+                        from src.scientific.regression import weighted_linear as _wls_s3
+                        _pos_s3 = concs_arr > 0
+                        if _pos_s3.sum() >= 3:
+                            _w_s3 = np.where(_pos_s3, 1.0 / np.maximum(concs_arr, 1e-12) ** 2, 0.0)
+                            _wls_r = _wls_s3(concs_arr, peak_arr, _w_s3)
+                            if _wls_r is not None:
+                                _sm["wls_applied"] = True
+                                _sm["wls_slope"] = round(float(_wls_r["slope"]), 6)
+                                _sm["wls_intercept"] = round(float(_wls_r["intercept"]), 6)
+                                _sm["wls_r_squared"] = round(float(_wls_r["r2"]), 6)
+                                _sm["wls_note"] = (
+                                    f"WLS auto-applied (BP p={_rdiag_s3.get('bp_p_value', float('nan')):.4g}). "
+                                    f"OLS slope={_slope_s3:.6f}, WLS slope={_wls_r['slope']:.6f}."
+                                )
+                                if _ref_fwhm_s3 is not None and float(_ref_fwhm_s3) > 0:
+                                    _sm["fom_wls"] = round(abs(float(_wls_r["slope"])) / float(_ref_fwhm_s3), 8)
+
+                    # Prediction interval at LOD
+                    if _lod_s3 is not None and np.isfinite(float(_lod_s3)) and len(concs_arr) >= 3:
+                        _resid_s3 = peak_arr - (_slope_s3 * concs_arr + _int_s3)
+                        _se_s3 = float(np.sqrt(np.sum(_resid_s3 ** 2) / (len(concs_arr) - 2)))
+                        _xbar_s3 = float(np.mean(concs_arr))
+                        _sxx_s3 = float(np.sum((concs_arr - _xbar_s3) ** 2))
+                        _x0_s3 = float(_lod_s3)
+                        _y0_s3 = _slope_s3 * _x0_s3 + _int_s3
+                        if _sxx_s3 > 1e-15 and _se_s3 > 0:
+                            _t_s3 = float(_t_dist_s3.ppf(0.975, df=len(concs_arr) - 2))
+                            _ph_s3 = _t_s3 * _se_s3 * float(np.sqrt(1.0 + 1.0 / len(concs_arr) + (_x0_s3 - _xbar_s3) ** 2 / _sxx_s3))
+                            _ch_s3 = _t_s3 * _se_s3 * float(np.sqrt(1.0 / len(concs_arr) + (_x0_s3 - _xbar_s3) ** 2 / _sxx_s3))
+                            _sm["prediction_interval_at_lod"] = {
+                                "x0_ppm": round(_x0_s3, 6),
+                                "y_hat": round(_y0_s3, 8),
+                                "pred_lower": round(_y0_s3 - _ph_s3, 8),
+                                "pred_upper": round(_y0_s3 + _ph_s3, 8),
+                                "ci_lower": round(_y0_s3 - _ch_s3, 8),
+                                "ci_upper": round(_y0_s3 + _ch_s3, 8),
+                                "note": "Prediction interval (EURACHEM/CITAC CG 4 §A3): wider than confidence band.",
+                            }
+                except Exception as _aug_e:
+                    import logging as _log_s3
+                    _log_s3.getLogger(__name__).debug("_sm augment failed: %s", _aug_e)
 
                 # ── Row 1: Detection limits ───────────────────────────────
                 st.markdown("**Detection limits (IUPAC 2012 / ICH Q2(R1))**")
@@ -1872,6 +1965,61 @@ def render() -> None:
                                     f"R² quadratic: `{_lin.get('r2_quadratic', 'N/A')}` | "
                                     f"ΔR²: `{_lin.get('delta_r2', 'N/A')}`")
                         st.caption(_lin.get("recommendation", ""))
+
+                # ── Figure of Merit + WLS auto-correction notice ─────────
+                _fom = _sm.get("fom")
+                _fom_wls = _sm.get("fom_wls")
+                _ref_fwhm = _sm.get("reference_fwhm_nm")
+                if _fom is not None:
+                    _fom_str = f"{_fom:.4g} ppm⁻¹"
+                    _fom_help = (
+                        "FOM = |S| / FWHM — standard LSPR platform quality metric. "
+                        "Normalises sensitivity by peak linewidth; comparable across "
+                        "sensor types. See Willets & Van Duyne (2007)."
+                    )
+                    if _fom_wls is not None:
+                        _fom_help += f" WLS FOM = {_fom_wls:.4g} ppm⁻¹."
+                    st.info(
+                        f"**Figure of Merit (FOM):** {_fom_str}  \n"
+                        f"= |S| / FWHM = {abs(_sm.get('sensitivity', 0)):.4f} / {_ref_fwhm:.2f} nm  \n"
+                        + (_fom_help)
+                    )
+
+                _wls_applied = _sm.get("wls_applied", False)
+                _wls_note = _sm.get("wls_note")
+                if _wls_applied and _wls_note:
+                    with st.expander("⚖️ WLS auto-correction applied (Breusch-Pagan detected heteroscedasticity)"):
+                        st.warning(_wls_note)
+                        _wls_s = _sm.get("wls_slope")
+                        _wls_r2 = _sm.get("wls_r_squared")
+                        if _wls_s is not None:
+                            wls_c1, wls_c2 = st.columns(2)
+                            wls_c1.metric("WLS Slope", f"{_wls_s:.6f}")
+                            if _wls_r2 is not None:
+                                wls_c2.metric("WLS R²", f"{_wls_r2:.4f}")
+                        st.caption(
+                            "The WLS slope uses 1/c² weights (proportional error model). "
+                            "Report WLS sensitivity and re-derived LOD in the Methods section."
+                        )
+                elif _bp_fail := ((residual_diag_dict := _sm.get("residual_diagnostics")) or {}).get("bp_pass") is False:
+                    st.warning(
+                        "⚠️ Breusch-Pagan test failed (heteroscedastic residuals). "
+                        "WLS could not be applied — check that calibration concentrations are all positive."
+                    )
+
+                # ── Prediction interval at LOD ────────────────────────────
+                _pi = _sm.get("prediction_interval_at_lod")
+                if _pi and lod_val is not None:
+                    with st.expander("📐 Prediction interval at LOD (EURACHEM/CITAC CG 4)"):
+                        st.markdown(
+                            f"At x₀ = LOD ({_pi.get('x0_ppm', lod_val):.4f} ppm):  \n"
+                            f"- Predicted response: `{_pi.get('y_hat', 0):.5f}` a.u.  \n"
+                            f"- **Prediction interval** (new measurement): "
+                            f"[`{_pi.get('pred_lower', 0):.5f}`, `{_pi.get('pred_upper', 0):.5f}`]  \n"
+                            f"- Confidence band (mean): "
+                            f"[`{_pi.get('ci_lower', 0):.5f}`, `{_pi.get('ci_upper', 0):.5f}`]  \n"
+                        )
+                        st.caption(_pi.get("note", ""))
 
                 # store in session state for Step 4 status and report generation
                 ss["ap_sensor_metrics"] = _sm

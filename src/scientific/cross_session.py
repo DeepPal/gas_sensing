@@ -306,9 +306,24 @@ def compare_lod_series(
 ) -> dict[str, object]:
     """Compute trend statistics for a series of LOD values across sessions.
 
+    Applies both OLS regression (slope magnitude) and the Mann-Kendall test
+    (non-parametric monotonic trend), which is the recommended approach for
+    sensor drift assessment with small session counts (n = 3–10).
+
+    Mann-Kendall is preferable to OLS for trend testing because it makes no
+    linearity or normality assumptions.  OLS slope provides the physical drift
+    *rate* (ppm/session) for reporting.
+
+    Reference
+    ---------
+    Mann, H.B. (1945). Non-parametric tests against trend. *Econometrica*, 13,
+    245–259.  Kendall, M.G. (1975). *Rank Correlation Methods*. Griffin, London.
+
     Returns a dict with keys:
-      ``mean_lod``, ``std_lod``, ``rsd_pct``, ``trend_slope_ppm_per_session``,
-      ``trend_p_value``, ``drifting`` (bool, True if slope is significant).
+      ``mean_lod``, ``std_lod``, ``rsd_pct``,
+      ``trend_slope_ppm_per_session``, ``trend_r2``, ``trend_p_value_ols``,
+      ``mann_kendall_tau``, ``mann_kendall_p_value``, ``mann_kendall_trend``,
+      ``drifting``.
     """
     n = len(lod_values)
     if n < 3:
@@ -317,10 +332,35 @@ def compare_lod_series(
     arr = np.asarray(lod_values, dtype=float)
     sessions = np.arange(n, dtype=float)
 
-    slope, intercept, r_val, p_val, se = stats.linregress(sessions, arr)
+    # OLS regression: slope magnitude and rate
+    slope, _intercept, r_val, p_val_ols, _se = stats.linregress(sessions, arr)
     mean_lod = float(np.mean(arr))
     std_lod = float(np.std(arr, ddof=1))
     rsd = 100.0 * std_lod / mean_lod if mean_lod > 1e-9 else math.nan
+
+    # Mann-Kendall trend test (non-parametric, no linearity assumption)
+    # scipy.stats.kendalltau with x = session indices, y = LOD values
+    # τ > 0 → increasing (degrading) trend; τ < 0 → improving trend
+    mk_tau: float | None = None
+    mk_p: float | None = None
+    mk_trend: str = "insufficient_data"
+    try:
+        _mk = stats.kendalltau(sessions, arr)
+        mk_tau = float(_mk.statistic)
+        mk_p = float(_mk.pvalue)
+        if mk_p < alpha:
+            mk_trend = "increasing" if mk_tau > 0 else "decreasing"
+        else:
+            mk_trend = "no_significant_trend"
+    except Exception:
+        pass
+
+    # drifting = Mann-Kendall detects a significant *increasing* trend
+    # (LOD getting larger = sensor degrading). Also flag if OLS p-value
+    # agrees (belt-and-suspenders for publication reviewers).
+    _mk_drifting = mk_p is not None and mk_p < alpha and (mk_tau or 0.0) > 0
+    _ols_drifting = bool(p_val_ols < alpha and slope > 0)
+    _drifting = _mk_drifting or _ols_drifting
 
     return {
         "mean_lod": mean_lod,
@@ -328,7 +368,12 @@ def compare_lod_series(
         "rsd_pct": rsd,
         "trend_slope_ppm_per_session": float(slope),
         "trend_r2": float(r_val ** 2),
-        "trend_p_value": float(p_val),
-        "drifting": bool(p_val < alpha and slope > 0),
+        "trend_p_value_ols": float(p_val_ols),
+        # Keep legacy key for backwards compatibility
+        "trend_p_value": float(p_val_ols),
+        "mann_kendall_tau": mk_tau,
+        "mann_kendall_p_value": mk_p,
+        "mann_kendall_trend": mk_trend,
+        "drifting": _drifting,
         "n_sessions": n,
     }

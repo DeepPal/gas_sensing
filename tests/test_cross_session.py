@@ -4,6 +4,7 @@ Unit tests for src.scientific.cross_session.
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import numpy as np
 import pytest
@@ -220,3 +221,57 @@ class TestCompareLodSeries:
         lods = [0.05, 0.06, 0.055, 0.058, 0.062]
         result = compare_lod_series(lods)
         assert result["n_sessions"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Mann-Kendall extension to compare_lod_series
+# ---------------------------------------------------------------------------
+
+class TestCompareLodSeriesMannKendall:
+    """Mann-Kendall non-parametric trend test in compare_lod_series."""
+
+    def test_mann_kendall_keys_present(self):
+        result = compare_lod_series([0.05, 0.06, 0.055, 0.058, 0.062])
+        assert "mann_kendall_tau" in result
+        assert "mann_kendall_p_value" in result
+        assert "mann_kendall_trend" in result
+
+    def test_mk_no_trend_for_stable_series(self):
+        stable = [0.050] * 7
+        result = compare_lod_series(stable)
+        assert result["mann_kendall_trend"] == "no_significant_trend"
+
+    def test_mk_increasing_trend_detected(self):
+        """Monotone increasing series should give MK increasing trend."""
+        degrading = [0.05 + i * 0.02 for i in range(8)]
+        result = compare_lod_series(degrading)
+        assert result["mann_kendall_trend"] == "increasing"
+        assert cast(float, result["mann_kendall_tau"]) > 0
+
+    def test_mk_decreasing_trend_detected(self):
+        """Monotone decreasing series should give MK decreasing trend."""
+        improving = [0.20 - i * 0.02 for i in range(8)]
+        result = compare_lod_series(improving)
+        assert result["mann_kendall_trend"] == "decreasing"
+        assert cast(float, result["mann_kendall_tau"]) < 0
+
+    def test_drifting_true_for_monotone_increase(self):
+        degrading = [0.05 + i * 0.01 for i in range(8)]
+        result = compare_lod_series(degrading)
+        assert result["drifting"] is True
+
+    def test_legacy_trend_p_value_key_present(self):
+        """Backwards compatibility: 'trend_p_value' key must still be present."""
+        result = compare_lod_series([0.05, 0.06, 0.055])
+        assert "trend_p_value" in result
+
+    def test_trend_p_value_equals_ols_p(self):
+        """trend_p_value should equal trend_p_value_ols (same key, different names)."""
+        result = compare_lod_series([0.05, 0.06, 0.055, 0.058])
+        assert result["trend_p_value"] == result["trend_p_value_ols"]
+
+    def test_mk_tau_in_minus_one_to_plus_one(self):
+        result = compare_lod_series([0.05, 0.06, 0.055, 0.058, 0.062])
+        tau = result["mann_kendall_tau"]
+        assert tau is not None
+        assert -1.0 <= float(tau) <= 1.0

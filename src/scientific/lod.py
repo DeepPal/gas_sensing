@@ -528,6 +528,7 @@ def sensor_performance_summary(
     baseline_time_series: np.ndarray | None = None,
     dt_s: float = 0.05,
     blank_measurements: np.ndarray | None = None,
+    reference_fwhm_nm: float | None = None,
 ) -> dict[str, object]:
     """Full sensor performance characterisation for one gas analyte.
 
@@ -563,6 +564,12 @@ def sensor_performance_summary(
         LOB = μ_blank + 1.645 · σ_blank  (one-sided 95th percentile).
         NEC (Noise Equivalent Concentration) = σ_blank / |sensitivity|.
         If None, blank_mean = 0 is assumed (reference-subtracted sensor).
+    reference_fwhm_nm:
+        Full-width at half-maximum of the reference LSPR peak (nm),
+        from a Lorentzian fit to the reference spectrum.  When provided,
+        the Figure of Merit (FOM = |sensitivity| / FWHM, nm·ppm⁻¹/nm)
+        is included in the output.  FWHM from B4 implementation is the
+        natural source for this parameter.
 
     Returns
     -------
@@ -570,7 +577,8 @@ def sensor_performance_summary(
         Keys: ``gas``, ``sensitivity``, ``intercept``, ``r_squared``,
         ``lod_ppm``, ``loq_ppm``, ``lob_ppm``, ``nec_ppm``,
         ``noise_std``, ``n_calibration_points``,
-        ``residual_diagnostics``, and optionally ``allan_deviation``.
+        ``residual_diagnostics``, and optionally ``allan_deviation``,
+        ``fom``, ``wls_applied``, ``prediction_interval``.
 
     Example
     -------
@@ -850,6 +858,98 @@ def sensor_performance_summary(
     except Exception as _e:
         log.warning("Residual diagnostics failed (%s); skipping.", _e)
 
+    # ── WLS auto-correction when Breusch-Pagan rejects homoscedasticity ──────
+    # Proportional-error model (w = 1/c²) is appropriate when σ(response) ∝ c,
+    # which is common for LSPR sensors over a wide concentration range.
+    # When BP is not significant (p ≥ 0.0167 after Bonferroni) OLS is retained.
+    _wls_applied: bool = False
+    _wls_slope: float | None = None
+    _wls_intercept: float | None = None
+    _wls_r2: float | None = None
+    _wls_note: str | None = None
+    _bp_pass: bool | None = (residual_diag_dict or {}).get("bp_pass")
+    if _bp_pass is False:
+        try:
+            from src.scientific.regression import weighted_linear as _wls
+            # Proportional error model: points at low concentration are more
+            # reliable per unit concentration. Exclude any c ≤ 0 to avoid div-by-zero.
+            _pos_mask = c > 0
+            if _pos_mask.sum() >= 3:
+                _w = np.where(_pos_mask, 1.0 / np.maximum(c, 1e-12) ** 2, 0.0)
+                _wls_result = _wls(c, r, _w)
+                if _wls_result is not None:
+                    _wls_slope = float(_wls_result["slope"])
+                    _wls_intercept = float(_wls_result["intercept"])
+                    _wls_r2 = float(_wls_result["r2"])
+                    _wls_applied = True
+                    _wls_note = (
+                        f"WLS auto-applied (BP test rejected homoscedasticity, "
+                        f"p={residual_diag_dict.get('bp_p_value', float('nan')):.4g}). "
+                        f"Weights = 1/c² (proportional error model). "
+                        f"OLS slope={slope:.6f}, WLS slope={_wls_slope:.6f}."
+                    )
+                    log.info("WLS auto-correction [%s]: %s", gas_name, _wls_note)
+        except Exception as _e:
+            log.warning("WLS auto-correction failed (%s); retaining OLS.", _e)
+
+    # ── Figure of Merit (FOM = |sensitivity| / FWHM) ────────────────────────
+    # Standard LSPR metric normalising the calibration sensitivity by the optical
+    # peak linewidth. A narrow peak (small FWHM) and large shift sensitivity gives
+    # high FOM — directly comparable across sensor platforms and analytes.
+    # Reference: Willets & Van Duyne, Annu. Rev. Phys. Chem. 2007; Homola 2008.
+    _fom: float | None = None
+    _fom_wls: float | None = None
+    if reference_fwhm_nm is not None and reference_fwhm_nm > 0:
+        _fom = float(abs(slope) / reference_fwhm_nm)
+        if _wls_applied and _wls_slope is not None:
+            _fom_wls = float(abs(_wls_slope) / reference_fwhm_nm)
+
+    # ── Prediction interval at LOD concentration ─────────────────────────────
+    # The confidence band (CI on mean response) is what OLS reports by default.
+    # A PREDICTION INTERVAL covers a new single measurement — it is wider by the
+    # factor sqrt(1 + 1/n + ...) and is the correct interval for LOD derivation
+    # per EURACHEM/CITAC CG 4 and ISO 11843-2.
+    #
+    # At x₀ = LOD:   y₀_hat ± t(α/2, n-2) × s_e × sqrt(1 + 1/n + (x₀−x̄)²/Sxx)
+    #
+    # where s_e = sqrt(RSS/(n-2)) and Sxx = Σ(xᵢ−x̄)².
+    _pred_interval: dict[str, object] | None = None
+    if np.isfinite(lod) and len(c) >= 3:
+        try:
+            from scipy.stats import t as _t_dist
+            _n_cal = len(c)
+            _residuals = r - (slope * c + intercept)
+            _se = float(np.sqrt(np.sum(_residuals ** 2) / (_n_cal - 2)))
+            _xbar = float(np.mean(c))
+            _sxx = float(np.sum((c - _xbar) ** 2))
+            _x0 = float(lod)
+            _y0_hat = float(slope * _x0 + intercept)
+            if _sxx > 1e-15:
+                _t_crit = float(_t_dist.ppf(0.975, df=_n_cal - 2))
+                _pred_half = _t_crit * _se * float(
+                    np.sqrt(1.0 + 1.0 / _n_cal + (_x0 - _xbar) ** 2 / _sxx)
+                )
+                _ci_half = _t_crit * _se * float(
+                    np.sqrt(1.0 / _n_cal + (_x0 - _xbar) ** 2 / _sxx)
+                )
+                _pred_interval = {
+                    "x0_ppm": round(_x0, 6),
+                    "y_hat": round(_y0_hat, 8),
+                    "pred_lower": round(_y0_hat - _pred_half, 8),
+                    "pred_upper": round(_y0_hat + _pred_half, 8),
+                    "ci_lower": round(_y0_hat - _ci_half, 8),
+                    "ci_upper": round(_y0_hat + _ci_half, 8),
+                    "s_e": round(_se, 8),
+                    "t_critical": round(_t_crit, 4),
+                    "note": (
+                        "Prediction interval (new single measurement, n-2 df): "
+                        "wider than confidence band. Correct for LOD derivation "
+                        "per EURACHEM/CITAC CG 4 §A3."
+                    ),
+                }
+        except Exception as _e:
+            log.debug("Prediction interval computation failed (%s).", _e)
+
     summary = {
         # ICH Q2(R1) mandatory fields
         "gas": gas_name,
@@ -907,6 +1007,20 @@ def sensor_performance_summary(
         ),
         "nec_method": "σ_blank / |S| (Noise Equivalent Concentration, IUPAC)",
         "lol_method": "ICH Q2(R1) §4.2 Mandel F-test progressive truncation",
+        # Figure of Merit: FOM = |sensitivity| / FWHM (nm · ppm⁻¹ / nm = ppm⁻¹)
+        # Standard LSPR publication metric (Willets & Van Duyne 2007; Homola 2008)
+        "fom": round(_fom, 8) if _fom is not None else None,
+        "fom_wls": round(_fom_wls, 8) if _fom_wls is not None else None,
+        "reference_fwhm_nm": round(reference_fwhm_nm, 4) if reference_fwhm_nm is not None else None,
+        # WLS auto-correction (applied when Breusch-Pagan rejects homoscedasticity)
+        "wls_applied": _wls_applied,
+        "wls_slope": round(_wls_slope, 6) if _wls_slope is not None else None,
+        "wls_intercept": round(_wls_intercept, 6) if _wls_intercept is not None else None,
+        "wls_r_squared": round(_wls_r2, 6) if _wls_r2 is not None else None,
+        "wls_note": _wls_note,
+        # Prediction interval at the LOD concentration (EURACHEM/CITAC CG 4 §A3)
+        # Wider than the confidence band; the correct interval for LOD derivation
+        "prediction_interval_at_lod": _pred_interval,
     }
 
     log.info(
