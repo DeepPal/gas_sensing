@@ -481,10 +481,21 @@ A step-by-step batch workflow for analyzing Joy_Data directories or offline CSV 
 Step-by-step:
 
 1. **Step 1 — Load Data**: enter the path to your data directory, e.g. `Joy_Data/Ethanol/stable_selected`
-2. **Step 2 — Load Reference**: upload a reference spectrum CSV (or select from loaded data)
-3. **Step 3 — Feature Extraction**: the system computes Δλ, ΔFWHM, and other features; review the calibration curve plot
+2. **Step 2 — Load Reference & Blanks**:
+   - Upload a reference spectrum CSV recorded in clean carrier gas
+   - The system auto-fits a Lorentzian to find the reference FWHM (stored for FOM calculation)
+   - Load ≥6 blank spectra (clean carrier gas, no analyte) — these give σ_blank for IUPAC LOD/LOB/NEC
+   - ⚠️ Without blank measurements the LOD uses OLS residual σ, which is less rigorous — load blanks for publication
+3. **Step 3 — Feature Extraction & Scientific Metrics**:
+   - The system computes Δλ, ΔFWHM, ΔI_peak, ΔI_area, ΔI_std for each spectrum
+   - Full IUPAC metric suite is shown: NEC, LOB, LOD (±95% CI), LOQ, LOL, R², RMSE
+   - **Detection-limit hierarchy check**: the dashboard verifies NEC ≤ LOB ≤ LOD ≤ LOQ — a violation (shown in red) means your blank mean is offset from your reference, requiring reference recapture
+   - **Figure of Merit (FOM)**: shown when a reference spectrum FWHM was fitted — FOM = |S|/FWHM (ppm⁻¹), the standard LSPR comparison metric
+   - **WLS auto-correction**: if Breusch-Pagan test detects heteroscedastic residuals, weighted least squares is applied automatically (1/c² weights) — an orange notice appears showing both OLS and WLS slopes; report the WLS slope in Methods
+   - **Prediction interval at LOD**: expandable panel shows the prediction interval (wider than CI band) — use this in your Methods, not the CI band, per EURACHEM/CITAC CG 4
+   - **Residual diagnostics**: Durbin-Watson, Shapiro-Wilk, Breusch-Pagan shown with pass/fail — include these values verbatim in your Supplementary
 4. **Step 4 — Model Selection**: choose GPR (recommended) or linear; the system fits and reports R², LOD, LOQ
-5. **Step 5 — Export**: download a PDF report and CSV of all metrics
+5. **Step 5 — Export**: download a self-contained HTML report (includes calibration curve, all metrics, auto-generated Methods paragraph)
 
 ### Tab 2 — Experiments (📊)
 
@@ -685,27 +696,42 @@ In the live UI → Validation Tracker. Each green section is a completed test. A
 
 Open `RESEARCH_HANDBOOK.md` §2.1 and check each metric against the threshold:
 
-| Metric            | Your result | Target                  | Pass? |
-| ----------------- | ----------- | ----------------------- | ----- |
-| Calibration R²    | —           | > 0.9954                | —     |
-| LOD               | —           | < 0.1 ppm (with 95% CI) | —     |
-| Sensitivity       | —           | Report ± std            | —     |
-| Repeatability RSD | —           | < 2% intra-day          | —     |
+| Metric                    | Your result | Target                        | Pass? |
+| ------------------------- | ----------- | ----------------------------- | ----- |
+| Calibration R²            | —           | > 0.9954                      | —     |
+| LOD                       | —           | < 0.1 ppm (with 95% bootstrap CI) | —  |
+| Sensitivity ± SE(S)       | —           | Report ± SE                   | —     |
+| FOM (ppm⁻¹)               | —           | Report (no fixed threshold)   | —     |
+| NEC ≤ LOB ≤ LOD ≤ LOQ     | —           | All PASS (hierarchy check)    | —     |
+| BP test (homoscedasticity)| —           | p ≥ 0.017 (OLS valid)         | —     |
+| Repeatability RSD         | —           | < 2% intra-day                | —     |
+| MK trend (LOD stability)  | —           | No significant trend (p ≥ 0.05) | —  |
 
 ### Step 5 — Write the Methods section
 
-Use the AI-generated session narratives from SpectraAgent as a starting draft. The narratives include all mandatory metadata (integration time, reference capture details, temperature, git commit hash of the software version).
+Use `docs/PAPER_METHODS_TEMPLATE.md` as the starting template — it contains fill-in-the-blank text for all statistical methods that are now implemented in the platform, including the equations reviewers will look for. The AI-generated session narratives from SpectraAgent provide the per-session metadata.
 
-The paper Methods section must include (see `docs/PAPER_METHODS_TEMPLATE.md`):
+The Methods section must include (per journal requirements for *Analytical Chemistry* / *Sensors & Actuators B*):
 
-- Hardware model and serial number
-- Integration time and averaging
+**Experimental setup**
+- Hardware model, serial number, integration time, averaging
 - Functionalization protocol
 - Room temperature and humidity (per session)
-- Git commit hash of this software (run `git rev-parse --short HEAD` in the project directory — this is NOT stored automatically in session files)
-- Raw data availability statement (`output/sessions/*/`)
-- Statement of calibration slope origin (hardcoded literature value vs. experimentally determined — see L1 above)
-- Temperature correction status (not applied in current version — see L3 above)
+
+**Statistical methods** (copy from `docs/PAPER_METHODS_TEMPLATE.md` §2.3–2.6):
+- LOD/LOQ derivation with IUPAC 2012 equations and σ_blank source
+- Bootstrap CI parameters (n=1000, fix_noise_std flag — state whether σ_blank was held fixed)
+- Prediction interval at LOD (state this was used, not just confidence band)
+- Homoscedasticity check and whether WLS was applied
+- Mandel linearity test F-statistic and p-value
+- FOM with FWHM_ref source
+- Cross-session Mann-Kendall τ and trend classification
+
+**Reproducibility**
+- Git commit hash: `git rev-parse --short HEAD`
+- Data archived in `output/sessions/*/` (include in supplementary)
+- Integrity verification output: `python scripts/research_integrity_gate.py --allow-empty`
+- Temperature correction not applied (see L3 above — note in Methods)
 
 ---
 
