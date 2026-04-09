@@ -8,6 +8,8 @@ report with explicit readiness checks and next experimental actions.
 from __future__ import annotations
 
 import math
+import json
+from pathlib import Path
 from typing import Any
 
 
@@ -258,3 +260,36 @@ def build_deterministic_scientific_report(context: dict[str, Any]) -> str:
         ])
 
     return "\n".join(lines) + "\n"
+
+
+def save_deterministic_scientific_summary(
+    *,
+    session_dir: str | Path,
+    session_id: str,
+    context: dict[str, Any],
+) -> dict[str, str]:
+    """Persist deterministic scientific summary artifacts beside a session.
+
+    Writes both markdown and JSON so researchers can read the summary directly
+    and downstream tooling can consume the structured content.
+    """
+    base = Path(session_dir)
+    base.mkdir(parents=True, exist_ok=True)
+
+    markdown_path = base / f"{session_id}_scientific_summary.md"
+    json_path = base / f"{session_id}_scientific_summary.json"
+    report_markdown = build_deterministic_scientific_report(context)
+
+    json_payload = {
+        "session_id": session_id,
+        "context": context,
+        "report_markdown": report_markdown,
+    }
+
+    markdown_path.write_text(report_markdown, encoding="utf-8")
+    json_path.write_text(json.dumps(json_payload, indent=2, default=str), encoding="utf-8")
+
+    return {
+        "markdown": str(markdown_path),
+        "json": str(json_path),
+    }

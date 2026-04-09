@@ -907,6 +907,32 @@ def _write_session_manifest(app: FastAPI, session_id: str) -> Path | None:
         return None
 
 
+def _write_session_scientific_summary(
+    app: FastAPI,
+    session_id: str,
+    context: dict[str, Any],
+) -> dict[str, str] | None:
+    """Write deterministic scientist-facing summary artifacts beside a session."""
+    sw = getattr(app.state, "session_writer", None)
+    session_base = getattr(sw, "_dir", None)
+    if session_base is None:
+        return None
+    session_dir = Path(session_base) / session_id
+    if not session_dir.exists() or not session_dir.is_dir():
+        return None
+    try:
+        from src.reporting.scientific_summary import save_deterministic_scientific_summary
+
+        return save_deterministic_scientific_summary(
+            session_dir=session_dir,
+            session_id=session_id,
+            context=context,
+        )
+    except Exception as exc:
+        log.warning("Scientific summary creation failed for %s: %s", session_id, exc)
+        return None
+
+
 def _get_ask_client():
     """Return anthropic.AsyncAnthropic for the /api/agents/ask endpoint, or None.
 
@@ -1148,6 +1174,12 @@ def create_app(simulate: bool = False) -> FastAPI:
                     zf.write(src, arcname=arc)
                     included.append(arc)
 
+            for summary_path in sorted(session_root.glob("*_scientific_summary.*")):
+                if summary_path.is_file():
+                    arc = f"session/{summary_path.name}"
+                    zf.write(summary_path, arcname=arc)
+                    included.append(arc)
+
             for manifest_path in sorted(session_root.glob("*_manifest.json")):
                 if manifest_path.is_file():
                     arc = f"session/{manifest_path.name}"
@@ -1297,13 +1329,20 @@ def create_app(simulate: bool = False) -> FastAPI:
             analysis = None
             try:
                 from src.inference.session_analyzer import SessionAnalyzer
+                from src.reporting.scientific_summary import session_analysis_to_dict
+
                 analysis = SessionAnalyzer().analyze(session_events, frame_count)
                 app.state.last_session_analysis = analysis
                 app.state.last_session_analysis_session_id = session_id
+                stored_session = sw.get_session(session_id) if sw is not None else None
 
                 session_data: dict = {
                     "session_id": session_id,
                     "gas_label": gas_label,
+                    "hardware": getattr(getattr(app.state, "driver", None), "name", "unknown"),
+                    "started_at": stored_session.get("started_at") if stored_session else None,
+                    "stopped_at": stored_session.get("stopped_at") if stored_session else None,
+                    "target_concentration": acq_config_snapshot.get("target_concentration"),
                     "lod_ppm": analysis.lod_ppm,
                     "lob_ppm": getattr(analysis, "lob_ppm", None),
                     "lod_ci_lower": getattr(analysis, "lod_ci_lower", None),
@@ -1325,6 +1364,11 @@ def create_app(simulate: bool = False) -> FastAPI:
                     "temperature_c": acq_config_snapshot.get("temperature_c"),
                     "humidity_pct": acq_config_snapshot.get("humidity_pct"),
                 }
+                session_summary_context = {
+                    **session_data,
+                    "analysis": session_analysis_to_dict(analysis),
+                }
+                _write_session_scientific_summary(app, session_id, session_summary_context)
                 bus = getattr(app.state, "agent_bus", None)
                 if bus is not None:
                     from spectraagent.webapp.agent_bus import AgentEvent

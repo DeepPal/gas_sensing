@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Deterministic scientific reporting fallback (2026-04-09)
 - `src/reporting/scientific_summary.py` — new deterministic session-summary formatter that turns session metadata and computed analysis into a scientist-facing markdown report with publication-readiness checks, audit trail, and recommended next experiments
 - `spectraagent/webapp/server.py` — `/api/reports/generate` now falls back to the deterministic scientific summary when Claude/ReportWriter is unavailable, instead of failing with 503
+- `spectraagent/webapp/server.py` — completed sessions now automatically write `{session_id}_scientific_summary.md` and `{session_id}_scientific_summary.json` beside the reproducibility manifest, and research package ZIP exports now include them
 - `tests/test_scientific_summary.py` and `tests/spectraagent/webapp/test_server.py` — added coverage for deterministic report content and fallback behavior
 
 ### Added — Research evidence pack orchestration (2026-04-09)

@@ -281,6 +281,8 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
     (session_dir / "agent_events.jsonl").write_text('{"type": "session_complete"}\n', encoding="utf-8")
     (session_dir / "pipeline_results.csv").write_text('frame,timestamp\n1,now\n', encoding="utf-8")
     (session_dir / "unknown_manifest.json").write_text('{"session_id": "unknown"}', encoding="utf-8")
+    (session_dir / "unknown_scientific_summary.md").write_text('# Summary\n', encoding="utf-8")
+    (session_dir / "unknown_scientific_summary.json").write_text('{"status": "ok"}', encoding="utf-8")
     client.app.state.last_session_analysis = SimpleNamespace(
         calibration_n_points=7,
         calibration_r2=0.97,
@@ -305,6 +307,8 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
         assert any(name.startswith("qualification/") and name.endswith(".html") for name in names)
         assert any(name.startswith("qualification/") and name.endswith(".sig.json") for name in names)
         assert "session/unknown_manifest.json" in names
+        assert "session/unknown_scientific_summary.md" in names
+        assert "session/unknown_scientific_summary.json" in names
         readme = zf.read("README_STATUS.txt").decode("utf-8")
         assert "Shipment Label: QUALIFIED FOR EXTERNAL REVIEW" in readme
 
@@ -552,7 +556,11 @@ def test_acquisition_start_stop_creates_session(client, tmp_path):
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["stopped_at"] is not None
     manifest_path = tmp_path / "sessions" / session_id / f"{session_id}_manifest.json"
+    summary_md_path = tmp_path / "sessions" / session_id / f"{session_id}_scientific_summary.md"
+    summary_json_path = tmp_path / "sessions" / session_id / f"{session_id}_scientific_summary.json"
     assert manifest_path.exists()
+    assert summary_md_path.exists()
+    assert summary_json_path.exists()
 
 
 def test_lifespan_startup_callback_runs():
