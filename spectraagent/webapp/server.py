@@ -1299,6 +1299,7 @@ def create_app(simulate: bool = False) -> FastAPI:
                 from src.inference.session_analyzer import SessionAnalyzer
                 analysis = SessionAnalyzer().analyze(session_events, frame_count)
                 app.state.last_session_analysis = analysis
+                app.state.last_session_analysis_session_id = session_id
 
                 session_data: dict = {
                     "session_id": session_id,
@@ -1643,16 +1644,18 @@ def create_app(simulate: bool = False) -> FastAPI:
         request: ReportRequest,
         _rl: None = Depends(_rate_limit_report),
     ) -> JSONResponse:
-        """Call ReportWriter to generate a Methods+Results prose report.
+        """Generate a scientist-facing session report.
 
         Returns ``{"report": "<text>", "session_id": "<id>"}`` on success.
-        Returns 503 when ReportWriter is not available or Claude is unreachable.
+        Prefers ``ReportWriter`` when available, but falls back to a deterministic
+        scientific summary so researchers still get a useful report offline.
         """
-        writer = getattr(app.state, "report_writer", None)
-        if writer is None:
-            raise HTTPException(status_code=503, detail="ReportWriter not available")
+        from src.inference.session_analyzer import SessionAnalyzer
+        from src.reporting.scientific_summary import (
+            build_deterministic_scientific_report,
+            session_analysis_to_dict,
+        )
 
-        # Build context from session data if available
         sw = getattr(app.state, "session_writer", None)
         context: dict = {"session_id": request.session_id}
         if sw is not None:
@@ -1660,16 +1663,41 @@ def create_app(simulate: bool = False) -> FastAPI:
             if session_data is not None:
                 context.update(session_data)
 
+        analysis = getattr(app.state, "last_session_analysis", None)
+        analysis_session_id = getattr(app.state, "last_session_analysis_session_id", None)
+        if analysis is not None and analysis_session_id == request.session_id:
+            context["analysis"] = session_analysis_to_dict(analysis)
+        elif context.get("events"):
+            try:
+                on_demand_analysis = SessionAnalyzer().analyze(
+                    context["events"],
+                    int(context.get("frame_count") or 0),
+                )
+                context["analysis"] = session_analysis_to_dict(on_demand_analysis)
+            except Exception as exc:
+                log.debug("On-demand report analysis failed: %s", exc)
+
+        writer = getattr(app.state, "report_writer", None)
+        if writer is None:
+            return JSONResponse({
+                "report": build_deterministic_scientific_report(context),
+                "session_id": request.session_id,
+                "report_source": "deterministic",
+            })
+
         text = await writer.write(context)
         if text is None:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Claude unavailable — check ANTHROPIC_API_KEY is set and valid, "
-                    "or see agent events for the specific error."
-                ),
-            )
-        return JSONResponse({"report": text, "session_id": request.session_id})
+            return JSONResponse({
+                "report": build_deterministic_scientific_report(context),
+                "session_id": request.session_id,
+                "report_source": "deterministic",
+                "report_notice": "Claude unavailable; returned deterministic scientific summary instead.",
+            })
+        return JSONResponse({
+            "report": text,
+            "session_id": request.session_id,
+            "report_source": "claude",
+        })
 
     # ------------------------------------------------------------------
     # Agent settings — runtime toggle for auto-explain

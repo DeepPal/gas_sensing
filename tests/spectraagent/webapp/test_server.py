@@ -600,16 +600,18 @@ def test_reports_generate_requires_session_id(client):
     assert resp.status_code == 422
 
 
-def test_reports_generate_no_writer_returns_503(client):
-    """POST /api/reports/generate returns 503 when ReportWriter is not on app.state."""
+def test_reports_generate_no_writer_returns_deterministic_report(client):
+    """POST /api/reports/generate falls back to deterministic report when writer is absent."""
     client.app.state.report_writer = None  # explicitly clear
     resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
-    assert resp.status_code == 503
-    assert "ReportWriter" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["report_source"] == "deterministic"
+    assert "Deterministic Scientific Summary" in data["report"]
 
 
-def test_reports_generate_claude_unavailable_returns_503(client):
-    """POST /api/reports/generate returns 503 when writer.write() returns None."""
+def test_reports_generate_claude_unavailable_returns_deterministic_report(client):
+    """POST /api/reports/generate falls back to deterministic report when Claude is unavailable."""
     from unittest.mock import AsyncMock, MagicMock
 
     mock_writer = MagicMock()
@@ -617,8 +619,11 @@ def test_reports_generate_claude_unavailable_returns_503(client):
     client.app.state.report_writer = mock_writer
 
     resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
-    assert resp.status_code == 503
-    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["report_source"] == "deterministic"
+    assert "report_notice" in data
+    assert "Claude unavailable" in data["report_notice"]
 
     # Clean up
     client.app.state.report_writer = None
@@ -638,6 +643,7 @@ def test_reports_generate_success_returns_200(client):
     assert data["session_id"] == "20260327_120000"
     assert "report" in data
     assert isinstance(data["report"], str)
+    assert data["report_source"] == "claude"
 
     # Clean up
     client.app.state.report_writer = None
