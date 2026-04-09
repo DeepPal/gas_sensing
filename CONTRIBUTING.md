@@ -126,3 +126,8 @@ For security-relevant code changes, include:
 - [ ] ADR added when required (see above)
 - [ ] No new `the sensor`/sensor-specific language in generic platform code
 - [ ] Risks and assumptions noted in PR description
+
+## Release process
+
+Follow the tagged-release checklist in `docs/guides/RELEASE_RUNBOOK.md`.
+Do not create release tags until required CI checks are green on `main`.

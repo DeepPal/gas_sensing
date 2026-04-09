@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Dependency automation and release runbook (2026-04-09)
+- `.github/dependabot.yml` — enabled weekly Dependabot updates for `pip`, GitHub Actions, and frontend `npm` dependencies
+- `docs/guides/RELEASE_RUNBOOK.md` — added a practical release checklist aligned with tag-based release workflow and artifact verification requirements
+
+### Changed — Governance ownership and quality ratchet (2026-04-09)
+- `.github/CODEOWNERS` — tightened ownership routing for release/governance-critical files (`pyproject.toml`, `Dockerfile`, `docker-compose.yml`, status docs, scripts, dependabot config)
+- `pyproject.toml` — raised coverage threshold from 70 to 75
+- `CONTRIBUTING.md` — linked release process to the release runbook
+
 ### Added — Repository hygiene + governance hardening (2026-04-09)
 - `.github/workflows/secret-scan.yml` — added Gitleaks-based secret scanning on PRs and pushes to `main`
 - `scripts/check_repo_hygiene.py` — added CI guard that fails on flattened absolute-path artifacts and forbidden generated runtime files tracked in git

@@ -3,7 +3,17 @@
 
 # Workflow and security policy ownership
 .github/workflows/ @DeepPal
+.github/dependabot.yml @DeepPal
 SECURITY.md @DeepPal
+
+# Release and governance critical files
+pyproject.toml @DeepPal
+Dockerfile @DeepPal
+docker-compose.yml @DeepPal
+.gitignore @DeepPal
+CHANGELOG.md @DeepPal
+REMAINING_WORK.md @DeepPal
+PRODUCTION_READINESS.md @DeepPal
 
 # Core runtime and scientific pipelines
 src/ @DeepPal
@@ -13,6 +23,7 @@ gas_analysis/ @DeepPal
 
 # Tests and docs
 tests/ @DeepPal
+scripts/ @DeepPal
 docs/ @DeepPal
 README.md @DeepPal
 CONTRIBUTING.md @DeepPal
