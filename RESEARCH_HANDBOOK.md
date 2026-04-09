@@ -92,20 +92,35 @@ A noisy reference means a high LOD regardless of analyte concentration.
 
 ## 2. Performance Metrics — What to Track and Why
 
-### 2.1 The 7 Mandatory Metrics for Publication
+### 2.1 The Full Metric Suite for Publication (Phase 5E)
 
 Monitoring LOD alone is **not sufficient** for sensor science publications.
-Every peer-reviewed journal requires at least:
+The complete set of metrics computed automatically by `sensor_performance_summary()`:
 
-| #   | Metric                  | Symbol | Definition                 | Threshold                               |
-| --- | ----------------------- | ------ | -------------------------- | --------------------------------------- |
-| 1   | Limit of Detection      | LOD    | 3σ_blank / m (IUPAC)       | Must include 95% bootstrap CI           |
-| 2   | Limit of Quantification | LOQ    | 10σ_blank / m              | Must be ≥ 3.3× LOD                      |
-| 3   | Sensitivity             | m      | Calibration slope (nm/ppm) | Report ± std over N sessions            |
-| 4   | Calibration R²          | R²     | 1 − SS_res/SS_tot          | Must be >0.9954 for linearity claim     |
-| 5   | Dynamic Range           | LDR    | [LOQ, C_sat] (ppm)         | Width ≥ 2 orders of magnitude preferred |
-| 6   | Reproducibility         | RSD%   | σ/μ × 100 at C_target      | <5% (intra-day), <10% (inter-day)       |
-| 7   | Selectivity             | K_B,A  | Response(B) / Response(A)  | <0.05 for claimed specificity           |
+| #  | Metric                        | Symbol     | Definition                                    | Threshold / Note                                      |
+|----|-------------------------------|------------|-----------------------------------------------|-------------------------------------------------------|
+| 1  | Noise Equivalent Concentration| NEC        | σ_blank / \|m\|                               | Fundamental floor — LOD = 3 × NEC                     |
+| 2  | Limit of Blank                | LOB        | (\|μ_blank\| + 1.645·σ_blank) / \|m\| (IUPAC 2012) | Must be ≤ LOD — violation signals blank offset   |
+| 3  | Limit of Detection            | LOD        | 3·σ_blank / \|m\|                             | Must include 95% bootstrap CI; σ_blank fixed in CI    |
+| 4  | Limit of Quantification       | LOQ        | 10·σ_blank / \|m\|                            | Must be ≥ 3.3× LOD                                    |
+| 5  | Limit of Linearity            | LOL        | Mandel F-test progressive truncation (ICH §4.2) | Report with F-statistic and p-value               |
+| 6  | Sensitivity ± SE              | m ± SE(m)  | OLS/WLS calibration slope (nm/ppm)            | Report ± SE; WLS slope if BP test fails               |
+| 7  | Figure of Merit               | FOM        | \|m\| / FWHM_ref (ppm⁻¹)                     | LSPR comparison metric — always report                |
+| 8  | Calibration R²                | R²         | 1 − SS_res/SS_tot                             | > 0.9954 for linearity claim; also report R²_LOOCV    |
+| 9  | Dynamic Range                 | LDR        | [LOQ, LOL] (ppm)                              | Width ≥ 2 orders of magnitude preferred               |
+| 10 | Reproducibility               | RSD%       | σ/μ × 100 at C_target                        | < 5% intra-day; < 10% inter-day (ISO 5725-2)          |
+| 11 | Selectivity                   | K_B,A      | Response(B) / Response(A)                    | < 0.05 for claimed specificity                        |
+
+**Detection-limit hierarchy invariant (verified automatically):**
+
+```text
+NEC ≤ LOB ≤ LOD ≤ LOQ   (IUPAC 2012)
+```
+
+A violated hierarchy (shown as red badge in dashboard Step 3) signals a data-quality
+problem — usually blank mean offset caused by incomplete reference subtraction or
+sensor drift between reference capture and blank measurement. Investigate before
+publishing any detection limit.
 
 **Why LOD alone is insufficient:**
 A sensor with surface fouling shows:
@@ -114,9 +129,27 @@ A sensor with surface fouling shows:
 2. Sensitivity decrease → **mid warning** (same session as FWHM starts broadening)
 3. LOD increase → **late warning** (surface already significantly fouled)
 
-SensorHealthAgent monitors all 7 dimensions and alerts at the earliest sign.
+SensorHealthAgent monitors all 11 dimensions and alerts at the earliest sign.
 
-### 2.2 The SensorHealthAgent 5-Metric Scorecard
+### 2.2 Residual Diagnostics (Mandatory for Publication)
+
+Three OLS assumptions must be verified before trusting any LOD estimate.
+Computed automatically in `sensor_performance_summary()` via `residual_diagnostics()`:
+
+| Test             | H₀                    | Statistic        | α (Bonferroni-corrected) | Failure action                        |
+|------------------|-----------------------|------------------|--------------------------|---------------------------------------|
+| Durbin-Watson    | No autocorrelation    | d ≈ 2            | < 1.5 or > 2.5 → flag   | Check equilibration between steps     |
+| Shapiro-Wilk     | Normal residuals      | W, p ≥ 0.017     | p < 0.017 → flag         | Bootstrap CI still valid; note in SI  |
+| Breusch-Pagan    | Homoscedastic residuals| LM, p ≥ 0.017  | p < 0.017 → WLS applied  | WLS auto-applied; report WLS slope    |
+
+Bonferroni correction α = 0.05/3 ≈ 0.017 controls family-wise error at 5% across
+the three simultaneous tests.
+
+**When WLS is auto-applied:** the dashboard shows an orange notice with both OLS
+and WLS slopes. Report the WLS sensitivity in the Methods section with the note
+"Weights w_i = 1/C_i² (proportional error model)."
+
+### 2.3 The SensorHealthAgent 5-Metric Scorecard
 
 Each dimension is scored 0–100 based on the sensor's own history:
 
@@ -137,7 +170,7 @@ Overall health  = LOD×30% + Sensitivity×30% + R²×25% + Drift×10% + SNR×5%
 - R² < 0.95 for 2+ consecutive sessions
 - Overall health < 55
 
-### 2.3 Noise Equivalent Concentration (NEC)
+### 2.4 Noise Equivalent Concentration (NEC)
 
 The fundamental lower bound on detection, independent of calibration model:
 
@@ -304,29 +337,50 @@ not a measurement artefact.
 
 When you are ready to submit, verify all of the following:
 
-### Required Data (ICH Q2(R1) / Eurachem)
+### Required Data (ICH Q2(R1) / IUPAC 2012 / EURACHEM)
 
-- [ ] LOD with 95% bootstrap CI (N_bootstrap ≥ 2000)
+**Detection limits** — all from dedicated blank measurements (≥6 frames):
+- [ ] σ_blank from blank measurements, **not** OLS residuals (state source in Methods)
+- [ ] NEC = σ_blank / |m| reported
+- [ ] LOB = (|μ_blank| + 1.645·σ_blank) / |m| reported
+- [ ] LOD with 95% bootstrap CI (σ_blank fixed during bootstrap — `fix_noise_std=True`)
 - [ ] LOQ with 95% bootstrap CI
-- [ ] LOB (Limit of Blank) from dedicated blank measurements
-- [ ] Sensitivity m (nm/ppm) with 95% CI from regression
-- [ ] R² and residual plot (Supplementary)
-- [ ] Repeatability RSD% (≥6 replicates, one day)
-- [ ] Intermediate precision RSD% (≥3 days)
-- [ ] Recovery% at 80%, 100%, 120% of target concentration
-- [ ] Selectivity coefficients for major interferents
-- [ ] Linearity range [LOQ, C_sat/2] with confidence band plot
-- [ ] Robustness: effect of ±10% variation in 3+ parameters
+- [ ] Detection-limit hierarchy NEC ≤ LOB ≤ LOD ≤ LOQ confirmed (dashboard hierarchy badge)
+- [ ] Prediction interval at LOD stated (EURACHEM/CITAC CG 4 §A3) — distinct from CI band
+
+**Calibration curve quality**:
+- [ ] Sensitivity m (nm/ppm) with SE(m) — report WLS slope if Breusch-Pagan failed
+- [ ] WLS vs OLS choice documented (Breusch-Pagan p-value stated)
+- [ ] R² > 0.9954; also report R²_LOOCV (leave-one-out cross-validation)
+- [ ] Mandel linearity test F-statistic and p-value (ICH §4.2)
+- [ ] Limit of Linearity (LOL) from Mandel progressive truncation
+- [ ] Residual plot (Supplementary) + Durbin-Watson, Shapiro-Wilk, Breusch-Pagan values
+- [ ] FWHM_ref from Lorentzian fit of reference spectrum
+- [ ] Figure of Merit FOM = |m| / FWHM_ref (ppm⁻¹) — mandatory in LSPR papers
+
+**Validation experiments**:
+- [ ] Repeatability RSD% (≥6 replicates, one day, ICH §4.4)
+- [ ] Intermediate precision RSD% (≥3 days, ICH §4.5)
+- [ ] Recovery% at 80%, 100%, 120% of target concentration (ICH §4.1 accuracy)
+- [ ] Selectivity coefficients K_B,A for major interferents (ICH §4.1 specificity)
+- [ ] Linearity range [LOQ, LOL] with calibration curve + 95% prediction band
+- [ ] Robustness: Youden ruggedness test (8 runs, 7 factors ±10%) per ICH §4.8
+
+**Cross-session stability** (for any multi-session reproducibility claim):
+- [ ] Bland-Altman analysis bias and 95% limits of agreement
+- [ ] Paired t-test p-value (sessions interchangeable if p ≥ 0.05)
+- [ ] Mann-Kendall τ and p-value for LOD drift trend across sessions
 
 ### Required Metadata (Reproducibility)
 
 - [ ] Hardware model and serial number (ThorLabs CCS200 + chip serial)
 - [ ] Integration time, averaging, scan rate
 - [ ] Functionalization protocol (batch number, date, operator)
-- [ ] Room temperature and humidity (log every session)
-- [ ] Git commit hash of the analysis software used
-- [ ] Python version and key library versions (numpy, scipy, sklearn)
+- [ ] Room temperature and humidity (log every session) — note temperature correction not applied (L3)
+- [ ] Git commit hash of the analysis software: `git rev-parse --short HEAD`
+- [ ] Python version and key library versions (`pip freeze > requirements_snapshot.txt`)
 - [ ] Raw data available in repository (`output/sessions/*/`)
+- [ ] Integrity verification output (`research_integrity_gate.py --allow-empty`)
 
 ### What Makes This Work Novel
 
@@ -354,10 +408,11 @@ The core novelty claim for publication is:
 
 ---
 
-## 8. Current Platform Status (updated 2026-04-01)
+## 8. Current Platform Status (updated 2026-04-08)
 
-The platform has completed all Part A (production), Part B (science gaps), and Phase 5C
-(data-driven science layer) items.
+The platform has completed Part A (production), Part B (science gaps), Phase 5C
+(data-driven science), Phase 5D (residual diagnostics + publication tables), and
+Phase 5E (FOM, WLS auto-correction, prediction interval, Mann-Kendall) items.
 
 ---
 
@@ -459,15 +514,21 @@ is the sentence that earns the paper its journal acceptance.
 These gaps represent the boundary of current knowledge and the most promising
 directions for follow-on publication:
 
-| Gap                                            | Why it matters                                                                   | Effort                  | Status                                                            |
-| ---------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------- |
-| Kinetic features (τ₆₃, τ₉₅)                    | Binding rate constant discriminates analytes better than steady-state Δλ         | Medium                  | ✅ Implemented — `src/features/lspr_features.py`                  |
-| Reference FWHM as chip age predictor           | FWHM(reference, clean gas) tracks nanostructure degradation across chip lifetime | Low                     | ✅ Implemented — `reference_fwhm_nm` in CalibrationObservation    |
-| Transfer learning across analytes              | Train on Ethanol → fine-tune on Methanol with 5 calibration points               | High                    | ✅ Implemented — `src/models/transfer.py` (GRL domain adaptation) |
-| Cross-lab validation                           | Run same protocol at ≥2 Chulalongkorn labs, compare LOD/sensitivity              | Low effort, high impact | Open — requires data collection                                   |
-| Multi-analyte mixture discrimination           | Binary/ternary gas mixtures                                                      | High                    | Open — future paper                                               |
-| In-situ drift correction using temperature     | Δλ_corrected = Δλ_raw − α·ΔT                                                     | Medium                  | Open                                                              |
-| Conformal prediction for non-exchangeable data | Current conformal PI assumes exchangeability; time-series violates this          | High                    | Open                                                              |
+| Gap                                            | Why it matters                                                                   | Effort                  | Status                                                                           |
+| ---------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| Kinetic features (τ₆₃, τ₉₅)                    | Binding rate constant discriminates analytes better than steady-state Δλ         | Medium                  | ✅ Implemented — `src/features/lspr_features.py`                                 |
+| Reference FWHM as chip age predictor           | FWHM(reference, clean gas) tracks nanostructure degradation across chip lifetime | Low                     | ✅ Implemented — `reference_fwhm_nm` in CalibrationObservation                   |
+| Transfer learning across analytes              | Train on Ethanol → fine-tune on Methanol with 5 calibration points               | High                    | ✅ Implemented — `src/models/transfer.py` (GRL domain adaptation)                |
+| FOM = \|S\|/FWHM                               | Required LSPR comparison metric; normalises sensitivity by peak linewidth        | Low                     | ✅ Implemented — `sensor_performance_summary(reference_fwhm_nm=...)`             |
+| WLS auto-correction for heteroscedasticity     | BP test → WLS prevents biased LOD when σ(response) ∝ concentration              | Low                     | ✅ Implemented — auto-applied when BP p < 0.017                                   |
+| Prediction interval at LOD                     | PI wider than CI; correct per EURACHEM/CITAC CG 4 §A3                           | Low                     | ✅ Implemented — `prediction_interval_at_lod` in summary dict                    |
+| Mann-Kendall sensor drift test                 | Non-parametric; preferred for n < 10 sessions; detects monotonic LOD degradation | Low                    | ✅ Implemented — `compare_lod_series()` in `src/scientific/cross_session.py`     |
+| Residual diagnostics (DW + SW + BP)            | Mandatory for Analytical Chemistry / Sensors & Actuators B reviewers            | Medium                  | ✅ Implemented — `src/scientific/residual_diagnostics.py`                        |
+| Cross-lab validation                           | Run same protocol at ≥2 Chulalongkorn labs, compare LOD/sensitivity              | Low effort, high impact | Open — requires data collection                                                  |
+| Multi-analyte mixture discrimination           | Binary/ternary gas mixtures                                                      | High                    | Open — future paper                                                              |
+| In-situ drift correction using temperature     | Δλ_corrected = Δλ_raw − α·ΔT (α ≈ 0.02 nm/°C for LSPR)                         | Medium                  | Open — temperature stored (B5), correction formula not applied                   |
+| Youden ruggedness dashboard panel              | ICH §4.8 mandatory; 8-run PB design already in `src/scientific/ruggedness.py`   | Low                     | In progress — dashboard Step 4 wiring                                            |
+| Conformal prediction for non-exchangeable data | Current conformal PI assumes exchangeability; time-series violates this          | High                    | Open                                                                             |
 
 ---
 

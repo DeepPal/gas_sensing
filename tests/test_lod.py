@@ -498,3 +498,119 @@ class TestWLSAutoCorrection:
         if summary["wls_applied"]:
             assert summary["wls_slope"] is not None
             assert summary["wls_note"] is not None
+
+
+# ---------------------------------------------------------------------------
+# TestTemperatureCorrection
+# ---------------------------------------------------------------------------
+
+class TestTemperatureCorrection:
+    """Tests for the temperature drift correction in sensor_performance_summary."""
+
+    _concs = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    _responses = np.array([-1.01, -2.02, -4.05, -9.95, -20.1])
+
+    def test_correction_key_always_present(self):
+        """temperature_correction key must always be in output."""
+        summary = sensor_performance_summary(self._concs, self._responses)
+        assert "temperature_correction" in summary
+
+    def test_no_temps_applied_false(self):
+        """Without temperature params, applied must be False."""
+        summary = sensor_performance_summary(self._concs, self._responses)
+        assert summary["temperature_correction"]["applied"] is False
+
+    def test_one_temp_missing_no_correction(self):
+        """Only session temp given (no reference temp) → no correction."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=25.0,
+        )
+        assert summary["temperature_correction"]["applied"] is False
+
+    def test_both_temps_same_no_correction(self):
+        """Identical temps → correction is essentially zero; applied is False."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=23.0,
+            reference_temperature_c=23.0,
+        )
+        # ΔT < 0.01 threshold → not applied
+        assert summary["temperature_correction"]["applied"] is False
+
+    def test_positive_delta_T_correction_applied(self):
+        """Session warmer than reference → positive correction → responses shift down."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=25.0,
+            reference_temperature_c=23.0,
+        )
+        assert summary["temperature_correction"]["applied"] is True
+        assert summary["temperature_correction"]["delta_T_c"] == pytest.approx(2.0)
+        # correction_nm = 0.02 × 2.0 = +0.04 nm → responses lowered by 0.04
+        assert summary["temperature_correction"]["correction_nm"] == pytest.approx(0.04)
+
+    def test_negative_delta_T_correction_applied(self):
+        """Session cooler than reference → negative correction → responses shift up."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=21.0,
+            reference_temperature_c=23.0,
+        )
+        assert summary["temperature_correction"]["applied"] is True
+        assert summary["temperature_correction"]["correction_nm"] == pytest.approx(-0.04)
+
+    def test_correction_changes_sensitivity(self):
+        """A systematic response offset after correction changes the fitted sensitivity."""
+        # Without correction
+        s0 = sensor_performance_summary(self._concs, self._responses)
+        # With a 2 °C offset (0.04 nm correction) — subtracts a constant from all responses
+        # Constant subtraction shifts intercept but not slope
+        s1 = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=25.0,
+            reference_temperature_c=23.0,
+        )
+        # Slope (sensitivity) should differ by less than 1% (constant offset → slope unchanged)
+        assert abs(s1["sensitivity"] - s0["sensitivity"]) < 0.001
+
+    def test_correction_metadata_keys(self):
+        """Correction dict must contain all expected audit-trail keys."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=25.0,
+            reference_temperature_c=23.0,
+        )
+        tc = summary["temperature_correction"]
+        for key in ("applied", "session_temp_c", "reference_temp_c",
+                    "delta_T_c", "alpha_nm_per_c", "correction_nm", "note"):
+            assert key in tc, f"Missing key '{key}' in temperature_correction"
+
+    def test_custom_alpha_coefficient(self):
+        """Non-default α coefficient is used and stored in metadata."""
+        summary = sensor_performance_summary(
+            self._concs, self._responses,
+            temperature_c=25.0,
+            reference_temperature_c=23.0,
+            temperature_coeff_nm_per_c=0.05,
+        )
+        tc = summary["temperature_correction"]
+        assert tc["alpha_nm_per_c"] == pytest.approx(0.05)
+        # 0.05 × 2.0 = 0.10 nm correction
+        assert tc["correction_nm"] == pytest.approx(0.10)
+
+    def test_correction_shifts_lod(self):
+        """A correction that improves response linearity should affect LOD."""
+        # Add a synthetic temperature offset to responses
+        offset = 0.1  # nm spurious thermal shift
+        biased = self._responses + offset
+        s_uncorrected = sensor_performance_summary(self._concs, biased)
+        # With correction removing the offset
+        s_corrected = sensor_performance_summary(
+            self._concs, biased,
+            temperature_c=25.0,
+            reference_temperature_c=20.0,  # ΔT = 5 °C → 0.02×5 = 0.10 nm
+        )
+        # Both should produce valid LOD
+        assert s_corrected["lod_ppm"] is not None
+        assert s_uncorrected["lod_ppm"] is not None

@@ -529,6 +529,9 @@ def sensor_performance_summary(
     dt_s: float = 0.05,
     blank_measurements: np.ndarray | None = None,
     reference_fwhm_nm: float | None = None,
+    temperature_c: float | None = None,
+    reference_temperature_c: float | None = None,
+    temperature_coeff_nm_per_c: float = 0.02,
 ) -> dict[str, object]:
     """Full sensor performance characterisation for one gas analyte.
 
@@ -570,6 +573,19 @@ def sensor_performance_summary(
         the Figure of Merit (FOM = |sensitivity| / FWHM, nm·ppm⁻¹/nm)
         is included in the output.  FWHM from B4 implementation is the
         natural source for this parameter.
+    temperature_c:
+        Session-average temperature (°C) during calibration measurements.
+        When provided together with ``reference_temperature_c``, a thermal
+        drift correction is applied to ``responses`` before fitting:
+        ``Δλ_corrected = Δλ_raw − α·ΔT``  where ΔT = temperature_c −
+        reference_temperature_c.
+    reference_temperature_c:
+        Temperature (°C) at which the reference spectrum was captured.
+        Required together with ``temperature_c`` for drift correction.
+    temperature_coeff_nm_per_c:
+        Thermo-optic coefficient α (nm/°C).  Default 0.02 nm/°C is a
+        typical value for glass-substrate LSPR sensors; adjust for your
+        sensor material (e.g. 0.01 nm/°C for gold-island films on Si).
 
     Returns
     -------
@@ -578,7 +594,8 @@ def sensor_performance_summary(
         ``lod_ppm``, ``loq_ppm``, ``lob_ppm``, ``nec_ppm``,
         ``noise_std``, ``n_calibration_points``,
         ``residual_diagnostics``, and optionally ``allan_deviation``,
-        ``fom``, ``wls_applied``, ``prediction_interval``.
+        ``fom``, ``wls_applied``, ``prediction_interval``,
+        ``temperature_correction``.
 
     Example
     -------
@@ -591,6 +608,40 @@ def sensor_performance_summary(
     """
     c = np.asarray(concentrations, dtype=float).ravel()
     r = np.asarray(responses, dtype=float).ravel()
+
+    # ── Temperature drift correction ─────────────────────────────────────────
+    # Applied before any fitting when both session and reference temperatures
+    # are provided.  Formula: Δλ_corrected = Δλ_raw − α·ΔT
+    # where ΔT = T_session − T_reference and α is the thermo-optic coefficient.
+    _temp_correction: dict[str, object] | None = None
+    if (
+        temperature_c is not None
+        and reference_temperature_c is not None
+        and abs(float(temperature_c) - float(reference_temperature_c)) > 0.01
+    ):
+        _delta_T = float(temperature_c) - float(reference_temperature_c)
+        _correction_nm = float(temperature_coeff_nm_per_c) * _delta_T
+        r = r - _correction_nm
+        _temp_correction = {
+            "applied": True,
+            "session_temp_c": round(float(temperature_c), 3),
+            "reference_temp_c": round(float(reference_temperature_c), 3),
+            "delta_T_c": round(_delta_T, 3),
+            "alpha_nm_per_c": round(float(temperature_coeff_nm_per_c), 5),
+            "correction_nm": round(_correction_nm, 6),
+            "note": (
+                f"Δλ responses corrected by −{_correction_nm:+.4f} nm "
+                f"(α={temperature_coeff_nm_per_c} nm/°C × ΔT={_delta_T:+.2f} °C). "
+                "All downstream metrics (LOD, sensitivity, FOM) use corrected responses."
+            ),
+        }
+        log.info(
+            "Temperature drift correction [%s]: ΔT=%.2f °C, α=%.4g nm/°C → "
+            "correction=%.4f nm applied to %d responses.",
+            gas_name, _delta_T, temperature_coeff_nm_per_c, _correction_nm, len(r),
+        )
+    else:
+        _temp_correction = {"applied": False}
 
     slope, intercept, r2, slope_se = calculate_sensitivity(c, r)
 
@@ -1021,6 +1072,8 @@ def sensor_performance_summary(
         # Prediction interval at the LOD concentration (EURACHEM/CITAC CG 4 §A3)
         # Wider than the confidence band; the correct interval for LOD derivation
         "prediction_interval_at_lod": _pred_interval,
+        # Temperature drift correction (applied when session + reference temps provided)
+        "temperature_correction": _temp_correction,
     }
 
     log.info(

@@ -4,6 +4,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Dashboard panel logic tests (TestYoudenDashboardPanel)
+# These tests mirror the exact code path used by the Youden ruggedness panel in
+# dashboard/agentic_pipeline_tab.py Step 3, so that regressions are caught
+# before they reach the UI.
+# ──────────────────────────────────────────────────────────────────────────────
+
 from src.scientific.ruggedness import (
     RuggednessResult,
     SpikeRecoveryResult,
@@ -314,3 +321,173 @@ class TestRecoveryAcceptance:
         res = spike_recovery([100.0], [100.0])
         with pytest.raises(ValueError, match="Unknown"):
             recovery_acceptance(res, "invalid")  # type: ignore[arg-type]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Dashboard panel logic — mirrors agentic_pipeline_tab.py Step 3
+# ──────────────────────────────────────────────────────────────────
+
+# Hardcoded PB design (must match _YD_MATRIX in the dashboard panel)
+_DASHBOARD_DESIGN_MATRIX = [
+    [+1, +1, +1, -1, +1, -1, -1],
+    [-1, +1, +1, +1, -1, +1, -1],
+    [-1, -1, +1, +1, +1, -1, +1],
+    [+1, -1, -1, +1, +1, +1, -1],
+    [-1, +1, -1, -1, +1, +1, +1],
+    [+1, -1, +1, -1, -1, +1, +1],
+    [+1, +1, -1, +1, -1, -1, +1],
+    [-1, -1, -1, -1, -1, -1, -1],
+]
+
+_DASHBOARD_FACTOR_NAMES = [
+    "integration_ms", "temperature_C", "flow_rate_sccm",
+    "baseline_wait_s", "purge_wait_s", "fiber_bend_mm", "lamp_power_pct",
+]
+
+
+def _dashboard_run(factor_names: list[str], responses_str: str) -> dict:
+    """Simulate the dashboard panel's compute logic.
+
+    Returns a dict with keys: 'error' (str or None), 'result' (RuggednessResult or None).
+    Mirrors the try/except block in the Youden expander.
+    """
+    vals = [float(x.strip()) for x in responses_str.split(",") if x.strip()]
+    if len(vals) != 8:
+        return {"error": f"expected 8 values, got {len(vals)}", "result": None}
+    if len(set(factor_names)) < 7:
+        return {"error": "duplicate factor names", "result": None}
+    design = YoudensDesign(
+        factors=factor_names,
+        levels={n: (0.0, 1.0) for n in factor_names},  # dummy levels
+    )
+    result = youden_ruggedness(design, vals)
+    return {"error": None, "result": result}
+
+
+class TestYoudenDashboardPanel:
+    """Tests for the dashboard Youden panel logic in agentic_pipeline_tab.py."""
+
+    def test_exactly_8_responses_required_too_few(self):
+        out = _dashboard_run(_DASHBOARD_FACTOR_NAMES, "1.0, 2.0, 3.0")
+        assert out["error"] is not None
+        assert out["result"] is None
+
+    def test_exactly_8_responses_required_too_many(self):
+        out = _dashboard_run(_DASHBOARD_FACTOR_NAMES, ", ".join(str(float(i)) for i in range(9)))
+        assert out["error"] is not None
+
+    def test_valid_8_responses_succeeds(self):
+        responses = ", ".join(["1.0"] * 8)
+        out = _dashboard_run(_DASHBOARD_FACTOR_NAMES, responses)
+        assert out["error"] is None
+        assert out["result"] is not None
+
+    def test_duplicate_factor_names_rejected(self):
+        dup_names = ["factor_A"] * 7  # all duplicates
+        out = _dashboard_run(dup_names, ", ".join(["1.0"] * 8))
+        assert out["error"] is not None
+
+    def test_dummy_levels_do_not_affect_effects(self):
+        """Effects depend only on ±1 design and responses — levels are irrelevant."""
+        responses = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+
+        design_dummy = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        design_real = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={
+                "integration_ms": (48.0, 52.0),
+                "temperature_C": (22.0, 24.0),
+                "flow_rate_sccm": (95.0, 105.0),
+                "baseline_wait_s": (58.0, 62.0),
+                "purge_wait_s": (28.0, 32.0),
+                "fiber_bend_mm": (9.0, 11.0),
+                "lamp_power_pct": (98.0, 102.0),
+            },
+        )
+        r_dummy = youden_ruggedness(design_dummy, responses)
+        r_real = youden_ruggedness(design_real, responses)
+        np.testing.assert_allclose(r_dummy.effects, r_real.effects, atol=1e-12)
+
+    def test_critical_factor_appears_in_result_dict(self):
+        """A single dominant factor should be flagged as critical."""
+        design = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        # Make temperature_C (index 1) dominant: add ±2 contribution
+        base = 1.0
+        responses = [base + 2.0 * design.design[r, 1] for r in range(8)]
+        result = youden_ruggedness(design, responses)
+        assert "temperature_C" in result.critical_factors
+
+    def test_rugged_result_no_critical_factors(self):
+        """Constant responses → no critical factors."""
+        design = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        result = youden_ruggedness(design, [1.0] * 8)
+        assert result.critical_factors == []
+
+    def test_as_dict_keys_match_dashboard_reads(self):
+        """as_dict() must have all keys the dashboard reads from ss['yd_result']."""
+        design = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        d = youden_ruggedness(design, [1.0] * 8).as_dict()
+        for key in ("factors", "effects", "residual_std", "critical_factors",
+                    "response_mean", "response_std"):
+            assert key in d, f"Missing key '{key}' from as_dict()"
+
+    def test_design_matrix_shape(self):
+        assert len(_DASHBOARD_DESIGN_MATRIX) == 8
+        assert all(len(row) == 7 for row in _DASHBOARD_DESIGN_MATRIX)
+
+    def test_design_matrix_values_pm1(self):
+        for row in _DASHBOARD_DESIGN_MATRIX:
+            for val in row:
+                assert val in (+1, -1)
+
+    def test_design_matrix_balanced(self):
+        """Each column must have exactly 4 runs at +1 and 4 at −1."""
+        arr = np.array(_DASHBOARD_DESIGN_MATRIX, dtype=float)
+        for col in range(7):
+            assert (arr[:, col] == +1).sum() == 4
+            assert (arr[:, col] == -1).sum() == 4
+
+    def test_design_matrix_orthogonal(self):
+        """All column pairs must be orthogonal (dot product = 0)."""
+        arr = np.array(_DASHBOARD_DESIGN_MATRIX, dtype=float)
+        for i in range(7):
+            for j in range(i + 1, 7):
+                dot = float(arr[:, i] @ arr[:, j])
+                assert abs(dot) < 1e-10, f"Columns {i} and {j} not orthogonal: dot={dot}"
+
+    def test_design_matrix_matches_ruggedness_module(self):
+        """Dashboard matrix must be identical to _YPB_DESIGN in ruggedness.py."""
+        from src.scientific.ruggedness import _YPB_DESIGN  # noqa: PLC0415
+        arr = np.array(_DASHBOARD_DESIGN_MATRIX, dtype=float)
+        np.testing.assert_array_equal(arr, _YPB_DESIGN)
+
+    def test_result_row_status_field(self):
+        """Status column in results table must be CRITICAL or OK."""
+        design = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        result = youden_ruggedness(design, [1.0] * 8)
+        for f, e in zip(result.factors, result.effects):
+            status = "🔴 CRITICAL" if f in result.critical_factors else "✅ OK"
+            assert status in ("🔴 CRITICAL", "✅ OK")
+
+    def test_sigma_resid_nonneg(self):
+        design = YoudensDesign(
+            factors=_DASHBOARD_FACTOR_NAMES,
+            levels={n: (0.0, 1.0) for n in _DASHBOARD_FACTOR_NAMES},
+        )
+        result = youden_ruggedness(design, [float(i) for i in range(8)])
+        assert result.residual_std >= 0.0

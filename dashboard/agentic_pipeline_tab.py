@@ -1474,6 +1474,28 @@ def render() -> None:
         elif "ap_ref_spectrum" in ss:
             del ss["ap_ref_spectrum"]
             ss.pop("ap_ref_fwhm_nm", None)
+            ss.pop("ap_ref_temperature_c", None)
+
+        # Temperature at reference capture (for drift correction in Step 3)
+        if use_ref and ss.get("ap_ref_spectrum") is not None:
+            _ref_temp_default = float(
+                ss.get("ap_ref_temperature_c")
+                or ss.get("ap_meta", {}).get("temperature_c", 23.0)
+            )
+            _ref_temp_val = st.number_input(
+                "Temperature at reference capture (°C)",
+                min_value=-10.0, max_value=60.0,
+                value=_ref_temp_default,
+                step=0.5, format="%.1f",
+                key="ap_ref_temp_input",
+                help=(
+                    "Temperature when the blank/air reference spectrum was recorded. "
+                    "If different from session temperature, a thermal drift correction "
+                    "Δλ_corr = Δλ − 0.02·ΔT is applied to all responses in Step 3 "
+                    "(α = 0.02 nm/°C, LSPR glass substrate default)."
+                ),
+            )
+            ss["ap_ref_temperature_c"] = float(_ref_temp_val)
 
         # ── Preprocessing configuration ───────────────────────────────────
         st.markdown("---")
@@ -1749,6 +1771,37 @@ def render() -> None:
                     _br = np.array(_blank_wls_s3, dtype=float)
                     _blank_arr_s3 = _br - float(_ref_pk_s3) if _ref_pk_s3 is not None else _br - float(np.mean(_br))
 
+                # ── Temperature drift correction ──────────────────────────
+                # Applied when session temperature differs from reference temperature.
+                # Formula: Δλ_corrected = Δλ_raw − α·ΔT  (α = 0.02 nm/°C default)
+                _tc_session: float | None = ss.get("ap_meta", {}).get("temperature_c")
+                _tc_reference: float | None = ss.get("ap_ref_temperature_c")
+                _temp_corr_s3: dict = {"applied": False}
+                if (
+                    _tc_session is not None
+                    and _tc_reference is not None
+                    and abs(float(_tc_session) - float(_tc_reference)) > 0.01
+                ):
+                    _alpha_s3 = 0.02  # nm/°C
+                    _dT_s3 = float(_tc_session) - float(_tc_reference)
+                    _corr_nm_s3 = _alpha_s3 * _dT_s3
+                    peak_arr = peak_arr - _corr_nm_s3
+                    if _blank_arr_s3 is not None:
+                        _blank_arr_s3 = _blank_arr_s3 - _corr_nm_s3
+                    _temp_corr_s3 = {
+                        "applied": True,
+                        "session_temp_c": round(float(_tc_session), 1),
+                        "reference_temp_c": round(float(_tc_reference), 1),
+                        "delta_T_c": round(_dT_s3, 2),
+                        "alpha_nm_per_c": _alpha_s3,
+                        "correction_nm": round(_corr_nm_s3, 4),
+                    }
+                    st.info(
+                        f"🌡️ Temperature drift correction applied: "
+                        f"ΔT = {_dT_s3:+.1f} °C → {_corr_nm_s3:+.4f} nm offset removed "
+                        f"from {len(peak_arr)} responses  (α = {_alpha_s3} nm/°C)."
+                    )
+
                 if compute_comprehensive_sensor_characterization is not None:
                     _sm = compute_comprehensive_sensor_characterization(
                         concs_arr, peak_arr,
@@ -1771,6 +1824,9 @@ def render() -> None:
                         "lol_ppm": None,
                         "mandel_linearity": None,
                     }
+
+                # Attach temperature correction audit trail to metrics dict
+                _sm["temperature_correction"] = _temp_corr_s3
 
                 # ── Augment _sm with FOM, WLS, prediction interval ─────────
                 # These require: (a) reference FWHM from Step 2, (b) residual
@@ -2691,6 +2747,8 @@ def render() -> None:
                             concs_1d, responses_1d,
                             gas_name=str(ss.get("ap_gas", "")),
                             blank_measurements=_blank_arr,
+                            temperature_c=ss.get("ap_meta", {}).get("temperature_c"),
+                            reference_temperature_c=ss.get("ap_ref_temperature_c"),
                         )
                         ss["ap_sensor_metrics"] = _sm_lin
                         ss["ap_lod"] = _sm_lin.get("lod_ppm")
@@ -2753,6 +2811,8 @@ def render() -> None:
                                 concs_nl[lin_mask], responses_nl[lin_mask],
                                 gas_name=str(ss.get("ap_gas", "")),
                                 blank_measurements=_blank_arr_l,
+                                temperature_c=ss.get("ap_meta", {}).get("temperature_c"),
+                                reference_temperature_c=ss.get("ap_ref_temperature_c"),
                             )
                             ss["ap_sensor_metrics"] = _sm_lang
                             ss["ap_lod"] = _sm_lang.get("lod_ppm")
@@ -3090,6 +3150,166 @@ def render() -> None:
                         f"{_sr['std_recovery_pct']:.2f}%  |  "
                         f"ICH: {'PASS' if _sr['overall_pass_ich'] else 'FAIL'}  |  "
                         f"Routine: {'PASS' if _sr['overall_pass_routine'] else 'FAIL'}"
+                    )
+
+        # ------------------------------------------------------------------
+        # Youden Ruggedness Test (ICH Q2(R1) §4.8)
+        # ------------------------------------------------------------------
+        if ss.get("ap_model_trained"):
+            with st.expander("🧪 Youden Ruggedness Test — ICH Q2(R1) §4.8", expanded=False):
+                st.markdown(
+                    "**Youden & Steiner (1975)** ruggedness test: vary 7 experimental factors "
+                    "simultaneously in an 8-run Plackett-Burman design to identify which factors "
+                    "critically affect the sensor response.  "
+                    "**Rule of thumb**: |effect| ≥ 2·σ_resid → factor is **critical** and must be "
+                    "tightly controlled in the published method.  "
+                    "Required by ICH Q2(R1) §4.8 and AOAC 2002.06 for analytical method validation."
+                )
+
+                st.markdown("**Step 1 — Name your 7 experimental factors (A–G):**")
+                st.caption(
+                    "Typical LSPR factors: integration time, temperature, flow rate, baseline wait, "
+                    "purge time, fiber bend radius, lamp power.  "
+                    "Set each factor to its nominal ± a small perturbation for the two levels."
+                )
+
+                _yd_defaults = [
+                    "integration_ms", "temperature_C", "flow_rate_sccm",
+                    "baseline_wait_s", "purge_wait_s", "fiber_bend_mm", "lamp_power_pct",
+                ]
+                _yd_prev = ss.get("yd_factor_names", _yd_defaults)
+                _yd_col1, _yd_col2 = st.columns(2)
+                _yd_names: list[str] = []
+                for _fi in range(7):
+                    _col = _yd_col1 if _fi < 4 else _yd_col2
+                    _fn = _col.text_input(
+                        f"Factor {chr(65 + _fi)}",
+                        value=_yd_prev[_fi] if _fi < len(_yd_prev) else _yd_defaults[_fi],
+                        key=f"yd_factor_{_fi}",
+                        help="Short name used in the results table and Methods section.",
+                    )
+                    _yd_names.append(_fn.strip() or _yd_defaults[_fi])
+                ss["yd_factor_names"] = _yd_names
+
+                # 8-run PB design matrix (constant, matches _YPB_DESIGN in ruggedness.py)
+                _YD_MATRIX = [
+                    [+1, +1, +1, -1, +1, -1, -1],
+                    [-1, +1, +1, +1, -1, +1, -1],
+                    [-1, -1, +1, +1, +1, -1, +1],
+                    [+1, -1, -1, +1, +1, +1, -1],
+                    [-1, +1, -1, -1, +1, +1, +1],
+                    [+1, -1, +1, -1, -1, +1, +1],
+                    [+1, +1, -1, +1, -1, -1, +1],
+                    [-1, -1, -1, -1, -1, -1, -1],
+                ]
+                with st.expander("📋 Show 8-run design matrix", expanded=False):
+                    _yd_matrix_rows = [
+                        {"Run": _ri + 1,
+                         **{_yd_names[_ci]: "+" if _row[_ci] > 0 else "−"
+                            for _ci in range(7)}}
+                        for _ri, _row in enumerate(_YD_MATRIX)
+                    ]
+                    st.dataframe(
+                        pd.DataFrame(_yd_matrix_rows).set_index("Run"),
+                        use_container_width=True,
+                    )
+                    st.caption(
+                        "+ = high level (nominal + tolerance), − = low level (nominal − tolerance).  "
+                        "Run each of the 8 combinations and record a consistent sensor response metric "
+                        "(e.g. Δλ at your calibration concentration, or predicted ppm from the model)."
+                    )
+
+                st.markdown("**Step 2 — Enter the 8 measured responses (Run 1 → Run 8):**")
+                st.caption(
+                    "Use one consistent metric across all 8 runs — recommended: Δλ (nm) at a fixed "
+                    "concentration, or model-predicted ppm.  Enter in the same run order as the design "
+                    "matrix above."
+                )
+                yd_responses_str = st.text_area(
+                    "8 responses (comma-separated)",
+                    value=ss.get("yd_responses_str", ""),
+                    key="yd_responses_input",
+                    placeholder="e.g. -1.02, -0.98, -1.05, -1.01, -0.99, -1.03, -1.00, -1.04",
+                    height=68,
+                    help="Exactly 8 values, one per run in the same order as the design matrix.",
+                )
+
+                if st.button("Compute ruggedness", key="yd_compute_btn"):
+                    try:
+                        from src.scientific.ruggedness import YoudensDesign, youden_ruggedness
+                        _yd_vals = [
+                            float(x.strip())
+                            for x in yd_responses_str.split(",")
+                            if x.strip()
+                        ]
+                        if len(_yd_vals) != 8:
+                            st.error(
+                                f"Exactly 8 responses are required (one per run); got {len(_yd_vals)}."
+                            )
+                        elif len(set(_yd_names)) < 7:
+                            st.error("All 7 factor names must be unique.")
+                        else:
+                            _yd_design = YoudensDesign(
+                                factors=_yd_names,
+                                levels={n: (0.0, 1.0) for n in _yd_names},  # levels unused for effects
+                            )
+                            _yd_result = youden_ruggedness(_yd_design, _yd_vals)
+                            ss["yd_responses_str"] = yd_responses_str
+                            ss["yd_result"] = _yd_result.as_dict()
+
+                            _yd_rows = [
+                                {
+                                    "Factor": f,
+                                    "Effect": round(float(e), 5),
+                                    "|e| / σ_resid": (
+                                        f"{abs(e) / max(_yd_result.residual_std, 1e-12):.2f}"
+                                        if _yd_result.residual_std > 0
+                                        else "—"
+                                    ),
+                                    "Status": "🔴 CRITICAL" if f in _yd_result.critical_factors else "✅ OK",
+                                }
+                                for f, e in zip(_yd_result.factors, _yd_result.effects)
+                            ]
+                            st.dataframe(pd.DataFrame(_yd_rows), use_container_width=True)
+
+                            _yd_c1, _yd_c2, _yd_c3 = st.columns(3)
+                            _yd_c1.metric("Grand mean", f"{_yd_result.response_mean:.4g}")
+                            _yd_c2.metric("σ_resid", f"{_yd_result.residual_std:.4g}")
+                            _yd_c3.metric(
+                                "Critical factors",
+                                str(len(_yd_result.critical_factors)),
+                            )
+
+                            if _yd_result.critical_factors:
+                                st.warning(
+                                    "**Critical factors** (|effect| ≥ 2·σ_resid): "
+                                    + ", ".join(
+                                        f"**{f}**" for f in _yd_result.critical_factors
+                                    )
+                                    + ".  These must be explicitly stated in your Methods section "
+                                    "with tight control tolerances (e.g. 'temperature controlled to "
+                                    "±0.5 °C')."
+                                )
+                            else:
+                                st.success(
+                                    "No critical factors detected — method is rugged across the tested "
+                                    "range of variation.  Report in Methods: 'Youden ruggedness test "
+                                    "(n=8 runs) identified no critical factors within the tested "
+                                    "perturbation range (ICH Q2(R1) §4.8).'"
+                                )
+                    except Exception as _yd_e:
+                        st.error(f"Ruggedness calculation failed: {_yd_e}")
+
+                if ss.get("yd_result"):
+                    _yd_c = ss["yd_result"]
+                    _crit_str = (
+                        ", ".join(_yd_c["critical_factors"])
+                        if _yd_c["critical_factors"]
+                        else "none"
+                    )
+                    st.caption(
+                        f"Last run: σ_resid = {_yd_c['residual_std']:.4g}  |  "
+                        f"Critical factors: {_crit_str}"
                     )
 
         # ------------------------------------------------------------------
