@@ -7,11 +7,10 @@ report with explicit readiness checks and next experimental actions.
 
 from __future__ import annotations
 
-import math
 import json
+import math
 from pathlib import Path
 from typing import Any
-
 
 _REPORT_TITLE = "Deterministic Scientific Summary"
 
@@ -126,7 +125,7 @@ def build_deterministic_scientific_report(context: dict[str, Any]) -> str:
         ),
         (
             "Blank-backed LOD",
-            True if used_blanks else False,
+            bool(used_blanks),
             "Uses measured blank replicates." if used_blanks else "Currently based on residual noise rather than dedicated blank replicates.",
         ),
         (
