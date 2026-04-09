@@ -233,7 +233,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build SpectraAgent image (validates Dockerfile)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: spectraagent
@@ -243,7 +243,7 @@ jobs:
           tags: spectraagent:ci
 
       - name: Build dashboard image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: dashboard
@@ -252,7 +252,7 @@ jobs:
           tags: spectraagent-dashboard:ci
 
       - name: Build test image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: test
