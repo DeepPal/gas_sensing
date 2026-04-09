@@ -96,8 +96,8 @@ def validate_spectrum(
     ValidationResult
         Contains valid bool, error list, warning list
     """
-    errors = []
-    warnings = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # ────────────────────────────────────────────────────────────────
     # Type & Shape Checks
