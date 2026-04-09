@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload coverage report
         if: matrix.python-version == '3.11'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: |
@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload CI diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-diagnostics-quality-py${{ matrix.python-version }}
           path: output/test-results/ci-diagnostics-quality.md
@@ -199,7 +199,7 @@ jobs:
 
       - name: Upload reliability test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reliability-report
           path: |
@@ -215,7 +215,7 @@ jobs:
 
       - name: Upload CI diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-diagnostics-reliability
           path: output/test-results/ci-diagnostics-reliability.md
