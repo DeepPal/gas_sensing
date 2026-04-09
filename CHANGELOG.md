@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Repository hygiene + governance hardening (2026-04-09)
+- `.github/workflows/secret-scan.yml` — added Gitleaks-based secret scanning on PRs and pushes to `main`
+- `scripts/check_repo_hygiene.py` — added CI guard that fails on flattened absolute-path artifacts and forbidden generated runtime files tracked in git
+- `scripts/check_status_sync.py` — added CI guard enforcing canonical status-tracking references across `README.md`, `CONTRIBUTING.md`, `REMAINING_WORK.md`, and `PRODUCTION_READINESS.md`
+
+### Changed — Quality gate strictness (2026-04-09)
+- `.github/workflows/quality.yml` — `workflow-hygiene` now runs repository-hygiene and status-sync checks
+- `.github/workflows/quality.yml` — promoted legacy mypy lane to required (removed advisory `continue-on-error`)
+
+### Fixed — Repo index contamination (2026-04-09)
+- Removed malformed duplicate frontend tree tracked under flattened absolute-path prefix (`cUsersdeeppDesktop...`)
+- Removed accidental flattened test-results artifact tracked under `UsersdeeppDesktop...`
+- Stopped tracking generated runtime artifacts under `output/memory/` and `output/test-results/` and tightened ignore rules in `.gitignore`
+
 ### Added — CI reliability, release integrity, and diagnostics (2026-04-02)
 - `.github/workflows/release.yml` — added Sigstore signing/verification coverage for release artifacts and hardened provenance checks in the release lane
 - `.github/workflows/quality.yml` — added flaky-test detection/reporting lane and surfaced reliability diagnostics in CI outputs

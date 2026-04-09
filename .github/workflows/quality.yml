@@ -21,6 +21,12 @@ jobs:
       - name: Validate workflow expressions
         run: python scripts/validate_workflows.py
 
+      - name: Validate repository hygiene
+        run: python scripts/check_repo_hygiene.py
+
+      - name: Validate canonical status docs are synchronized
+        run: python scripts/check_status_sync.py
+
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
         with:
@@ -90,8 +96,7 @@ jobs:
       - name: Mypy src/ (required — clean package)
         run: mypy src --no-site-packages --ignore-missing-imports --disable-error-code import-untyped
 
-      - name: Mypy legacy (advisory — tracked as tech debt)
-        continue-on-error: true
+      - name: Mypy legacy (required)
         run: mypy run.py gas_analysis config dashboard tests --ignore-missing-imports
 
       - name: Upload coverage report
