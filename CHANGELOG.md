@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Research evidence pack orchestration (2026-04-09)
+- `scripts/build_research_evidence_pack.py` — new single-command builder that orchestrates benchmark evidence, blinded replication manifest, and qualification dossier generation, then emits a checksummed evidence index (`research_evidence_index_*.json/.md`)
+- `.github/workflows/qualification-artifacts.yml` — switched artifact generation to the unified evidence-pack command for reproducible CI behavior
+- `Makefile` — added `make evidence-pack` for local lab workflows
+- `docs/guides/RELEASE_RUNBOOK.md` — added local evidence-pack preflight step before tagging releases
+
 ### Added — Dependency automation and release runbook (2026-04-09)
 - `.github/dependabot.yml` — enabled weekly Dependabot updates for `pip`, GitHub Actions, and frontend `npm` dependencies
 - `docs/guides/RELEASE_RUNBOOK.md` — added a practical release checklist aligned with tag-based release workflow and artifact verification requirements

@@ -43,6 +43,7 @@ git status --short --branch
 python scripts/validate_workflows.py
 python scripts/research_preflight.py --self-check
 python scripts/research_integrity_gate.py --self-check
+python scripts/build_research_evidence_pack.py --output-dir output/qualification/local --session-id local-preflight
 ```
 
 5. Create and push an annotated tag:
