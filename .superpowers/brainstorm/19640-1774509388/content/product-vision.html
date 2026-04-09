@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Product Vision</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0a0c12;color:#e0e8f8;padding:24px;font-size:13px;line-height:1.5}
+h2{font-size:1.2rem;font-weight:800;margin-bottom:4px;color:#fff}
+.subtitle{color:#888;font-size:.82rem;margin-bottom:22px}
+
+.section{margin-bottom:24px}
+.section-title{font-size:.65rem;font-weight:700;color:#7a8aaa;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;border-bottom:1px solid #1a2035;padding-bottom:4px}
+
+/* Positioning grid */
+.market-map{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;height:280px;border:1px solid #1a2035;border-radius:6px;overflow:hidden;position:relative}
+.quadrant{padding:10px;display:flex;flex-direction:column;justify-content:flex-end;font-size:.7rem}
+.q-tl{background:#0e1117;color:#555}
+.q-tr{background:#0e1520;color:#5a8aba}
+.q-bl{background:#100e0e;color:#555}
+.q-br{background:#111827;color:#90c8f8;position:relative}
+.axis-label{position:absolute;font-size:.6rem;color:#444;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.axis-x{bottom:50%;left:50%;transform:translateX(-50%) translateY(50%);background:#0a0c12;padding:0 6px;color:#2a3050}
+.axis-y{left:50%;top:50%;transform:translateY(-50%) translateX(-50%) rotate(-90deg);background:#0a0c12;padding:0 6px;color:#2a3050;white-space:nowrap}
+.product-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.you{background:#6ee06e;box-shadow:0 0 8px #6ee06e}
+.competitor{background:#555}
+.map-legend{font-size:.68rem;color:#888;margin-top:6px;display:flex;gap:14px}
+
+/* Layer cake */
+.layers{display:flex;flex-direction:column;gap:3px}
+.layer{border-radius:5px;padding:8px 14px;display:flex;align-items:center;gap:10px}
+.layer-num{font-size:.65rem;font-weight:800;color:#888;width:16px;text-align:right;flex-shrink:0}
+.layer-title{font-weight:700;font-size:.82rem;flex:1}
+.layer-desc{font-size:.72rem;color:#888;flex:2}
+.layer-tag{font-size:.6rem;padding:2px 7px;border-radius:3px;font-weight:700;flex-shrink:0}
+
+/* Novel badge */
+.novel{background:#2a1a4a;color:#b070f8}
+.existing{background:#1a2a1a;color:#6ee06e}
+.extended{background:#1a2035;color:#5a9fd4}
+
+/* Comparison table */
+table{width:100%;border-collapse:collapse;font-size:.75rem}
+th{text-align:left;color:#7a8aaa;font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;padding:5px 10px;border-bottom:1px solid #1a2035}
+td{padding:6px 10px;border-bottom:1px solid #111827;color:#aaa}
+td:first-child{color:#c8d8f8;font-weight:600}
+.check{color:#6ee06e;font-weight:700}
+.cross{color:#555}
+.partial{color:#f0b429}
+
+/* CTA box */
+.confirm-box{margin-top:20px;padding:14px;background:#0e1a0e;border:1px solid #1a3a1a;border-radius:6px}
+</style>
+</head>
+<body>
+
+<h2>Revised Vision — Universal Agentic Spectroscopy Platform</h2>
+<p class="subtitle">This is a new product category, not a dashboard upgrade. Confirming the full scope before designing.</p>
+
+<!-- MARKET POSITIONING -->
+<div class="section">
+  <div class="section-title">Market Positioning — Where this sits</div>
+  <div style="position:relative">
+    <div class="market-map">
+      <div class="quadrant q-tl">
+        <div><span class="product-dot competitor"></span>LabVIEW</div>
+        <div><span class="product-dot competitor"></span>Spectragryph</div>
+        <small style="color:#333;margin-top:4px">Generic, no AI</small>
+      </div>
+      <div class="quadrant q-tr">
+        <div><span class="product-dot competitor"></span>Ocean Optics OceanView</div>
+        <div><span class="product-dot competitor"></span>Horiba LabSpec</div>
+        <div><span class="product-dot competitor"></span>ThorLabs TW</div>
+        <small style="color:#3a5a7a;margin-top:4px">Hardware-specific, no AI</small>
+      </div>
+      <div class="quadrant q-bl">
+        <div><span class="product-dot competitor"></span>AutoML tools</div>
+        <small style="color:#333;margin-top:4px">AI but not spectroscopy</small>
+      </div>
+      <div class="quadrant q-br">
+        <div style="font-size:1rem;font-weight:800;color:#6ee06e;margin-bottom:6px">⬡ SpectraAgent</div>
+        <div style="font-size:.72rem;color:#90c8f8">Universal · AI-native · Open</div>
+        <div style="font-size:.68rem;color:#555;margin-top:4px">Nobody is here yet</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:.6rem;color:#444;text-transform:uppercase;letter-spacing:.07em">
+      <span>← Generic hardware</span><span>Specific hardware →</span>
+    </div>
+    <div style="position:absolute;right:-18px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:space-between;font-size:.6rem;color:#444;text-transform:uppercase;letter-spacing:.07em;writing-mode:vertical-rl">
+      <span>← No AI</span><span>AI-native →</span>
+    </div>
+  </div>
+</div>
+
+<!-- LAYER CAKE ARCHITECTURE -->
+<div class="section">
+  <div class="section-title">Product Layers — What gets built</div>
+  <div class="layers">
+    <div class="layer" style="background:#1a1030">
+      <div class="layer-num">5</div>
+      <div class="layer-title" style="color:#b070f8">Agentic AI Orchestrator</div>
+      <div class="layer-desc">LLM-powered agents (Claude API) for experiment planning, anomaly reasoning, report writing. Deterministic algorithms handle signal math.</div>
+      <span class="layer-tag novel">NOVEL</span>
+    </div>
+    <div class="layer" style="background:#111827">
+      <div class="layer-num">4</div>
+      <div class="layer-title" style="color:#90c8f8">Web App — React + FastAPI</div>
+      <div class="layer-desc">4-tab professional UI. Agent Console tab showing AI decisions in real-time. Publication report exporter.</div>
+      <span class="layer-tag novel">NEW</span>
+    </div>
+    <div class="layer" style="background:#0e1520">
+      <div class="layer-num">3</div>
+      <div class="layer-title" style="color:#5a9fd4">Sensor Physics Plugin System</div>
+      <div class="layer-desc">LSPR, SPR, UV-Vis, Raman, NIR, fluorescence. Each plugin defines: peak model, feature vector, calibration priors, expected signal shape.</div>
+      <span class="layer-tag novel">NOVEL</span>
+    </div>
+    <div class="layer" style="background:#0e1520">
+      <div class="layer-num">2</div>
+      <div class="layer-title" style="color:#5a9fd4">Hardware Abstraction Layer</div>
+      <div class="layer-desc">Driver plugins for ThorLabs CCS, Ocean Optics, Avantes, Stellarnet + simulation. One interface regardless of brand.</div>
+      <span class="layer-tag extended">EXTEND</span>
+    </div>
+    <div class="layer" style="background:#0e1117">
+      <div class="layer-num">1</div>
+      <div class="layer-title" style="color:#6ee06e">Core Signal Engine (src/)</div>
+      <div class="layer-desc">Everything already built: Lorentzian fitting, GPR, pipeline, LSPRReference cache, session writer, reporting modules.</div>
+      <span class="layer-tag existing">EXISTING ✓</span>
+    </div>
+  </div>
+</div>
+
+<!-- COMPETITOR COMPARISON -->
+<div class="section">
+  <div class="section-title">What no existing product has</div>
+  <table>
+    <thead><tr><th>Capability</th><th>OceanView</th><th>LabVIEW</th><th>MATLAB</th><th style="color:#6ee06e">SpectraAgent</th></tr></thead>
+    <tbody>
+      <tr><td>Universal hardware drivers</td><td class="cross">✗ OO only</td><td class="partial">~ via toolbox</td><td class="partial">~ via toolbox</td><td class="check">✓ plugin</td></tr>
+      <tr><td>Real-time AI inference</td><td class="cross">✗</td><td class="cross">✗</td><td class="partial">~ manual</td><td class="check">✓ GPR/CNN</td></tr>
+      <tr><td>Autonomous agent decisions</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="check">✓ LLM agents</td></tr>
+      <tr><td>Publication-ready reports</td><td class="cross">✗</td><td class="cross">✗</td><td class="partial">~ manual</td><td class="check">✓ auto PDF</td></tr>
+      <tr><td>Sensor physics plugins</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="check">✓ LSPR/SPR/NIR</td></tr>
+      <tr><td>Open source + extensible</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="check">✓ MIT</td></tr>
+      <tr><td>pip install + one command</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="check">✓</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ONE MORE QUESTION -->
+<div class="confirm-box">
+  <strong style="color:#6ee06e">One critical question before designing the agentic AI layer:</strong><br><br>
+  The "agentic AI" can mean two very different things:<br><br>
+  <strong style="color:#b070f8">A — LLM-powered agents (Claude API)</strong><br>
+  <span style="color:#888">The AI agent reasons in natural language, writes the methods section, explains anomalies, proposes next experiments in plain English. Uses Claude API internally.</span><br><br>
+  <strong style="color:#5a9fd4">B — Deterministic expert-system agents</strong><br>
+  <span style="color:#888">Rule-based agents with ML models (GPR, CNN, Bayesian optimization). No LLM. Fast, offline, fully reproducible. The current approach, made more autonomous.</span><br><br>
+  <strong style="color:#6ee06e">C — Hybrid (recommended)</strong><br>
+  <span style="color:#888">Deterministic algorithms handle all signal math (fast, reproducible, no hallucination risk). Claude API handles high-level reasoning: anomaly explanation, experiment suggestions in English, methods text generation. Clearly separated layers.</span><br><br>
+  <strong>Reply A, B, or C in terminal.</strong>
+</div>
+
+</body>
+</html>

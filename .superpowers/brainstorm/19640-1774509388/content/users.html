@@ -1,0 +1,38 @@
+<h2>Who uses this tool, and how?</h2>
+<p class="subtitle">This determines packaging, deployment model, and multi-user needs</p>
+
+<div class="options">
+
+  <div class="option" data-choice="solo" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Just you — one PC, one spectrometer</h3>
+      <p>You run it on the lab PC directly connected to the CCS200. No one else touches it. "Deployable" means you want a clean one-command start, not a YAML file maze — not a shared server.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="small_team" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Small lab team — 2–5 people, each running their own instance</h3>
+      <p>Lab members each install and run it locally on their own machines or the shared lab PC. They're comfortable with Python but not necessarily with config files. You need a clean installer and sensible defaults.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="server" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Shared lab server — members connect via browser</h3>
+      <p>One machine runs the software, lab members access it from laptops via a local network URL. Central session history, shared calibration models, single point of maintenance.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="mixed" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Mixed — mostly you now, but designed to hand off later</h3>
+      <p>You're the primary user today, but the goal is a tool that a new lab member could pick up in a week with no hand-holding. Architecture should support this, even if multi-user features come later.</p>
+    </div>
+  </div>
+
+</div>

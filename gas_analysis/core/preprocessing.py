@@ -1,35 +1,41 @@
 """Preprocessing utilities for spectral data."""
 
+from dataclasses import dataclass
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
-from scipy import sparse, stats
-from scipy.signal import savgol_filter
-from scipy.ndimage import gaussian_filter1d
 import pywt
+from scipy import sparse, stats
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import savgol_filter
 from scipy.sparse.linalg import spsolve
-from typing import Tuple, List, Dict, Optional
 
-def baseline_correction(wavelength: np.ndarray, intensity: np.ndarray,
-                       method: str = 'polynomial', poly_order: int = 2) -> np.ndarray:
+
+def baseline_correction(
+    wavelength: np.ndarray,
+    intensity: np.ndarray,
+    method: str = "polynomial",
+    poly_order: int = 2,
+) -> np.ndarray:
     """Remove baseline from spectrum using various methods.
-    
+
     Args:
         wavelength: Wavelength array
         intensity: Intensity array
         method: 'polynomial', 'rolling_min', or 'als' (asymmetric least squares)
         poly_order: Order of polynomial for 'polynomial' method
-    
+
     Returns:
         Baseline-corrected intensity array
     """
-    if method == 'polynomial':
+    if method == "polynomial":
         # Fit polynomial to estimate baseline
         coef = np.polyfit(wavelength, intensity, poly_order)
         baseline = np.polyval(coef, wavelength)
         return intensity - baseline
-    
-    elif method == 'rolling_min':
+
+    elif method == "rolling_min":
         # Rolling minimum with interpolation
         window = max(3, len(wavelength) // 20)  # 5% of points
         if window % 2 == 0:
@@ -37,21 +43,21 @@ def baseline_correction(wavelength: np.ndarray, intensity: np.ndarray,
         rolling_min = pd.Series(intensity).rolling(window=window, center=True).min()
         rolling_min = rolling_min.bfill().ffill()
         return intensity - rolling_min.values
-    
-    elif method == 'als':
+
+    elif method == "als":
         # Asymmetric Least Squares (better for complex baselines)
         lam = 1e5  # Smoothness
-        p = 0.01   # Asymmetry
+        p = 0.01  # Asymmetry
         L = len(wavelength)
-        D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+        D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L - 2))
         w = np.ones(L)
-        for i in range(10):  # Usually converges in < 10 iterations
+        for _i in range(10):  # Usually converges in < 10 iterations
             W = sparse.spdiags(w, 0, L, L)
-            Z = W + lam * D.dot(D.transpose())
-            z = spsolve(Z, w*intensity)
-            w = p * (intensity > z) + (1-p) * (intensity < z)
+            Z = (W + lam * D.dot(D.transpose())).tocsc()
+            z = spsolve(Z, w * intensity)
+            w = p * (intensity > z) + (1 - p) * (intensity < z)
         return intensity - z
-    
+
     else:
         raise ValueError(f"Unknown baseline method: {method}")
 
@@ -63,16 +69,17 @@ def _ensure_window(window: int, length: int) -> int:
     return min(window, max(3, length - (1 - length % 2)))
 
 
-def smooth_spectrum(intensity: np.ndarray, window: int = 11, poly_order: int = 2,
-                   method: str = 'savgol') -> np.ndarray:
+def smooth_spectrum(
+    intensity: np.ndarray, window: int = 11, poly_order: int = 2, method: str = "savgol"
+) -> np.ndarray:
     """Smooth spectrum using various methods.
-    
+
     Args:
         intensity: Intensity array
         window: Window size (must be odd)
         poly_order: Polynomial order for Savitzky-Golay
         method: 'savgol', 'moving_average', or 'gaussian'
-    
+
     Returns:
         Smoothed intensity array
     """
@@ -81,62 +88,70 @@ def smooth_spectrum(intensity: np.ndarray, window: int = 11, poly_order: int = 2
 
     window = _ensure_window(window, len(intensity))
 
-    if method == 'savgol':
+    if method == "savgol":
         return savgol_filter(intensity, window, min(poly_order, window - 1))
-    
-    if method == 'moving_average':
-        kernel = np.ones(window) / window
-        return np.convolve(intensity, kernel, mode='same')
 
-    if method == 'gaussian':
+    if method == "moving_average":
+        kernel = np.ones(window) / window
+        return np.convolve(intensity, kernel, mode="same")
+
+    if method == "gaussian":
         sigma = max(1.0, window / 6.0)
         return gaussian_filter1d(intensity, sigma=sigma)
 
-    if method == 'wavelet':
+    if method == "wavelet":
         # Wavelet soft-threshold denoising (adaptive)
         # Choose decomposition level heuristically based on length
         wl = max(1, int(np.floor(np.log2(max(2, len(intensity)))) - 2))
         try:
-            coeffs = pywt.wavedec(intensity, 'db4', level=wl)
+            coeffs = pywt.wavedec(intensity, "db4", level=wl)
             # Estimate noise sigma from the finest detail coefficients
             detail = coeffs[-1]
             sigma = np.median(np.abs(detail - np.median(detail))) / 0.6745 if len(detail) else 0.0
             thr = sigma * np.sqrt(2 * np.log(len(intensity))) if len(intensity) else 0.0
             coeffs_thr = [coeffs[0]]
             for c in coeffs[1:]:
-                coeffs_thr.append(pywt.threshold(c, thr, mode='soft'))
-            rec = pywt.waverec(coeffs_thr, 'db4')
+                coeffs_thr.append(pywt.threshold(c, thr, mode="soft"))
+            rec = pywt.waverec(coeffs_thr, "db4")
             # Match original length
             if len(rec) != len(intensity):
-                rec = np.interp(np.arange(len(intensity)), np.linspace(0, len(intensity)-1, num=len(rec)), rec)
+                rec = np.interp(
+                    np.arange(len(intensity)),
+                    np.linspace(0, len(intensity) - 1, num=len(rec)),
+                    rec,
+                )
             return rec.astype(float)
         except Exception:
             # Fallback to Savitzky–Golay if wavelet fails
             return savgol_filter(intensity, window, min(poly_order, window - 1))
-    
+
     raise ValueError(f"Unknown smoothing method: {method}")
 
 
-def preprocess_spectrum(wavelengths: np.ndarray,
-                       intensity: np.ndarray,
-                       smooth_window: int = 31,
-                       poly_order: int = 3,
-                       extra_smooth: bool = False,
-                       baseline_order: Optional[int] = None,
-                       smoothing_method: str = 'savgol') -> np.ndarray:
+def preprocess_spectrum(
+    wavelengths: np.ndarray,
+    intensity: np.ndarray,
+    smooth_window: int = 31,
+    poly_order: int = 3,
+    extra_smooth: bool = False,
+    baseline_order: Optional[int] = None,
+    smoothing_method: str = "savgol",
+) -> np.ndarray:
     """Smooth, baseline-correct, and normalize a spectrum."""
     if len(wavelengths) == 0:
         return intensity
 
     window = _ensure_window(smooth_window, len(wavelengths))
 
-    smoothed = smooth_spectrum(intensity, window=window, poly_order=poly_order,
-                               method=smoothing_method)
+    smoothed = smooth_spectrum(
+        intensity, window=window, poly_order=poly_order, method=smoothing_method
+    )
 
     if extra_smooth:
         smoothed = gaussian_filter1d(smoothed, sigma=max(1.0, window / 6.0))
-        smoothed = smooth_spectrum(smoothed, window=window, poly_order=poly_order,
-                                   method=smoothing_method)
+        smoothed = smooth_spectrum(
+            smoothed, window=window, poly_order=poly_order, method=smoothing_method
+        )
 
     n_points = max(1, len(wavelengths) // 10)
     edges_wl = np.concatenate([wavelengths[:n_points], wavelengths[-n_points:]])
@@ -151,49 +166,52 @@ def preprocess_spectrum(wavelengths: np.ndarray,
     return corrected / denom
 
 
-def normalize_spectrum(intensity: np.ndarray, method: str = 'minmax') -> np.ndarray:
+def normalize_spectrum(intensity: np.ndarray, method: str = "minmax") -> np.ndarray:
     """Normalize spectrum using various methods.
-    
+
     Args:
         intensity: Intensity array
         method: 'minmax', 'standard', or 'area'
-    
+
     Returns:
         Normalized intensity array
     """
-    if method == 'minmax':
+    if method == "minmax":
         min_val = np.min(intensity)
         max_val = np.max(intensity)
         if max_val - min_val < 1e-10:
             return np.zeros_like(intensity)
         return (intensity - min_val) / (max_val - min_val)
-    
-    elif method == 'standard':
+
+    elif method == "standard":
         mean = np.mean(intensity)
         std = np.std(intensity)
         if std < 1e-10:
             return np.zeros_like(intensity)
         return (intensity - mean) / std
-    
-    elif method == 'area':
-        area = np.trapz(intensity)
+
+    elif method == "area":
+        area = np.trapezoid(intensity)
         if abs(area) < 1e-10:
             return np.zeros_like(intensity)
         return intensity / area
-    
+
     else:
         raise ValueError(f"Unknown normalization method: {method}")
 
 
-def compute_snr(intensity: np.ndarray, signal_region: Tuple[int, int] = None,
-                noise_region: Tuple[int, int] = None) -> float:
+def compute_snr(
+    intensity: np.ndarray,
+    signal_region: tuple[int, int] = None,
+    noise_region: tuple[int, int] = None,
+) -> float:
     """Compute signal-to-noise ratio.
-    
+
     Args:
         intensity: Intensity array
         signal_region: (start, end) indices for signal region
         noise_region: (start, end) indices for noise region
-    
+
     Returns:
         SNR value
     """
@@ -201,8 +219,8 @@ def compute_snr(intensity: np.ndarray, signal_region: Tuple[int, int] = None,
         # Use maximum as signal
         signal = np.max(np.abs(intensity))
     else:
-        signal = np.mean(np.abs(intensity[signal_region[0]:signal_region[1]]))
-    
+        signal = np.mean(np.abs(intensity[signal_region[0] : signal_region[1]]))
+
     if noise_region is None:
         # Use edges of spectrum for noise
         edge_size = len(intensity) // 10
@@ -210,8 +228,8 @@ def compute_snr(intensity: np.ndarray, signal_region: Tuple[int, int] = None,
         noise_right = intensity[-edge_size:]
         noise = np.std(np.concatenate([noise_left, noise_right]))
     else:
-        noise = np.std(intensity[noise_region[0]:noise_region[1]])
-    
+        noise = np.std(intensity[noise_region[0] : noise_region[1]])
+
     if noise < 1e-10:
         return 0.0
     return float(signal / noise)
@@ -225,10 +243,12 @@ class NoiseMetrics:
     snr: float
 
 
-def estimate_noise_metrics(wavelengths: np.ndarray,
-                           intensity: np.ndarray,
-                           signal_region: Optional[Tuple[int, int]] = None,
-                           noise_region: Optional[Tuple[int, int]] = None) -> NoiseMetrics:
+def estimate_noise_metrics(
+    wavelengths: np.ndarray,
+    intensity: np.ndarray,
+    signal_region: Optional[tuple[int, int]] = None,
+    noise_region: Optional[tuple[int, int]] = None,
+) -> NoiseMetrics:
     """Estimate noise characteristics on a processed spectrum."""
     if len(intensity) == 0:
         return NoiseMetrics(rms=0.0, mad=0.0, spectral_entropy=0.0, snr=0.0)
@@ -248,11 +268,13 @@ def estimate_noise_metrics(wavelengths: np.ndarray,
     return NoiseMetrics(rms=rms, mad=mad, spectral_entropy=spectral_entropy, snr=snr)
 
 
-def downsample_spectrum(wavelengths: np.ndarray,
-                        intensity: np.ndarray,
-                        factor: Optional[int] = None,
-                        target_points: Optional[int] = None,
-                        method: str = 'average') -> Tuple[np.ndarray, np.ndarray]:
+def downsample_spectrum(
+    wavelengths: np.ndarray,
+    intensity: np.ndarray,
+    factor: Optional[int] = None,
+    target_points: Optional[int] = None,
+    method: str = "average",
+) -> tuple[np.ndarray, np.ndarray]:
     """Reduce spectral resolution for faster processing."""
     wavelengths = np.asarray(wavelengths)
     intensity = np.asarray(intensity)
@@ -270,7 +292,7 @@ def downsample_spectrum(wavelengths: np.ndarray,
     if factor == 1:
         return wavelengths, intensity
 
-    if method == 'average':
+    if method == "average":
         usable = len(wavelengths) - (len(wavelengths) % factor)
         if usable == 0:
             return wavelengths, intensity
@@ -295,29 +317,29 @@ def _mad_zscores(values: np.ndarray) -> np.ndarray:
     return 0.6745 * (values - median) / mad
 
 
-def detect_outliers(spectra: List[np.ndarray], threshold: float = 3.0) -> List[bool]:
+def detect_outliers(spectra: list[np.ndarray], threshold: float = 3.0) -> list[bool]:
     """Detect outlier spectra using various metrics.
-    
+
     Args:
         spectra: List of intensity arrays
         threshold: Z-score threshold for outlier detection
-    
+
     Returns:
         List of boolean flags (True = outlier)
     """
     if len(spectra) < 2:
         return [False] * len(spectra)
-    
+
     # Stack spectra and compute metrics
     X = np.vstack(spectra)
     metrics = {
-        'mean': np.mean(X, axis=1),
-        'std': np.std(X, axis=1),
-        'max': np.max(X, axis=1),
-        'min': np.min(X, axis=1),
-        'range': np.ptp(X, axis=1),
+        "mean": np.mean(X, axis=1),
+        "std": np.std(X, axis=1),
+        "max": np.max(X, axis=1),
+        "min": np.min(X, axis=1),
+        "range": np.max(X, axis=1) - np.min(X, axis=1),
     }
-    
+
     # Compute Z-scores for each metric
     outliers = np.zeros(len(spectra), dtype=bool)
     for values in metrics.values():
@@ -326,7 +348,7 @@ def detect_outliers(spectra: List[np.ndarray], threshold: float = 3.0) -> List[b
             continue
 
         # Primary attempt: classical z-score
-        z_scores = np.abs(stats.zscore(values, nan_policy='omit'))
+        z_scores = np.abs(stats.zscore(values, nan_policy="omit"))
 
         # stats.zscore returns NaN when variance is ~0; fall back to MAD-based z-scores
         if np.isnan(z_scores).all() or np.allclose(values, values[0]):

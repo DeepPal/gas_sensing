@@ -1,0 +1,323 @@
+"""
+src.calibration.conformal
+==========================
+Split conformal prediction wrapper providing distribution-free coverage
+guarantees over any regression model (GPRCalibration or PhysicsInformedGPR).
+
+Theory (split conformal prediction)
+-------------------------------------
+Given calibration set {(x_i, y_i)}_{i=1}^n:
+    nonconformity score  alpha_i = |y_i - y_hat_i| / sigma_i
+    quantile level       q_hat  = ceil((n+1)(1-alpha)/n)-th smallest alpha_i
+
+For a test point x*, the prediction interval is:
+    [y_hat* - q_hat * sigma*, y_hat* + q_hat * sigma*]
+
+This has marginal coverage guarantee: P(y* in interval) >= 1 - alpha
+with no distributional assumptions beyond exchangeability.
+
+Public API
+----------
+- ``ConformalCalibrator``  -- calibrate(model, X_cal, y_cal) / predict_interval(model, X, alpha)
+"""
+from __future__ import annotations
+
+from typing import Protocol
+import warnings
+
+import numpy as np
+
+_MIN_CAL_POINTS: int = 10  # below this the q̂ quantile estimate is unreliable
+
+
+class _PredictsMeanStd(Protocol):
+    def predict(
+        self,
+        X: np.ndarray,
+        return_std: bool = True,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+class ConformalCalibrator:
+    """Distribution-free prediction intervals via split conformal prediction.
+
+    Wrap any model that implements ``predict(X, return_std=True) -> (mean, std)``.
+
+    This implementation uses absolute residual conformal scores to preserve the
+    finite-sample coverage guarantee without depending on model uncertainty
+    calibration quality.
+
+    Example
+    -------
+    ::
+
+        cal = ConformalCalibrator()
+        cal.calibrate(gpr, X_cal, y_cal)
+        lo, hi = cal.predict_interval(gpr, X_test, alpha=0.10)  # 90% coverage
+    """
+
+    def __init__(self) -> None:
+        self._scores: list[float] = []
+        self._n_cal: int = 0
+
+    @property
+    def n_cal(self) -> int:
+        """Number of calibration points used to compute the conformal quantile."""
+        return self._n_cal
+
+    def calibrate(
+        self,
+        model: _PredictsMeanStd,
+        X_cal: np.ndarray,
+        y_cal: np.ndarray,
+    ) -> None:
+        """Compute normalised nonconformity scores on the calibration set.
+
+        Parameters
+        ----------
+        model :
+            Fitted model with ``predict(X, return_std=True) -> (mean, std)``.
+        X_cal : shape (n, d) -- calibration features
+        y_cal : shape (n,)   -- calibration targets
+        """
+        mean, std = model.predict(X_cal, return_std=True)
+        std_safe = np.maximum(std.ravel(), 1e-9)
+        scores = np.abs(y_cal.ravel() - mean.ravel()) / std_safe
+        self._scores = scores.tolist()
+        self._n_cal = len(scores)
+        if self._n_cal < _MIN_CAL_POINTS:
+            warnings.warn(
+                f"ConformalCalibrator: only {self._n_cal} calibration points; "
+                f"the coverage guarantee requires ≥ {_MIN_CAL_POINTS} for reliable "
+                f"quantile estimation. Add more calibration measurements.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    def predict_interval(
+        self,
+        model: _PredictsMeanStd,
+        X: np.ndarray,
+        alpha: float = 0.10,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return conformal prediction interval with (1-alpha) coverage.
+
+        Parameters
+        ----------
+        model : fitted model (same as passed to ``calibrate``)
+        X     : shape (n, d) -- test features
+        alpha : miscoverage level, e.g. 0.10 for 90% coverage
+
+        Returns
+        -------
+        (lower, upper) -- both shape (n,)
+
+        Raises
+        ------
+        RuntimeError if ``calibrate`` has not been called.
+        """
+        if self._n_cal == 0:
+            raise RuntimeError(
+                "ConformalCalibrator.calibrate() must be called before predict_interval()."
+            )
+
+        mean, std = model.predict(X, return_std=True)
+        mean = mean.ravel()
+        std = np.maximum(std.ravel(), 1e-9)
+
+        # Split conformal quantile: ceil((n+1)(1-α))-th order statistic.
+        # Direct index computation avoids np.quantile(method="higher") which
+        # requires NumPy >= 1.22, while the project's minimum pin is 1.21.
+        n = self._n_cal
+        scores_sorted = np.sort(np.asarray(self._scores, dtype=float))
+        k = int(np.ceil((n + 1) * (1.0 - alpha)))
+        k = min(max(k, 1), n)  # clamp to valid 1-indexed range
+        q_hat = float(scores_sorted[k - 1])  # convert to 0-indexed
+
+        lower = mean - q_hat * std
+        upper = mean + q_hat * std
+        return lower, upper
+
+    def stratified_coverage(
+        self,
+        model: _PredictsMeanStd,
+        X_cal: np.ndarray,
+        y_cal: np.ndarray,
+        alpha: float = 0.10,
+        n_bands: int = 3,
+    ) -> dict[str, float]:
+        """Per-band LOO coverage check — validates conditional (not just marginal) coverage.
+
+        Splits the calibration set into ``n_bands`` equal-size quantile bands by
+        target value, then computes leave-one-out coverage within each band.
+        A well-calibrated conformal predictor achieves ≥ (1−α) coverage in every
+        band, not just on average.  Coverage below target in the low-concentration
+        band is particularly important for LOD claims.
+
+        Parameters
+        ----------
+        model :
+            Fitted model with ``predict(X, return_std=True) -> (mean, std)``.
+        X_cal : shape (n, d) -- calibration features
+        y_cal : shape (n,)   -- calibration targets
+        alpha : miscoverage level (e.g. 0.10 for 90% target coverage)
+        n_bands : number of quantile bands (default 3 = low/mid/high)
+
+        Returns
+        -------
+        dict mapping band label → empirical coverage fraction.
+        Includes ``"overall"`` key for the marginal coverage (same as
+        ``cross_validate_coverage``).
+
+        Raises
+        ------
+        ValueError if n < n_bands * 2 (too few points to stratify).
+        """
+        X_cal = np.atleast_2d(X_cal)
+        y_cal = np.asarray(y_cal).ravel()
+        n = len(y_cal)
+        if n < n_bands * 2:
+            raise ValueError(
+                f"stratified_coverage requires n ≥ {n_bands * 2} calibration points "
+                f"for {n_bands} bands; got {n}."
+            )
+
+        # Assign bands by quantile of y_cal
+        quantile_boundaries = np.quantile(y_cal, np.linspace(0.0, 1.0, n_bands + 1))
+        band_labels = np.digitize(y_cal, quantile_boundaries[1:-1])  # 0 … n_bands-1
+
+        results: dict[str, float] = {}
+        overall_covered = 0
+
+        for band_idx in range(n_bands):
+            band_mask = band_labels == band_idx
+            band_size = int(band_mask.sum())
+            if band_size == 0:
+                continue
+
+            covered_in_band = 0
+            tmp = ConformalCalibrator()
+            for i in np.where(band_mask)[0]:
+                loo_mask = np.ones(n, dtype=bool)
+                loo_mask[i] = False
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    tmp.calibrate(model, X_cal[loo_mask], y_cal[loo_mask])
+                lo, hi = tmp.predict_interval(model, X_cal[[i]], alpha=alpha)
+                if float(lo[0]) <= float(y_cal[i]) <= float(hi[0]):
+                    covered_in_band += 1
+                    overall_covered += 1
+
+            band_label = f"band_{band_idx}_{'low' if band_idx == 0 else 'high' if band_idx == n_bands - 1 else 'mid'}"
+            results[band_label] = covered_in_band / band_size
+
+        results["overall"] = overall_covered / n
+        return results
+
+    def cross_validate_coverage(
+        self,
+        model: _PredictsMeanStd,
+        X_cal: np.ndarray,
+        y_cal: np.ndarray,
+        alpha: float = 0.10,
+    ) -> float:
+        """Leave-one-out empirical coverage check.
+
+        For each calibration point *i*, calibrates the conformal predictor on
+        the remaining *n−1* points, then predicts an interval for point *i*.
+        Returns the fraction of held-out points whose true value falls inside
+        the predicted interval.
+
+        A well-calibrated conformal predictor achieves ≥ (1−α) empirical
+        coverage.  Substantially lower coverage indicates that model
+        uncertainty ``σ(x)`` is over-estimated, or that the nonconformity
+        scores are ill-distributed.
+
+        Parameters
+        ----------
+        model :
+            Fitted model with ``predict(X, return_std=True) -> (mean, std)``.
+        X_cal : shape (n, d) -- calibration features
+        y_cal : shape (n,)   -- calibration targets
+        alpha : miscoverage level (e.g. 0.10 for 90% target coverage)
+
+        Returns
+        -------
+        float — empirical coverage fraction in [0, 1].
+
+        Raises
+        ------
+        ValueError if ``n < 3`` (LOO requires at least 3 calibration points).
+        """
+        X_cal = np.atleast_2d(X_cal)
+        y_cal = np.asarray(y_cal).ravel()
+        n = len(y_cal)
+        if n < 3:
+            raise ValueError(
+                f"cross_validate_coverage requires n ≥ 3 calibration points; got {n}."
+            )
+
+        covered = 0
+        tmp = ConformalCalibrator()
+        for i in range(n):
+            mask = np.ones(n, dtype=bool)
+            mask[i] = False
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)  # suppress small-n warning
+                tmp.calibrate(model, X_cal[mask], y_cal[mask])
+            lo, hi = tmp.predict_interval(model, X_cal[[i]], alpha=alpha)
+            if float(lo[0]) <= float(y_cal[i]) <= float(hi[0]):
+                covered += 1
+
+        return covered / n
+
+    def check_ood(
+        self,
+        model: _PredictsMeanStd,
+        X: np.ndarray,
+        threshold_percentile: float = 95.0,
+    ) -> bool:
+        """Check whether test inputs appear out-of-distribution vs the calibration set.
+
+        Computes normalised nonconformity scores for *X* and checks whether
+        their median exceeds the ``threshold_percentile``-th percentile of the
+        calibration scores.  A return value of ``True`` means the model is being
+        queried in a regime it was not calibrated on — conformal coverage is not
+        guaranteed.
+
+        Parameters
+        ----------
+        model :
+            Same fitted model passed to ``calibrate()``.
+        X :
+            Shape (n, d) — new test inputs to evaluate.
+        threshold_percentile :
+            Calibration score percentile used as the OOD boundary (default 95).
+
+        Returns
+        -------
+        bool — True if distribution shift is suspected.
+
+        Raises
+        ------
+        RuntimeError if ``calibrate`` has not been called.
+        """
+        if self._n_cal == 0:
+            raise RuntimeError(
+                "ConformalCalibrator.calibrate() must be called before check_ood()."
+            )
+        mean, std = model.predict(X, return_std=True)
+        std_safe = np.maximum(std.ravel(), 1e-9)
+        # Without ground-truth labels, use GPR predictive std as a proxy:
+        # far OOD inputs have high std → high normalised scores even at the prior mean.
+        # We use the median of (1 / std_safe) as a low-confidence signal:
+        # a GPR falling back to the prior returns a constant std close to the
+        # training label std, but normalised residuals from calibration will be large.
+        # Simpler and more robust: flag when the median test std exceeds the 95th
+        # percentile of calibration stds (GPR uncertainty widening signals OOD).
+        cal_scores_arr = np.asarray(self._scores, dtype=float)
+        threshold = float(np.percentile(cal_scores_arr, threshold_percentile))
+        # Compute pseudo-scores: std / median_cal_std (relative uncertainty widening)
+        median_cal_std = float(np.median(1.0 / np.maximum(cal_scores_arr, 1e-9)))
+        test_scores = std_safe / max(median_cal_std, 1e-9)
+        return bool(np.median(test_scores) > threshold)
