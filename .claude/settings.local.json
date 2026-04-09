@@ -178,7 +178,9 @@
       "Bash(curl -s http://localhost:8502)",
       "Bash(wc -l /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/dashboard/*.py)",
       "Bash(find /c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/src -name \"*.py\" -exec grep -l \"RSD\\\\|coefficient.*variation\\\\|relative.*standard\" {} \\\\;)",
-      "Bash(/c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/.venv/Scripts/python.exe -m mypy src/scientific/residual_diagnostics.py src/scientific/publication_tables.py --no-site-packages --ignore-missing-imports)"
+      "Bash(/c/Users/deepp/Desktop/Chula_Work/PRojects/Main_Research_Chula/.venv/Scripts/python.exe -m mypy src/scientific/residual_diagnostics.py src/scientific/publication_tables.py --no-site-packages --ignore-missing-imports)",
+      "Bash(grep -n \"sensor_performance_summary\\\\|lod_bootstrap\\\\|calculate_lod\\\\|from.*lod\" spectraagent/webapp/agents/*.py)",
+      "Bash(python -c \"import ast; tree=ast.parse\\(open\\('src/scientific/regression.py'\\).read\\(\\)\\); [print\\(n.name\\) for n in ast.walk\\(tree\\) if isinstance\\(n, ast.FunctionDef\\)]\")"
     ]
   }
 }

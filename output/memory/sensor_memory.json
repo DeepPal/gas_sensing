@@ -2,12 +2,12 @@
   "schema_version": 2,
   "sensor_id": "Simulation",
   "created_utc": "2026-03-31T10:00:17.746585+00:00",
-  "updated_utc": "2026-04-03T05:03:38.646507+00:00",
+  "updated_utc": "2026-04-07T06:24:34.217505+00:00",
   "analytes": {
     "unknown": {
       "canonical_name": "unknown",
       "calibration_history": [],
-      "session_count": 135
+      "session_count": 138
     },
     "ethanol": {
       "canonical_name": "Ethanol",
@@ -969,6 +969,27 @@
       "analyte": "unknown",
       "frame_count": 5,
       "stopped_at": "2026-04-03T05:03:38.646475+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260403_172232",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-03T10:22:37.429560+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260407_100743",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-07T03:07:48.440800+00:00",
+      "notes": ""
+    },
+    {
+      "session_id": "20260407_132429",
+      "analyte": "unknown",
+      "frame_count": 5,
+      "stopped_at": "2026-04-07T06:24:34.217486+00:00",
       "notes": ""
     }
   ]

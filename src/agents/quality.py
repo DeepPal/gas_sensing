@@ -228,10 +228,13 @@ class DataQualityAgent:
 
         # ── Gate 5: low SNR (warning) ────────────────────────────────────
         if snr is not None and snr < self.min_snr:
-            messages.append(f"Low SNR: {snr:.1f} (threshold {self.min_snr:.1f}).")
+            messages.append(
+                f"HARD FAIL: Low SNR {snr:.1f} < threshold {self.min_snr:.1f}. "
+                f"Spectrum too noisy for reliable analysis."
+            )
             return self._result(
-                QualityCode.WARNING_LOW_SNR,
-                is_hard_fail=False,
+                QualityCode.WARNING_LOW_SNR,  # Keep enum for backward compatibility
+                is_hard_fail=True,  # FIX C6: Changed from False (2026-04-07)
                 snr=snr,
                 sat_frac=sat_frac,
                 mean_int=mean_int,

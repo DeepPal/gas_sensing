@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="57.191" timestamp="2026-04-07T10:25:42.964996+07:00" hostname="Nikku"><testcase classname="tests.spectraagent.test_config" name="test_start_simulate_no_browser_serves_health" time="7.141"><failure message="httpx.ConnectError: [WinError 10061] No connection could be made because the target machine actively refused it">.venv\Lib\site-packages\httpx\_transports\default.py:101: in map_httpcore_exceptions
+    yield
+.venv\Lib\site-packages\httpx\_transports\default.py:250: in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpcore\_sync\connection_pool.py:256: in handle_request
+    raise exc from None
+.venv\Lib\site-packages\httpcore\_sync\connection_pool.py:236: in handle_request
+    response = connection.handle_request(
+.venv\Lib\site-packages\httpcore\_sync\connection.py:101: in handle_request
+    raise exc
+.venv\Lib\site-packages\httpcore\_sync\connection.py:78: in handle_request
+    stream = self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpcore\_sync\connection.py:124: in _connect
+    stream = self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpcore\_backends\sync.py:207: in connect_tcp
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\contextlib.py:162: in __exit__
+    self.gen.throw(value)
+.venv\Lib\site-packages\httpcore\_exceptions.py:14: in map_exceptions
+    raise to_exc(exc) from exc
+E   httpcore.ConnectError: [WinError 10061] No connection could be made because the target machine actively refused it
+
+The above exception was the direct cause of the following exception:
+tests\spectraagent\test_config.py:90: in test_start_simulate_no_browser_serves_health
+    resp = httpx.get("http://127.0.0.1:8765/api/health", timeout=5)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_api.py:195: in get
+    return request(
+.venv\Lib\site-packages\httpx\_api.py:109: in request
+    return client.request(
+.venv\Lib\site-packages\httpx\_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_client.py:914: in send
+    response = self._send_handling_auth(
+.venv\Lib\site-packages\httpx\_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv\Lib\site-packages\httpx\_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_transports\default.py:249: in handle_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\contextlib.py:162: in __exit__
+    self.gen.throw(value)
+.venv\Lib\site-packages\httpx\_transports\default.py:118: in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+E   httpx.ConnectError: [WinError 10061] No connection could be made because the target machine actively refused it</failure></testcase><testcase classname="tests.spectraagent.test_config" name="test_start_simulate_persists_session_with_nonzero_frames" time="12.227" /><testcase classname="tests.spectraagent.test_config" name="test_start_simulate_event_log_grows_during_active_acquisition" time="7.787" /><testcase classname="tests.spectraagent.test_config" name="test_start_simulate_soak_acquisition_consistency" time="9.179" /><testcase classname="tests.spectraagent.test_config" name="test_start_simulate_repeated_start_stop_cycles_persist_clean_sessions" time="11.637" /></testsuite></testsuites>

@@ -159,13 +159,16 @@ class TestDataQualityAgent:
         return wl, it
 
     def test_ok_spectrum(self):
-        agent = DataQualityAgent(min_snr=1.0)  # relaxed SNR so gaussian peak passes
+        # UPDATED (2026-04-07): SNR < min_snr is now a hard fail (C6 fix)
+        # Use very low min_snr to avoid hard-failing on the test spectrum
+        agent = DataQualityAgent(min_snr=0.1)
         wl, it = self._wl_it()
         result = agent.check(wl, it)
         assert isinstance(result, QualityResult)
-        assert result.code in (QualityCode.OK, QualityCode.WARNING_LOW_SNR)
-        # Either OK or just a SNR warning — spectrum is not a hard fail
+        # With low SNR threshold, should pass OK
+        assert result.code == QualityCode.OK
         assert not result.is_hard_fail
+        assert result.passed
 
     def test_saturated_spectrum_fails(self):
         agent = DataQualityAgent(saturation_threshold=60000)
@@ -236,10 +239,14 @@ class TestDataQualityAgent:
         assert result.quality_score <= 0.5
 
     def test_ok_score_non_zero(self):
-        """A non-catastrophic spectrum should have a quality_score > 0."""
-        agent = DataQualityAgent()
+        """A non-catastrophic spectrum should have a quality_score > 0.
+
+        UPDATED (2026-04-07): SNR is now a hard fail, use very low min_snr threshold.
+        """
+        agent = DataQualityAgent(min_snr=0.1)  # Very low so test spectrum passes
         wl, it = self._wl_it()
         result = agent.check(wl, it)
+        # With low min_snr, spectrum should pass and have non-zero score
         assert result.quality_score > 0.0
 
     def test_quality_result_has_expected_fields(self):

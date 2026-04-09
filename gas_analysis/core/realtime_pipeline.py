@@ -34,6 +34,9 @@ import pandas as pd
 from .calibration_memory import CalibrationMemory
 from .performance_monitor import PerformanceMonitor
 
+# Import input validation (C1 fix: validate spectra before processing)
+from src.signal.spectrum_validator import validate_spectrum
+
 # Import existing preprocessing module
 from .preprocessing import (
     baseline_correction,
@@ -806,6 +809,33 @@ class RealTimePipeline:
             timestamp=timestamp or datetime.now(),
             sample_id=sample_id or f"S{self.total_processed:06d}",
         )
+
+        # STAGE 0: Input Validation (C1 fix)
+        # Validate spectrum BEFORE any processing to catch bad data early
+        validation = validate_spectrum(
+            intensities,
+            wavelengths=wavelengths,
+            expected_points=len(wavelengths),
+            saturation_threshold=60000.0,
+            snr_threshold=3.0,
+        )
+        if not validation.valid:
+            # Create error result
+            error_msg = f"Spectrum validation failed: {'; '.join(validation.errors)}"
+            logging.error(f"❌ {error_msg}")
+            return PipelineResult(
+                success=False,
+                sample_id=spectrum.sample_id,
+                timestamp=spectrum.timestamp,
+                processed_spectrum=None,
+                calibration_data=None,
+                extracted_features=None,
+                predictions=None,
+                quality_metrics={},
+                stage_results={},
+                error_message=error_msg,
+                elapsed_time_ms=0,
+            )
 
         stage_results = {}
         errors = []
