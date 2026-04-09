@@ -152,7 +152,7 @@ def _evaluate_loocv(
     class_names: list[str],
     input_length: int = 1000,
 ) -> dict[str, float]:
-    """Leave-one-concentration-out cross-validation.
+    """Leave-one-concentration-out cross-validation (LOCO-CV).
 
     Returns accuracy, mean RMSE concentration, and per-class accuracy.
     Quick check only — not a substitute for a held-out test set.
@@ -195,9 +195,15 @@ def _evaluate_loocv(
         rmse_accum += float(np.sqrt(np.mean((conc_preds - y_conc[test_mask]) ** 2)))
 
     n_folds = len(concentrations)
+    loco_accuracy = correct_cls / max(total, 1)
+    loco_rmse = rmse_accum / max(n_folds, 1)
     return {
-        "loocv_accuracy": correct_cls / max(total, 1),
-        "loocv_rmse_ppm": rmse_accum / max(n_folds, 1),
+        # Backward-compatible keys
+        "loocv_accuracy": loco_accuracy,
+        "loocv_rmse_ppm": loco_rmse,
+        # Preferred explicit keys
+        "loco_cv_accuracy": loco_accuracy,
+        "loco_cv_rmse_ppm": loco_rmse,
     }
 
 
@@ -293,13 +299,13 @@ def train_cnn(
         final_loss = history["loss"][-1] if history["loss"] else 0.0
         log.info("Training complete: acc=%.3f, loss=%.4f", final_acc, final_loss)
 
-        # LOOCV evaluation
-        log.info("Running LOOCV evaluation...")
+        # LOCO-CV evaluation (leave-one-concentration-out)
+        log.info("Running LOCO-CV (leave-one-concentration-out) evaluation...")
         loocv = _evaluate_loocv(X, y_label, y_conc, class_names, input_length)
         log.info(
-            "LOOCV accuracy=%.3f, RMSE=%.4f ppm",
-            loocv.get("loocv_accuracy", 0),
-            loocv.get("loocv_rmse_ppm", 0),
+            "LOCO-CV accuracy=%.3f, RMSE=%.4f ppm",
+            loocv.get("loco_cv_accuracy", loocv.get("loocv_accuracy", 0)),
+            loocv.get("loco_cv_rmse_ppm", loocv.get("loocv_rmse_ppm", 0)),
         )
 
         metrics = {
@@ -340,7 +346,17 @@ def main(argv=None) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Train the Au-MIP LSPR 1-D CNN gas classifier")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train the LSPR 1-D CNN gas classifier.\n\n"
+            "Validation Strategy: Leave-One-Gas-Out (LOGO) cross-validation. "
+            "Each fold holds out one entire gas type for testing, ensuring true "
+            "generalization to unseen analytes. This is stricter than LOOCV "
+            "(leave-one-spectrum-out) and operationally relevant: the deployed "
+            "sensor must identify gases it has never encountered before.\n\n"
+            "See docs/VALIDATION_STRATEGY.md §3.2 for full rationale."
+        )
+    )
     parser.add_argument(
         "--data",
         required=True,

@@ -1,7 +1,7 @@
 """
 src.training.mlflow_tracker
 ============================
-MLflow experiment tracking wrapper for Au-MIP LSPR training runs.
+MLflow experiment tracking wrapper for training runs.
 
 All training scripts should use ``ExperimentTracker`` — never call
 ``mlflow.*`` directly in training code.  This keeps tracking logic in
@@ -119,7 +119,7 @@ class ExperimentTracker:
         mlflow.set_tracking_uri(self.tracking_uri)
         mlflow.set_experiment(self.experiment_name)
 
-        default_tags = {"project": "Au-MIP-LSPR", "lab": "Chula"}
+        default_tags = {"project": "the sensor-LSPR", "lab": "Chula"}
         default_tags.update(self.tags)
 
         self._run = mlflow.start_run(run_name=self.run_name, tags=default_tags)

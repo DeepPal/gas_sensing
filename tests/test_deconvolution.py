@@ -1,5 +1,6 @@
 import os
 import tempfile
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,7 @@ def build_synthetic_canonical(n_samples=12, n_points=240, noise=0.01, seed=0):
 
 def test_fastica_recovers_component_high_r2():
     canonical = build_synthetic_canonical(n_samples=14, noise=0.005, seed=42)
-    cfg = {
+    cfg: dict[str, object] = {
         "n_components": 2,
         "max_iter": 1000,
         "tol": 1e-5,
@@ -51,7 +52,7 @@ def test_fastica_recovers_component_high_r2():
     assert res is not None, "ICA returned None"
     # Expect CV R^2 > 0 (better than predicting the mean) for best component.
     # LOOCV on 14 samples has high variance; 0.5 is a realistic lower bound.
-    r2cv = res.get("r2_cv", float("nan"))
+    r2cv = cast(float, res.get("r2_cv", float("nan")))
     assert np.isfinite(r2cv) and r2cv >= 0.5, f"ICA CV R^2 too low: {r2cv}"
     # Shapes
     comps = np.array(res.get("components", []), dtype=float)
@@ -61,7 +62,7 @@ def test_fastica_recovers_component_high_r2():
 
 def test_mcrals_recovers_component_high_r2():
     canonical = build_synthetic_canonical(n_samples=14, noise=0.005, seed=7)
-    cfg = {
+    cfg: dict[str, object] = {
         "n_components": 2,
         "max_iter": 300,
         "tol": 1e-6,
@@ -69,7 +70,7 @@ def test_mcrals_recovers_component_high_r2():
     }
     res = fit_mcrals_from_canonical(canonical, cfg)
     assert res is not None, "MCR-ALS returned None"
-    r2cv = res.get("r2_cv", float("nan"))
+    r2cv = cast(float, res.get("r2_cv", float("nan")))
     assert np.isfinite(r2cv) and r2cv >= 0.85, f"MCR-ALS CV R^2 too low: {r2cv}"
     comps = np.array(res.get("components", []), dtype=float)
     wl = np.array(res.get("wavelengths", []), dtype=float)
@@ -78,8 +79,9 @@ def test_mcrals_recovers_component_high_r2():
 
 def test_artifacts_saved_for_ica_and_mcr():
     canonical = build_synthetic_canonical(n_samples=10, noise=0.01, seed=1)
-    ica_res = fit_ica_from_canonical(canonical, {"n_components": 2, "random_state": 0})
-    mcr_res = fit_mcrals_from_canonical(canonical, {"n_components": 2, "random_state": 0})
+    cfg: dict[str, object] = {"n_components": 2, "random_state": 0}
+    ica_res = fit_ica_from_canonical(canonical, cfg)
+    mcr_res = fit_mcrals_from_canonical(canonical, cfg)
     assert ica_res is not None and mcr_res is not None
 
     with tempfile.TemporaryDirectory() as tmp:

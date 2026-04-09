@@ -1,7 +1,7 @@
 """
 src.models.cnn
 ==============
-1-D CNN gas classifier for Au-MIP LSPR spectra.
+1-D CNN gas classifier for LSPR spectra.
 
 Architecture
 ------------
@@ -107,8 +107,8 @@ def augment_spectra(
         Xb = Xb + noise
 
         # 3. Circular spectral shift (thermal pixel registration drift)
-        shifts = rng.integers(-shift_pixels, shift_pixels + 1, size=n)
-        Xb = np.stack([np.roll(Xb[i], int(shifts[i])) for i in range(n)])
+        shifts = np.asarray(rng.integers(-shift_pixels, shift_pixels + 1, size=n), dtype=int)
+        Xb = np.stack([np.roll(Xb[i], int(shift)) for i, shift in enumerate(shifts)])
 
         aug_X.append(Xb)
         aug_y.append(y_label.copy())

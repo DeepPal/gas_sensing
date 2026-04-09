@@ -1,7 +1,7 @@
 """
 gas_analysis.logging_setup
 ==========================
-Centralised logging configuration for the Au-MIP LSPR gas sensing platform.
+Centralised logging configuration for the the sensor LSPR gas sensing platform.
 
 Usage
 -----

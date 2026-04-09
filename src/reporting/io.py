@@ -25,17 +25,17 @@ Typical directory layout written by this module::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import re
 from pathlib import Path
-from typing import Any,  Optional
+import re
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 
 from src.reporting.metrics import select_signal_column
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -121,10 +121,8 @@ def save_aggregated_spectra(
         _ensure_dir(conc_dir)
         for old in os.listdir(conc_dir):
             if old.lower().endswith(".csv"):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(os.path.join(conc_dir, old))
-                except OSError:
-                    pass
         saved[conc] = {}
         for trial, df in trials.items():
             safe_trial = re.sub(r"[^A-Za-z0-9._-]+", "_", trial)

@@ -198,8 +198,8 @@ class PerformanceMonitor:
             return 0.0
 
         # Simple asymmetry measure
-        left_area = np.trapz(spectrum[peak_idx - 5 : peak_idx + 1])
-        right_area = np.trapz(spectrum[peak_idx : peak_idx + 6])
+        left_area = np.trapezoid(spectrum[peak_idx - 5 : peak_idx + 1])
+        right_area = np.trapezoid(spectrum[peak_idx : peak_idx + 6])
 
         if left_area + right_area > 0:
             return (right_area - left_area) / (left_area + right_area)

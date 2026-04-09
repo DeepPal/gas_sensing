@@ -4,10 +4,11 @@ All functions are CONFIG-free: every parameter is passed explicitly.
 """
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 from collections.abc import Sequence
 from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
 
 from src.reporting.metrics import select_signal_column
 

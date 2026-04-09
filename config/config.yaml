@@ -442,7 +442,14 @@ quality:
 sensor:
   integration_time_ms: 50.0       # CCS200 integration time (10 to 60000 ms)
   target_wavelength: 532.0        # Monitoring wavelength in nm (green laser)
-  calibration_slope: 0.116        # nm/ppm  (from batch calibration results)
+  # ⚠️  CRITICAL — READ BEFORE RUNNING EXPERIMENTS
+  # This value is a literature default for ethanol on a generic Au nanoparticle chip.
+  # If you have NOT completed a real calibration session, ALL concentration readings
+  # from this platform are computed from this hardcoded number — not your actual chip.
+  # Run Tab 1 (Streamlit Dashboard) to fit a real calibration curve from your data.
+  # The fitted slope will be written to output/models/calibration_params.json and
+  # will replace this default. See docs/RESEARCHER_USER_GUIDE.md §L1 for details.
+  calibration_slope: 0.116        # nm/ppm  (LITERATURE DEFAULT — not experimentally verified)
   calibration_intercept: 0.0      # nm offset
   reference_wavelength: 531.5     # Baseline peak wavelength in nm
   model_dir: "output/models"      # Directory for CNN + GPR checkpoints
@@ -467,7 +474,7 @@ mlflow:
   tracking_uri: "experiments/mlruns"    # local directory — no server needed
   experiment_name: "AuMIP_LSPR_Gas_Sensing"
   run_tags:
-    project: "Au-MIP-LSPR"
+    project: "the sensor-LSPR"
     lab: "Chula"
 
 # ---------------------------------------------------------------------------

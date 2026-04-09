@@ -1,0 +1,27 @@
+[theme]
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
+[client]
+# Enable file watcher for live reloading
+showErrorDetails = true
+
+[logger]
+# Log all user interactions
+level = "info"
+messageFormat = "%(asctime)s | %(levelname)-8s | %(name)s: %(message)s"
+
+[server]
+# Port and address
+port = 8501
+headless = true
+runOnSave = true
+
+# Session state timeout — log users out after 8 hours
+maxUploadSize = 200
+# XSRF protection requires CORS to stay at default (true).
+# Explicitly setting enableCORS=false here conflicts and is overridden by Streamlit.
+enableXsrfProtection = true

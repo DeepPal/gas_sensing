@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -21,8 +23,8 @@ class TestWeightedLinear:
         result = weighted_linear(x, y, w)
         assert result is not None
         assert result["model"] == "weighted_ols"
-        assert abs(result["slope"] - 3.0) < 0.01
-        assert abs(result["intercept"] - 0.5) < 0.01
+        assert abs(cast(float, result["slope"]) - 3.0) < 0.01
+        assert abs(cast(float, result["intercept"]) - 0.5) < 0.01
 
     def test_too_few_points_returns_none(self):
         x = np.array([1.0])
@@ -36,7 +38,7 @@ class TestWeightedLinear:
         w = np.array([1.0, 1.0, 1.0, 0.0])  # outlier has zero weight
         result = weighted_linear(x, y, w)
         assert result is not None
-        assert result["slope"] > 0
+        assert cast(float, result["slope"]) > 0
 
     def test_wrong_weight_size_returns_none(self):
         x = np.array([1.0, 2.0])
@@ -50,7 +52,7 @@ class TestWeightedLinear:
         w = np.ones_like(x)
         result = weighted_linear(x, y, w)
         assert result is not None
-        assert result["r2"] > 0.99
+        assert cast(float, result["r2"]) > 0.99
 
 
 class TestTheilSen:
@@ -60,7 +62,7 @@ class TestTheilSen:
         result = theil_sen(x, y)
         assert result is not None
         assert result["model"] == "theil_sen"
-        assert abs(result["slope"] - 1.5) < 0.1
+        assert abs(cast(float, result["slope"]) - 1.5) < 0.1
 
     def test_robust_to_single_outlier(self):
         x = np.linspace(0.1, 5, 15)
@@ -69,7 +71,7 @@ class TestTheilSen:
         y_outlier[7] = 500.0  # extreme outlier
         result = theil_sen(x, y_outlier)
         assert result is not None
-        assert abs(result["slope"] - 2.0) < 0.5
+        assert abs(cast(float, result["slope"]) - 2.0) < 0.5
 
     def test_single_point_returns_none(self):
         assert theil_sen(np.array([1.0]), np.array([2.0])) is None
@@ -79,7 +81,7 @@ class TestTheilSen:
         y = _linear(x, slope=3.0, intercept=0.0, noise=0.1)
         result = theil_sen(x, y)
         assert result is not None
-        assert result["r2"] > 0.95
+        assert cast(float, result["r2"]) > 0.95
 
 
 class TestRansac:
@@ -89,7 +91,7 @@ class TestRansac:
         result = ransac(x, y)
         assert result is not None
         assert result["model"] == "ransac"
-        assert abs(result["slope"] - 2.0) < 0.2
+        assert abs(cast(float, result["slope"]) - 2.0) < 0.2
 
     def test_robust_to_outliers(self):
         x = np.linspace(0.1, 5, 20)
@@ -98,7 +100,7 @@ class TestRansac:
         y_outlier[[0, 1, 2]] = -50.0  # gross outliers
         result = ransac(x, y_outlier)
         assert result is not None
-        assert abs(result["slope"] - 1.5) < 0.5
+        assert abs(cast(float, result["slope"]) - 1.5) < 0.5
 
     def test_too_few_points_returns_none(self):
         assert ransac(np.array([1.0, 2.0]), np.array([1.0, 2.0])) is None

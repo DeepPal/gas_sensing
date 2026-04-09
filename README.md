@@ -1,107 +1,128 @@
-# Au-MIP LSPR Gas Sensing Research Platform
+# SpectraAgent
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Ruff](https://img.shields.io/badge/linter-ruff-orange)](https://docs.astral.sh/ruff/)
-[![Pytest](https://img.shields.io/badge/tests-pytest-green)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Ruff](https://img.shields.io/badge/linter-ruff-orange)](https://docs.astral.sh/ruff/)
+[![mypy](https://img.shields.io/badge/type--checked-mypy-blue)](https://mypy.readthedocs.io/)
 
-A research-grade platform for **Au nanoparticle Molecularly Imprinted Polymer (Au-MIP) Localized Surface Plasmon Resonance (LSPR)** gas sensor characterization. Provides real-time spectral acquisition, automated signal processing, physics-based calibration, and an interactive web dashboard — from raw photons to calibrated concentration in a single unified pipeline.
+**Universal agentic spectroscopy platform — from raw photons to calibrated results with AI-native analysis.**
+
+SpectraAgent provides a complete, hardware-agnostic runtime for optical spectroscopy research: real-time acquisition from any spectrometer, physics-informed signal processing, conformal prediction calibration, and autonomous AI agents that explain anomalies, narrate experiments, and plan the next measurement. A plugin architecture makes it straightforward to add new hardware drivers and sensor physics models.
+
+> **Reference deployment**: Localized Surface Plasmon Resonance (LSPR) sensing with ThorLabs CCS200, but the platform supports any spectrometer producing wavelength–intensity arrays.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Sensor Physics](#sensor-physics)
+- [Key Features](#key-features)
 - [Architecture](#architecture)
 - [Installation](#installation)
-- [Usage](#usage)
-  - [Dashboard (Recommended)](#1-interactive-dashboard)
-  - [CLI — Live Sensor](#2-cli--live-sensor-mode)
-  - [CLI — Batch Analysis](#3-cli--batch-analysis)
-  - [CLI — Simulation](#4-cli--simulation-mode)
+- [Quick Start](#quick-start)
+  - [SpectraAgent (primary runtime)](#spectraagent-primary-runtime)
+  - [Streamlit Dashboard (scientific analysis)](#streamlit-dashboard-scientific-analysis)
+- [Plugin System](#plugin-system)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [Testing & Quality](#testing--quality)
-- [Engineering Standards](#engineering-standards)
+- [Scientific Capabilities](#scientific-capabilities)
 - [Troubleshooting](#troubleshooting)
-- [Authors](#authors)
+- [Contributing](#contributing)
+
+## Canonical Project Tracking
+
+To keep status consistent across contributors and AI agents, treat the files
+below as the canonical tracking set and update them together when state changes:
+
+- `REMAINING_WORK.md` (backlog and open gaps)
+- `PRODUCTION_READINESS.md` (deployment/operations readiness)
+- `CHANGELOG.md` (auditable change history)
+- `.github/workflows/security.yml` (enforced security gates)
 
 ---
 
-## Overview
+## Key Features
 
-This platform targets **VOC (Volatile Organic Compound) detection** using an optical sensor whose primary signal is the **shift in the LSPR peak wavelength** (Δλ, nanometers) of Au nanoparticles embedded in a molecularly imprinted polymer film.
-
-Key capabilities:
-
-| Feature | Details |
-|---|---|
-| **Real-time acquisition** | ThorLabs CCS200 spectrometer via DLL, VISA, or Serial |
-| **Signal processing** | Savitzky-Golay smoothing, wavelet denoising, ALS / airPLS baseline correction |
-| **Calibration** | Polynomial, Langmuir / Freundlich / Hill isotherms (AIC selection), GPR with uncertainty bounds |
-| **Multi-ROI fusion** | Automated spectral region discovery with hybrid R²/slope-to-noise metric |
-| **AI classification** | 1D CNN for gas-type identification; GPR for concentration estimation |
-| **Dashboard** | Streamlit: 4 tabs (Automation, Experiment, Batch Analysis, Live Sensor) |
-| **Session persistence** | Thread-safe CSV/Parquet streaming + per-session JSON metadata |
-| **Simulation fallback** | Full pipeline runs without hardware for development/testing |
-
----
-
-## Sensor Physics
-
-The primary signal is the **peak wavelength shift** (Δλ) of the LSPR band:
-
-```
-Δλ = λ_gas − λ_reference      [nm]
-```
-
-- **Reference peak**: ~531.5 nm (Au nanoparticles, green region)
-- **Physical sensitivity**: ~0.116 nm/ppm (literature value for ethanol)
-- **Supported analytes**: Ethanol (EtOH), Isopropanol (IPA), Methanol (MeOH), mixed VOCs
-- **Signal types**: Absorbance (primary), Transmittance, Raw Intensity
-
-A **negative shift** (Δλ < 0) indicates analyte adsorption on the Au-MIP surface. The pipeline extracts Δλ via cross-correlation between the analyte spectrum and the reference spectrum, optionally averaged over multiple spectral ROIs.
+| Category | Capabilities |
+| --- | --- |
+| **Acquisition** | ThorLabs CCS200 (DLL/VISA/Serial), simulated driver, plugin-extensible hardware |
+| **Signal processing** | Savitzky-Golay, wavelet denoising, ALS/airPLS baseline, Lorentzian peak fit |
+| **Calibration** | Physics-informed GPR (Langmuir mean function), PLS, conformal prediction CI |
+| **AI agents** | Anomaly explainer, experiment narrator, diagnostics, report writer (Claude API) |
+| **Quality agents** | SNR/saturation gate, rolling drift detection, Bayesian experiment designer |
+| **IUPAC analytics** | LOD/LOQ/LOB triad with bootstrap CI (2000 iterations), Mandel F-test |
+| **Session analysis** | T90/T10 response times, drift rate, linearity, selectivity matrix |
+| **Runtimes** | FastAPI + React (live acquisition) · Streamlit (batch/scientific analysis) |
+| **Reproducibility** | HDF5 session archives, MLflow experiment tracking, ONNX model export |
+| **Plugin system** | `spectraagent.hardware` and `spectraagent.sensor_physics` entry-points |
 
 ---
 
 ## Architecture
 
+SpectraAgent has two complementary runtimes:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    SpectraAgent Runtime                         │
+│  spectraagent start [--simulate] [--host] [--port]              │
+│                                                                  │
+│  ┌─────────────────────────────┐   ┌──────────────────────────┐ │
+│  │  React Frontend             │   │  Daemon Acquisition      │ │
+│  │  (WebSocket + REST)         │   │  Thread  (~2–20 Hz)      │ │
+│  │  • Live spectrum chart      │   │  CCS200 DLL / VISA /     │ │
+│  │  • Agent log panel          │   │  Simulation              │ │
+│  │  • Session controls         │   └──────────┬───────────────┘ │
+│  └──────────────┬──────────────┘              │                 │
+│                 │                   ┌──────────▼───────────────┐ │
+│  ┌──────────────▼──────────────┐   │  AgentBus                │ │
+│  │  FastAPI Server             │   │  (thread-safe bridge)    │ │
+│  │  /api/sessions              │   │  call_soon_threadsafe    │ │
+│  │  /api/agents                │◄──│  fans out to WS + JSONL  │ │
+│  │  /ws/live                   │   └──────────┬───────────────┘ │
+│  └──────────────────────────── ┘              │                 │
+│                                   ┌──────────▼───────────────┐ │
+│                                   │  Per-frame Hot Path       │ │
+│                                   │  QualityAgent (SNR gate)  │ │
+│                                   │  DriftAgent (peak shift)  │ │
+│                                   │  CalibrationAgent (GPR)   │ │
+│                                   └──────────────────────────┘ │
+│                                                                  │
+│  Claude API agents (async, never in hot path):                   │
+│  AnomalyExplainer · ExperimentNarrator · DiagnosticsAgent        │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    Streamlit Dashboard                           │
+│  streamlit run dashboard/app.py                                 │
+│                                                                  │
+│  Tab 1: Guided Calibration   — step-by-step calibration workflow  │
+│  Tab 2: Experiment (Guided)  — session browser + cross-session   │
+│  Tab 3: Batch Analysis       — load data, heatmaps, curves       │
+│  Tab 4: Live Sensor          — real-time CCS200 feed             │
+│  Tab 5: Data-Driven Science  — ML training, figures, publishing  │
+└─────────────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Entry Points                         │
-│  run.py (CLI)          dashboard/app.py (Streamlit)     │
-└────────────┬────────────────────────────┬───────────────┘
-             │                            │
-┌────────────▼────────────┐  ┌────────────▼──────────────┐
-│  SensorOrchestrator     │  │  Agentic Pipeline Tab      │
-│  sensor_app/            │  │  dashboard/agentic_*       │
-└────────────┬────────────┘  └────────────┬──────────────┘
-             │                            │
-┌────────────▼────────────────────────────▼──────────────┐
-│               RealTimePipeline                          │
-│         gas_analysis/core/realtime_pipeline.py          │
-│  Stage 1: Preprocessing  (smooth, baseline, denoise)   │
-│  Stage 2: Feature Extrac (peak find, ROI, Δλ)          │
-│  Stage 3: Calibration    (polynomial / GPR)             │
-│  Stage 4: Quality Ctrl   (SNR, saturation, confidence) │
-└────────────┬────────────────────────────────────────────┘
-             │
-┌────────────▼──────────────────────┐   ┌────────────────┐
-│  RealtimeAcquisitionService       │   │  ModelRegistry │
-│  gas_analysis/acquisition/        │   │  CNN + GPR     │
-│  (CCS200 DLL / VISA / Serial)     │   │  (optional)    │
-└────────────┬──────────────────────┘   └────────────────┘
-             │
-┌────────────▼──────────────────────┐
-│  LiveDataStore (singleton)        │   Thread-safe deque;
-│  sensor_app/live_state.py         │   shared acq ↔ dashboard
-└───────────────────────────────────┘
-             │
-     output/sessions/{YYYYMMDD_HHMMSS}/
-     ├── pipeline_results.csv
-     ├── session_meta.json
-     └── raw_spectra.parquet   (optional)
+
+### Scientific pipeline (shared by both runtimes)
+
+```text
+Raw Spectrum
+    │
+    ▼  Stage 1: Preprocessing
+    │  Savitzky-Golay smooth → ALS/airPLS baseline → wavelet denoise
+    │
+    ▼  Stage 2: Feature Extraction
+    │  Lorentzian peak fit → LSPR Δλ, ΔI_peak, ΔI_area, ΔI_std
+    │
+    ▼  Stage 3: Calibration
+    │  Physics-informed GPR (Langmuir) + conformal prediction CI
+    │  → concentration [ppm] ± coverage-guaranteed bounds
+    │
+    ▼  Stage 4: Quality Control
+       SNR gate · saturation check · drift alert
+       → PipelineResult{concentration, ci_low, ci_high, snr, flags}
 ```
 
 ---
@@ -111,240 +132,285 @@ A **negative shift** (Δλ < 0) indicates analyte adsorption on the Au-MIP surfa
 ### Prerequisites
 
 - Python 3.9 or later
-- Windows 10/11 (for CCS200 DLL) or Linux (VISA/serial modes)
+- Windows 10/11, macOS, or Linux
 - ThorLabs CCS200 spectrometer *(optional — simulation mode works without hardware)*
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone <repo-url>
-cd Main_Research_Chula
+cd spectraagent
 ```
 
-### 2. Create and activate a virtual environment
+### 2. Create virtual environment
 
 ```bash
-# Windows
 python -m venv .venv
+
+# Windows
 .venv\Scripts\activate
 
 # macOS / Linux
-python -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Install dependencies
+### 3. Install
 
 ```bash
+# Core install (all scientific and API dependencies)
 pip install -r requirements.txt
+
+# Or as an editable package (recommended for development)
+pip install -e ".[dev]"
+
+# With PyTorch (CNN gas classifier)
+pip install -e ".[dev,ml]"
+
+# With hardware VISA support
+pip install -e ".[dev,ml,hardware]"
 ```
 
-> **Note**: `torch` (~2 GB) is required for the CNN classifier. If you only need
-> calibration and signal processing, comment out `torch` and `torchvision` in
-> `requirements.txt` — the platform degrades gracefully without them.
+> **PyTorch note**: ~2 GB download. If you only need calibration and signal processing, the platform degrades gracefully without it — CNN classification is skipped, all other features remain active.
 
-### 4. (Optional) Install hardware drivers
+### 4. Verify installation
 
-For real CCS200 acquisition:
 ```bash
-pip install pyvisa pyvisa-py   # VISA backend
-# Then install NI-VISA or libusb per your OS
+spectraagent --version
+spectraagent plugins list      # shows discovered hardware + physics plugins
 ```
 
 ---
 
-## Usage
+## Quick Start
 
-### 1. Interactive Dashboard
+### SpectraAgent (primary runtime)
 
-The recommended entry point for researchers:
-
-```bash
-# From the project root
-.venv/Scripts/python.exe -m streamlit run dashboard/app.py
-# or via helper script:
-run_dashboard.bat
-```
-
-Open `http://localhost:8501` in your browser. Four tabs are available:
-
-| Tab | Purpose |
-|---|---|
-| **Automation Pipeline** | 5-agent workflow: reference → acquire → train → predict → export |
-| **Experiment (Guided)** | Step-by-step guided acquisition and calibration |
-| **Batch Analysis** | Load Joy_Data/, visualize spectra, heatmaps, calibration curves |
-| **Live Sensor** | Real-time CCS200 monitoring, concentration readout, SNR |
-
-### 2. CLI — Live Sensor Mode
-
-Acquire continuously from the CCS200 spectrometer:
+Start the server with simulated hardware (no spectrometer needed):
 
 ```bash
-python run.py --mode sensor --gas Ethanol --duration 3600
+spectraagent start --simulate
+# → FastAPI server at http://localhost:8765
+# → React frontend at http://localhost:8765/app
+# → API docs at http://localhost:8765/docs
 ```
 
-| Argument | Description | Default |
-|---|---|---|
-| `--gas` | Analyte label saved in session metadata | `unknown` |
-| `--duration` | Acquisition duration in seconds | `60` |
-| `--resource` | VISA resource string (e.g., `USB0::...`) | auto-detect |
-| `--target-wavelength` | Expected LSPR peak (nm) | `532.0` |
-| `--calibration-slope` | Sensitivity (nm/ppm) | `0.116` |
-
-Outputs are written to `output/sessions/{YYYYMMDD_HHMMSS}/`.
-
-### 3. CLI — Batch Analysis
-
-Analyse a folder of experimental CSV files:
+Start with real hardware:
 
 ```bash
-python run.py --mode batch --data data/JOY_Data/Ethanol
+spectraagent start
+# Auto-discovers ThorLabs CCS200 via plugin registry
 ```
 
-Expected folder structure:
+Key CLI options:
 
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--simulate` | off | Use simulated spectrometer driver |
+| `--host` | `127.0.0.1` | Bind address |
+| `--port` | `8000` | Port |
+| `--no-browser` | off | Suppress auto-open browser |
+| `--integration-time` | `50` | CCS200 integration time (ms) |
+
+#### Session management
+
+```bash
+# List recorded sessions
+spectraagent sessions list
+
+# Export a session to HDF5
+spectraagent sessions export <session-id> --format hdf5
+
+# Generate PDF report
+spectraagent sessions report <session-id>
 ```
-data/JOY_Data/
-└── Ethanol/
-    ├── 0.5 ppm-1/
-    │   ├── spectrum_001.csv
-    │   └── ...
-    ├── 1 ppm-1/
-    └── ref_EtOH.csv        ← reference (baseline) spectrum
+
+### Streamlit Dashboard (scientific analysis)
+
+```bash
+# Windows
+.venv\Scripts\python.exe -m streamlit run dashboard/app.py
+
+# macOS / Linux
+python -m streamlit run dashboard/app.py
+
+# Or via helper script (Windows, includes authentication)
+run_dashboard_secure.bat
 ```
 
-Each CSV must contain `wavelength` and `intensity` columns (or two unnamed columns in that order).
+Open `http://localhost:8501`.
 
-### 4. CLI — Simulation Mode
-
-Run the full pipeline with synthetic spectra (no hardware needed):
+### Legacy CLI (batch pipelines)
 
 ```bash
 python run.py --mode simulate --duration 30
+python run.py --mode batch --data data/JOY_Data/Ethanol
+python run.py --mode sensor --gas Ethanol --duration 3600
 ```
+
+---
+
+## Release Artifact Verification
+
+Each tagged release publishes:
+
+- `spectraagent-<version>-py3-none-any.whl`
+- `spectraagent-<version>.tar.gz`
+- `sha256sums.txt`
+
+Before installing from downloaded artifacts, verify checksums locally:
+
+```bash
+# In the directory containing release artifacts
+python - <<'PY'
+import hashlib
+from pathlib import Path
+
+manifest = Path("sha256sums.txt")
+records = {}
+for line in manifest.read_text(encoding="utf-8").splitlines():
+  line = line.strip()
+  if not line:
+    continue
+  digest, filename = line.split("  ", 1)
+  records[filename] = digest
+
+for filename, expected in records.items():
+  data = Path(filename).read_bytes()
+  got = hashlib.sha256(data).hexdigest()
+  if got != expected:
+    raise SystemExit(f"Checksum mismatch for {filename}: {got} != {expected}")
+
+print("All release artifact checksums verified.")
+PY
+```
+
+---
+
+## Plugin System
+
+SpectraAgent discovers hardware drivers and sensor physics models at runtime via Python entry-points:
+
+```toml
+# pyproject.toml
+[project.entry-points."spectraagent.hardware"]
+thorlabs_ccs = "spectraagent.drivers.thorlabs:ThorlabsCCSDriver"
+simulation   = "spectraagent.drivers.simulation:SimulationDriver"
+
+[project.entry-points."spectraagent.sensor_physics"]
+lspr = "spectraagent.physics.lspr:LSPRPlugin"
+```
+
+To add a new spectrometer (e.g., Ocean Optics):
+
+```python
+# ocean_driver/driver.py
+from spectraagent.drivers.base import AbstractSpectrometerDriver
+
+class OceanOpticsDriver(AbstractSpectrometerDriver):
+    name = "ocean_optics"
+
+    def acquire(self) -> tuple[np.ndarray, np.ndarray]:
+        ...  # return (wavelengths, intensities)
+```
+
+```toml
+# your package's pyproject.toml
+[project.entry-points."spectraagent.hardware"]
+ocean_optics = "ocean_driver.driver:OceanOpticsDriver"
+```
+
+After `pip install`, it appears in `spectraagent plugins list` automatically.
 
 ---
 
 ## Project Structure
 
-```
-Main_Research_Chula/
-├── run.py                      ← Unified CLI entry point
-├── pyproject.toml              ← Build config, ruff & mypy settings, CLI scripts
-├── requirements.txt            ← Runtime + dev dependencies
-├── run_dashboard.bat           ← Windows shortcut for Streamlit
+```text
+spectraagent/
+├── spectraagent/               ← Primary runtime package
+│   ├── __main__.py             ← CLI entry point (spectraagent start/sessions/plugins)
+│   ├── drivers/
+│   │   ├── thorlabs.py         ← ThorLabs CCS200 driver (DLL + VISA)
+│   │   ├── simulation.py       ← SimulationDriver (Gaussian peak + noise model)
+│   │   └── validation.py       ← Driver contract validation
+│   ├── physics/
+│   │   └── lspr.py             ← LSPRPlugin: Δλ extraction, Langmuir isotherm
+│   └── webapp/
+│       ├── server.py           ← FastAPI application + WebSocket /ws/live
+│       ├── agent_bus.py        ← AgentBus: thread-safe acquisition → async bridge
+│       ├── session_writer.py   ← Per-session JSONL + CSV streaming
+│       ├── agents/
+│       │   ├── quality.py      ← QualityAgent (SNR/saturation gate)
+│       │   ├── drift.py        ← DriftAgent (rolling peak-shift monitor)
+│       │   ├── planner.py      ← ExperimentPlannerAgent (Bayesian designer)
+│       │   └── claude_agents.py← AnomalyExplainer, ExperimentNarrator, DiagnosticsAgent
+│       └── frontend/           ← React + TypeScript frontend (Vite)
 │
-├── config/
-│   ├── config.yaml             ← Full pipeline configuration
-│   └── config_loader.py        ← YAML loader with duplicate-key detection
+├── src/                        ← Scientific library (hardware-agnostic)
+│   ├── public_api.py           ← Stable public façade
+│   ├── spectrometer/           ← SpectrometerRegistry + AbstractSpectrometer
+│   ├── calibration/            ← GPR, PLS, conformal prediction, physics kernel
+│   ├── inference/              ← RealTimePipeline, SessionAnalyzer
+│   ├── features/               ← LSPR peak extraction, multi-ROI fusion
+│   ├── preprocessing/          ← Smoothing, baseline, denoising
+│   ├── models/                 ← CNN classifier, ONNX export
+│   ├── scientific/             ← LOD/LOQ/LOB (IUPAC), selectivity matrix
+│   ├── reporting/              ← Metrics, plots, publication figures, PDF
+│   ├── io/                     ← HDF5 session archives
+│   └── experiment_tracking.py  ← MLflow wrapper
 │
-├── src/                        ← Primary Python package (strangler-fig migration)
-│   ├── acquisition/            ← Re-exports CCS200Spectrometer & RealtimeAcquisitionService
-│   ├── agents/
-│   │   ├── drift.py            ← DriftDetectionAgent (rolling trend + offset alerts)
-│   │   ├── quality.py          ← QualityAssuranceAgent (SNR / saturation gating)
-│   │   └── training.py         ← TrainingAgent (auto-retrain on drift / R² decay / volume)
-│   ├── api/                    ← FastAPI REST endpoints
-│   ├── batch/
-│   │   ├── aggregation.py      ← Stable-block detection, canonical spectrum selection
-│   │   ├── data_loader.py      ← Joy-data CSV ingestion & scan-root discovery
-│   │   └── pipeline.py         ← End-to-end batch analysis facade
-│   ├── calibration/
-│   │   ├── gpr.py              ← GPRCalibration: Gaussian Process Δλ → ppm
-│   │   └── isotherms.py        ← Langmuir / Freundlich / Hill fitting + AIC model selection
-│   ├── features/               ← Peak finding, ROI discovery, Lorentzian Δλ extraction
-│   ├── inference/
-│   │   └── orchestrator.py     ← SensorOrchestrator with drift + training agents wired in
-│   ├── models/
-│   │   ├── cnn.py              ← GasCNN (nn.Module) + CNNGasClassifier with MC Dropout
-│   │   ├── registry.py         ← ModelRegistry: unified CNN/GPR/calibration loader
-│   │   └── onnx_export.py      ← ONNX export, validation, OnnxInferenceWrapper
-│   ├── preprocessing/
-│   │   ├── baseline.py         ← ALS + airPLS (Zhang 2010) baseline correction
-│   │   ├── normalization.py    ← Area/peak normalisation (NumPy 2.0 compatible)
-│   │   └── smoothing.py        ← Savitzky-Golay + wavelet denoising
-│   ├── schemas/
-│   │   └── spectrum.py         ← Pydantic SpectrumReading + PredictionResult contracts
-│   ├── scientific/
-│   │   ├── lod.py              ← LOD/LOQ (ICH Q2(R1) bootstrap CI), robust regression, Mandel test
-│   │   └── selectivity.py      ← Cross-sensitivity matrix + IUPAC selectivity coefficients
-│   └── training/
-│       ├── ablation.py         ← Preprocessing ablation study (6 configs, GPR CV)
-│       ├── cross_gas_eval.py   ← Leave-one-gas-out (LOGO) cross-validation + MLflow
-│       ├── mlflow_tracker.py   ← ExperimentTracker wrapper
-│       ├── train_cnn.py        ← CNN training pipeline (LOOCV, MLflow logging)
-│       └── train_gpr.py        ← GPR training pipeline (CV, calibration curves)
+├── dashboard/                  ← Streamlit dashboard (4 tabs)
+│   ├── app.py
+│   ├── agentic_pipeline_tab.py
+│   ├── auth.py                 ← Token-based access control
+│   ├── security.py             ← Rate limiting, audit log
+│   └── health.py               ← Health check endpoint
 │
-├── gas_analysis/               ← Legacy package (kept for backward compatibility)
-│   ├── acquisition/            ← CCS200 hardware drivers (DLL / VISA / Serial)
-│   ├── core/                   ← RealTimePipeline, preprocessing, calibration, CNN/GPR
-│   ├── advanced/               ← ICA spectral decomposition, MCR-ALS
-│   └── ...
+├── gas_analysis/               ← Hardware acquisition layer
+│   └── acquisition/            ← CCS200 DLL/VISA/Serial drivers
 │
-├── sensor_app/                 ← Legacy orchestrator + LiveDataStore (still used by dashboard)
+├── tests/                      ← 1796 tests, 0 failures
+│   ├── spectraagent/           ← SpectraAgent runtime tests
+│   └── src/                    ← Scientific library tests
 │
-├── dashboard/
-│   ├── app.py                  ← Streamlit app (4 tabs)
-│   ├── agentic_pipeline_tab.py ← 5-agent automation workflow
-│   ├── sensor_dashboard.py     ← Live sensor tab (real-time CCS200 feed)
-│   ├── experiment_tab.py       ← Guided acquisition & calibration workflow
-│   └── realtime_monitor.py     ← Performance metrics overlay
-│
-├── scripts/
-│   ├── quality_gate.py         ← Local CI gate (ruff + pytest + mypy)
-│   ├── train_realtime_models.py← CNN/GPR training helper
-│   └── compare_sessions.py     ← Session comparison analysis
-│
-├── tests/                      ← 430 tests, 19 files (0 failures)
-│   ├── conftest.py             ← Shared pytest fixtures & synthetic data builders
-│   ├── test_acquisition.py     ← src.acquisition import contract
-│   ├── test_agents.py          ← DriftDetectionAgent, QualityAssuranceAgent
-│   ├── test_api.py             ← FastAPI endpoints
-│   ├── test_batch.py           ← Batch pipeline end-to-end
-│   ├── test_calibration.py     ← GPRCalibration fit/predict/persist
-│   ├── test_cnn.py             ← GasCNN, CNNGasClassifier, MC Dropout (torch-skipped)
-│   ├── test_config.py          ← Config loader
-│   ├── test_deconvolution.py   ← ICA/MCR-ALS
-│   ├── test_environment.py     ← Environment coefficients
-│   ├── test_live_state.py      ← LiveDataStore thread-safety
-│   ├── test_lod.py             ← LOD/LOQ/sensitivity/Mandel/robust_sensitivity
-│   ├── test_isotherms.py       ← Langmuir/Freundlich/Hill/select_isotherm
-│   ├── test_selectivity.py     ← Cross-sensitivity matrix & IUPAC coefficients
-│   ├── test_models_registry.py ← ModelRegistry
-│   ├── test_onnx_export.py     ← ONNX export/validate/wrapper (onnx-skipped)
-│   ├── test_preprocessing.py   ← Baseline, smoothing, normalization
-│   ├── test_realtime_pipeline.py ← RealTimePipeline 4-stage
-│   ├── test_training_agent.py  ← TrainingAgent triggers & retrain cycle
-│   └── test_training_scripts.py← train_gpr, train_cnn, ablation, cross_gas_eval CLIs
-│
-├── docs/
-│   ├── ENGINEERING_STANDARDS.md
+├── docs/                       ← MkDocs documentation
 │   ├── SYSTEM_ARCHITECTURE.md
-│   ├── PAPER_METHODS_TEMPLATE.md
-│   └── adr/                    ← Architecture Decision Records
+│   ├── ENGINEERING_STANDARDS.md
+│   └── guides/
 │
-└── output/                     ← Generated artefacts (git-ignored)
-    ├── sessions/               ← Per-session pipeline_results.csv + session_meta.json
-    └── models/                 ← Trained CNN (.pt), GPR (.joblib), calibration_params.json
+├── spectraagent.toml           ← Platform configuration
+├── pyproject.toml              ← Build config, entry-points, tool config
+├── requirements.txt            ← Pinned runtime dependencies
+└── Makefile                    ← Developer targets
 ```
 
 ---
 
 ## Configuration
 
-All pipeline parameters live in [`config/config.yaml`](config/config.yaml). Key sections:
+Platform configuration lives in [`spectraagent.toml`](spectraagent.toml):
 
-| Section | Controls |
-|---|---|
-| `preprocessing` | ALS smoothness (λ, p), Savitzky-Golay window |
-| `roi.shift` | Cross-correlation step_nm, upsample factor, window widths |
-| `roi.discovery` | Automated band search range and weighting |
-| `calibration` | Model selection (polynomial / Langmuir / PLSR / ensemble), CV folds |
-| `quality` | Minimum SNR (default 4.0), max RSD (7.5%), saturation threshold |
-| `sensor` | Integration time (ms), target wavelength, warm-up frames |
-| `response_series` | T90/T10 activation thresholds, changepoint method |
+```toml
+[hardware]
+driver = "thorlabs_ccs"     # or "simulation"
+integration_time_ms = 50
+warmup_frames = 3
 
-Per-gas overrides (`Ethanol`, `IPA`, `MeOH`, `MixVOC`) can be placed under the gas name key to override any base setting.
+[physics]
+plugin = "lspr"
+reference_wavelength_nm = 532.0
+
+[agents]
+enable_claude = true        # requires ANTHROPIC_API_KEY
+drift_window = 50           # frames for rolling drift detection
+snr_threshold = 3.0
+
+[session]
+output_dir = "output/sessions"
+hdf5_archive = true
+```
+
+Pipeline parameters (preprocessing, calibration, quality) live in [`config/config.yaml`](config/config.yaml).
 
 ---
 
@@ -353,75 +419,110 @@ Per-gas overrides (`Ethanol`, `IPA`, `MeOH`, `MixVOC`) can be placed under the g
 ### Run tests
 
 ```bash
-pytest                        # all 430 tests
-pytest tests/test_config.py   # specific file
-pytest -v --tb=short          # verbose with short tracebacks
+make test                   # full suite (1796 tests)
+make test-fast              # fast lane (exclude reliability tests)
+make test-reliability       # lifecycle/stability tests
+make coverage               # with HTML coverage report
 ```
 
-> **Note**: 18 tests are skipped when `onnx`/`onnxruntime` are not installed — this is intentional.
-> Install with `pip install onnx onnxruntime` to activate them.
-
-### Local quality gate (mirrors CI)
+Or directly:
 
 ```bash
-python scripts/quality_gate.py           # ruff + pytest
-python scripts/quality_gate.py --strict  # + mypy type checking
+pytest                                      # all tests
+pytest tests/spectraagent/                  # SpectraAgent runtime only
+pytest tests/src/                           # scientific library only
+pytest -m "not reliability" -x --tb=short  # fast lane
 ```
 
-### Individual tools
+### Quality gate (mirrors CI)
 
 ```bash
-ruff check src/            # linting (zero errors)
-ruff format src/           # auto-format
-mypy src/ gas_analysis/    # type checking
+make quality-gate           # ruff + mypy + pytest + reliability report
+make check                  # lint + test (quick pre-commit check)
+make lint                   # ruff linting only
 ```
 
 ### CI
 
-GitHub Actions runs ruff, pytest, and mypy on every push/PR via [`.github/workflows/quality.yml`](.github/workflows/quality.yml).
+GitHub Actions runs ruff, mypy, and pytest (two lanes) on every push/PR:
 
-### Advanced CLI tools
-
-```bash
-# Leave-one-gas-out cross-validation (requires data + torch)
-python -m src.training.cross_gas_eval --data-dir data/JOY_Data
-
-# Preprocessing ablation study
-python -m src.training.ablation --data-dir data/JOY_Data/Ethanol
-
-# Export trained CNN to ONNX for edge deployment
-gas-export-onnx --checkpoint output/models/cnn_classifier.pt --output output/models/cnn.onnx --validate
-```
+- **Fast lane**: `pytest -m "not reliability"` — quick regression feedback
+- **Reliability lane**: `pytest -m "reliability"` — subprocess/lifecycle/soak stability
+- **Nightly**: extended reliability with runtime budget enforcement
 
 ---
 
-## Engineering Standards
+## Scientific Capabilities
 
-This repository follows a research-to-production standards baseline:
+### IUPAC LOD/LOQ/LOB (automatic, per session)
 
-- **Governance**: [`docs/ENGINEERING_STANDARDS.md`](docs/ENGINEERING_STANDARDS.md)
-- **Architecture decisions**: [`docs/adr/`](docs/adr/)
-- **Contribution workflow**: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- **Scientific methods**: [`docs/PAPER_METHODS_TEMPLATE.md`](docs/PAPER_METHODS_TEMPLATE.md)
+```python
+from src.public_api import RealTimePipeline, PipelineConfig
+
+pipeline = RealTimePipeline(PipelineConfig())
+# ... acquire spectra ...
+
+analyzer = pipeline.get_session_analyzer()
+results = analyzer.analyze()
+
+print(f"LOD  = {results.lod:.4f} ppm  (95% CI: {results.lod_ci})")
+print(f"LOQ  = {results.loq:.4f} ppm")
+print(f"LOB  = {results.lob:.4f} ppm")
+print(f"T90  = {results.t90:.1f} s")
+print(f"Drift rate = {results.drift_rate:.4f} nm/frame")
+```
+
+### Conformal prediction (coverage-guaranteed CI)
+
+```python
+from src.calibration.conformal import ConformalCalibrator
+
+cal = ConformalCalibrator(base_model=gpr_model, coverage=0.95)
+cal.calibrate(X_cal, y_cal)
+
+pred = cal.predict(spectrum)
+# pred.concentration, pred.ci_low, pred.ci_high
+# Provable 95% coverage on held-out data
+```
+
+### Bayesian experiment designer
+
+```python
+from spectraagent.webapp.agents.planner import ExperimentPlannerAgent
+
+planner = ExperimentPlannerAgent()
+next_conc = planner.suggest_next(measured_concentrations, measured_responses)
+# Logspace max-variance acquisition for optimal calibration curve coverage
+```
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
-|---|---|---|
-| `DLL error -1073807343` | CCS200 connected but not powered | Power on the spectrometer before starting |
-| `VI_ERROR_TMO (-1073807339)` | Stale VISA handle from ungraceful shutdown | Unplug/replug USB; call `close()` in finally block |
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `DLL error -1073807343` | CCS200 connected but not powered | Power on spectrometer before starting |
+| `VI_ERROR_TMO (-1073807339)` | Stale VISA handle from crash | Unplug/replug USB; ensure `close()` in finally block |
+| `spectraagent plugins list` shows no hardware | Package not editable-installed | `pip install -e .` from repo root |
+| React frontend blank | Frontend not built | `cd spectraagent/webapp/frontend && npm install && npm run build` |
+| `torch` import error | PyTorch not installed | `pip install -e ".[ml]"`; platform degrades gracefully |
 | `pyvisa not found` | VISA backend missing | `pip install pyvisa pyvisa-py` |
-| Dashboard won't start | Wrong working directory | Run from project root; use `run_dashboard.bat` |
-| `torch` import error | PyTorch not installed | `pip install torch torchvision`; platform degrades gracefully without it |
-| UTF-8 console errors on Windows | Windows default cp1252 | Handled automatically in `run.py`; set `PYTHONIOENCODING=utf-8` as fallback |
+| UTF-8 console errors on Windows | Default cp1252 encoding | Set `PYTHONIOENCODING=utf-8` or use `run_spectraagent.bat` |
+| Coverage low warnings | Legacy modules excluded | Check `[tool.coverage.run]` omit list in pyproject.toml |
 
 ---
 
-## Authors
+## Contributing
 
-- **Chula Research Team** — Au-MIP LSPR sensor design and experimental data
-- **Engineering contributions** — Pipeline architecture, dashboard, CI/CD
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ENGINEERING_STANDARDS.md](docs/ENGINEERING_STANDARDS.md).
 
-For bug reports and feature requests, please open an issue in this repository.
+- Run `make check` before opening a PR
+- New hardware drivers: implement `AbstractSpectrometerDriver`, register via entry-point
+- New physics plugins: implement `AbstractSensorPhysicsPlugin`, register via entry-point
+- All new scientific methods require a corresponding test in `tests/`
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

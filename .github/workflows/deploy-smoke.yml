@@ -1,0 +1,55 @@
+name: Deploy Smoke
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run smoke tests
+        run: pytest -q --tb=short -m smoke --maxfail=1
+
+      - name: API startup smoke check
+        run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from src.api.main import app
+
+          client = TestClient(app)
+
+          health = client.get("/health", timeout=20)
+          if health.status_code != 200:
+              raise SystemExit(f"/health failed with status {health.status_code}")
+
+          payload = health.json()
+          if payload.get("status") != "ok":
+              raise SystemExit(f"Unexpected /health payload: {payload}")
+
+          status = client.get("/status", timeout=20)
+          if status.status_code != 200:
+              raise SystemExit(f"/status failed with status {status.status_code}")
+
+          print("[deploy-smoke] API health endpoints are reachable")
+          PY

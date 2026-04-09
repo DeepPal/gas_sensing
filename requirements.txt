@@ -1,30 +1,70 @@
+# Convenience requirements file — pyproject.toml is the canonical source of truth.
+# Install the full package (including optional extras) with:
+#   pip install -e ".[ml,tracking,dashboard,hardware,pdf,dev]"
+#
+# This file mirrors pyproject.toml [project.dependencies] for tooling that
+# does not support PEP 517 (e.g. legacy CI or Docker COPY + pip install -r).
+# Keep in sync with pyproject.toml when adding/bumping dependencies.
+
+# --- Core numerics ---
 numpy>=1.21.0
-pandas>=1.3.0
-matplotlib>=3.4.0
-scikit-learn>=0.24.0
 scipy>=1.7.0
-pyyaml>=6.0
-pyserial>=3.5
+pandas>=1.3.0
 PyWavelets>=1.4.1
-pytest>=7.0
+
+# --- ML (non-torch) ---
+scikit-learn>=1.0.0
+joblib>=1.2.0
+statsmodels>=0.13.0
+
+# --- Config ---
+pyyaml>=6.0
+
+# --- Data ---
+pyarrow>=10.0.0
+
+# --- Visualisation ---
+matplotlib>=3.4.0
+plotly>=5.0.0
+
+# --- CLI ---
+typer>=0.9.0
+
+# --- API & validation ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
+
+# --- Hardware serial ---
+pyserial>=3.5
+
+# --- AI ---
+anthropic>=0.25.0
+
+# --- Optional: deep-learning (ml extra) ---
+torch>=2.0.0
+torchvision>=0.15.0
+
+# --- Optional: experiment tracking (tracking extra) ---
+mlflow>=2.5.0
+
+# --- Optional: dashboard (dashboard extra) ---
+streamlit>=1.30.0
+
+# --- Optional: hardware VISA (hardware extra) ---
+pyvisa>=1.13.0
+
+# --- Optional: ONNX edge deployment ---
+onnx>=1.14.0
+onnxruntime>=1.16.0
+
+# --- Optional: PDF reports (pdf extra) ---
 markdown>=3.4
 weasyprint>=56.0
 pypandoc>=1.11
-playwright>=1.45
-streamlit>=1.30.0
-torch>=2.0.0
-torchvision>=0.15.0
+
+# --- Dev tools ---
+pytest>=7.0
 ruff>=0.1.0
 mypy>=1.0.0
 black>=23.0.0
-plotly>=5.0.0
-joblib>=1.2.0
-pyarrow>=10.0.0
-pyvisa>=1.13.0
-# ML experiment tracking
-mlflow>=2.5.0
-# ONNX edge deployment (optional — needed for src/models/onnx_export.py)
-onnx>=1.14.0
-onnxruntime>=1.16.0
-# Statistics
-statsmodels>=0.14.0

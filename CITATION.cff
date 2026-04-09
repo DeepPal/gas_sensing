@@ -3,10 +3,10 @@ message: >-
   If you use this software in your research, please cite it using the
   metadata below.
 type: software
-title: "Au-MIP LSPR Gas Sensing Research Platform"
+title: "LSPR Gas Sensing Research Platform"
 abstract: >-
   A research-grade software platform for Au nanoparticle Molecularly
-  Imprinted Polymer (Au-MIP) Localized Surface Plasmon Resonance (LSPR)
+  Imprinted Polymer (the sensor) Localized Surface Plasmon Resonance (LSPR)
   gas sensor characterization. Provides real-time spectral acquisition
   from ThorLabs CCS200 spectrometers, automated signal processing
   (airPLS/ALS baseline correction, Savitzky-Golay / wavelet denoising),
@@ -40,7 +40,7 @@ keywords:
   - ThorLabs CCS200
 preferred-citation:
   type: article
-  title: "Au-MIP LSPR Gas Sensing Research Platform"
+  title: "LSPR Gas Sensing Research Platform"
   authors:
     - family-names: "Chula Research Team"
       affiliation: "Chulalongkorn University"

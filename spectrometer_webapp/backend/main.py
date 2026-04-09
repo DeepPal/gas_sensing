@@ -14,8 +14,8 @@ from data_manager import DataManager
 from ml_pipeline import MLPipeline
 
 # ── Core services ─────────────────────────────────────────────────────────────
-# Toggle use_mock=False when the real Thorlabs CCS200 is connected
-spectrometer  = get_spectrometer(use_mock=True)
+# Toggle via env: SPECTROMETER_USE_MOCK=false when the real Thorlabs CCS200 is connected
+spectrometer  = get_spectrometer(use_mock=os.getenv("SPECTROMETER_USE_MOCK", "true").lower() == "true")
 data_manager  = DataManager(os.path.join(os.path.dirname(__file__), "..", "data", "acquisitions"))
 ml_pipeline   = MLPipeline(os.path.join(os.path.dirname(__file__), "..", "data", "models"))
 
@@ -23,7 +23,12 @@ app = FastAPI(title="Spectrometer Virtual Sensor Pipeline")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8501",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8501",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

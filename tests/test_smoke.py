@@ -1,7 +1,7 @@
 """
 tests/test_smoke.py
 ===================
-End-to-end smoke tests for the Au-MIP LSPR gas sensing platform.
+End-to-end smoke tests for the the sensor LSPR gas sensing platform.
 
 These tests exercise the full config → preprocess → feature extraction →
 calibration chain against synthetic data, without requiring hardware or

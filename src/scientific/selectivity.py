@@ -79,6 +79,8 @@ class SelectivityResult:
     rankings: dict[str, list[tuple[str, float]]]
     interpretation: dict[str, str]
     worst_interferents: dict[str, tuple[str, float]]
+    metadata_warnings: list[str] = field(default_factory=list)
+    """Warnings about inter-session validity of K values (chip mismatch, date drift, etc.)"""
 
     def to_dict(self) -> dict[str, object]:
         """Serialise to a plain dict for JSON export / MLflow logging."""
@@ -93,6 +95,7 @@ class SelectivityResult:
             "worst_interferents": {
                 k: (name, float(kval)) for k, (name, kval) in self.worst_interferents.items()
             },
+            "metadata_warnings": self.metadata_warnings,
         }
 
     def summary_table(self) -> str:
@@ -149,6 +152,7 @@ def selectivity_matrix(
     gas_sensitivities: dict[str, float],
     threshold_significant: float = 0.1,
     threshold_problematic: float = 0.5,
+    session_metadata: dict[str, dict] | None = None,
 ) -> SelectivityResult:
     """Build the full cross-sensitivity matrix for all gas pairs.
 
@@ -157,6 +161,15 @@ def selectivity_matrix(
         K[i, j] = sensitivity_j / sensitivity_i
 
     The diagonal K[i, i] = 1.0 by definition.
+
+    .. warning::
+
+        **Validity condition**: All gas sensitivities MUST be measured under
+        identical experimental conditions (same chip, same day / chip age,
+        same integration time, same temperature).  If gases were measured in
+        different sessions, the K values will be contaminated by drift between
+        sessions, not by true cross-sensitivity.  Provide ``session_metadata``
+        to enable automated validation.
 
     Parameters
     ----------
@@ -168,6 +181,13 @@ def selectivity_matrix(
         Default 0.1 (10 % — common analytical chemistry criterion).
     threshold_problematic:
         |K| above this triggers a "problematic" flag.  Default 0.5 (50 %).
+    session_metadata:
+        Optional dict mapping gas name → metadata dict with keys
+        ``"chip_serial"``, ``"measurement_date"`` (ISO date string),
+        ``"integration_time_ms"`` (float), ``"temperature_c"`` (float).
+        When provided, gases with mismatched chip_serial or measurement_date
+        (>1 day apart) trigger a warning that the selectivity matrix may be
+        contaminated by inter-session drift.
 
     Returns
     -------
@@ -189,6 +209,67 @@ def selectivity_matrix(
 
     if n < 2:
         raise ValueError(f"At least 2 gases are required for selectivity analysis, got {n}.")
+
+    # ── Session metadata validation ──────────────────────────────────────────
+    # K_B/A = S_B / S_A is only meaningful when both sensitivities were measured
+    # under *identical* conditions. Mismatched chip serials or measurement dates
+    # indicate inter-session drift contamination of the K values.
+    _meta_warnings: list[str] = []
+    if session_metadata is not None and len(session_metadata) >= 2:
+        from datetime import datetime, timedelta
+
+        chip_serials = {
+            g: session_metadata[g].get("chip_serial")
+            for g in gases if g in session_metadata
+        }
+        meas_dates = {
+            g: session_metadata[g].get("measurement_date")
+            for g in gases if g in session_metadata
+        }
+
+        # Check chip serial consistency
+        unique_chips = set(v for v in chip_serials.values() if v)
+        if len(unique_chips) > 1:
+            _meta_warnings.append(
+                f"VALIDITY WARNING: Gases were measured on different chip batches "
+                f"({unique_chips}). Cross-sensitivity K values may reflect chip-to-chip "
+                f"sensitivity variation, not true selectivity. "
+                f"Re-measure all gases on the same chip for valid K values."
+            )
+
+        # Check date consistency (>1 day apart = potential drift contamination)
+        parsed_dates: dict[str, datetime] = {}
+        for g, d in meas_dates.items():
+            if d:
+                try:
+                    parsed_dates[g] = datetime.fromisoformat(str(d)[:10])
+                except (ValueError, TypeError):
+                    pass
+        if len(parsed_dates) >= 2:
+            date_range = max(parsed_dates.values()) - min(parsed_dates.values())
+            if date_range > timedelta(days=1):
+                _meta_warnings.append(
+                    f"VALIDITY WARNING: Gases were measured on different days "
+                    f"(range: {date_range.days} days). Baseline drift between sessions "
+                    f"may contaminate K values. Confirm chip sensitivity was stable "
+                    f"(check sensor_memory.json LOD/sensitivity trends)."
+                )
+
+        # Check integration time consistency
+        int_times = {
+            g: session_metadata[g].get("integration_time_ms")
+            for g in gases if g in session_metadata
+        }
+        unique_its = set(v for v in int_times.values() if v is not None)
+        if len(unique_its) > 1 and max(unique_its) / min(unique_its) > 1.1:
+            _meta_warnings.append(
+                f"NOTE: Integration times differ across gases ({unique_its} ms). "
+                "Sensitivity slopes are integration-time-dependent for some noise regimes. "
+                "Verify that sensitivities were acquired at the same integration setting."
+            )
+
+        for w in _meta_warnings:
+            log.warning(w)
 
     sens = np.array([gas_sensitivities[g] for g in gases], dtype=float)
 
@@ -256,12 +337,14 @@ def selectivity_matrix(
         rankings=rankings,
         interpretation=interpretation,
         worst_interferents=worst_interferents,
+        metadata_warnings=_meta_warnings,
     )
 
 
 def selectivity_from_calibration_data(
     gas_data: dict[str, tuple[np.ndarray, np.ndarray]],
     regression: str = "ols",
+    session_metadata: dict[str, dict] | None = None,
 ) -> SelectivityResult:
     """Build selectivity matrix directly from raw calibration arrays.
 
@@ -277,6 +360,12 @@ def selectivity_from_calibration_data(
     regression:
         Sensitivity estimation method: ``'ols'`` (ordinary least squares) or
         ``'huber'`` (robust, outlier-resistant).
+    session_metadata:
+        Optional dict mapping gas name → metadata dict (see
+        :func:`selectivity_matrix` for the expected keys: ``chip_serial``,
+        ``measurement_date``, ``integration_time_ms``, ``temperature_c``).
+        Passed through to :func:`selectivity_matrix` to validate that all
+        gas sensitivities were measured under identical conditions.
 
     Returns
     -------
@@ -307,4 +396,4 @@ def selectivity_from_calibration_data(
             raise ValueError(f"Unknown regression method: {regression!r}. Choose 'ols' or 'huber'.")
         sensitivities[gas] = float(slope)
 
-    return selectivity_matrix(sensitivities)
+    return selectivity_matrix(sensitivities, session_metadata=session_metadata)

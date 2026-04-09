@@ -31,7 +31,7 @@ Analyse preprocessed spectra to extract scientifically meaningful features. Visu
 peak_idx       = int(np.argmax(processed))
 peak_intensity = float(processed[peak_idx])       # Peak amplitude
 peak_wavelength= float(wl[peak_idx])              # Peak position (nm)
-area           = float(np.trapz(processed, wl))   # Integrated area under curve
+area           = float(np.trapezoid(processed, wl))   # Integrated area under curve
 spectral_std   = float(np.std(processed))         # Spectral variance
 ```
 

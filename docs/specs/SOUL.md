@@ -2,7 +2,7 @@
 
 ## What This System Is
 
-An **Au-MIP LSPR spectroscopy platform** for detecting and quantifying Volatile Organic
+An **spectrometer-based sensing platform** for detecting and quantifying Volatile Organic
 Compounds (VOCs) using the localized surface plasmon resonance shift of gold nanoparticles
 embedded in a molecularly imprinted polymer film.
 
@@ -29,7 +29,7 @@ The **primary signal is peak wavelength SHIFT (Δλ), not peak intensity**:
 | Quantity            | Value                       | Notes                                 |
 |---------------------|-----------------------------|---------------------------------------|
 | Reference peak      | ~531.5 nm                   | Au nanoparticles, green region        |
-| Physical sensitivity | −0.116 nm/ppm              | Literature value for ethanol on Au-MIP|
+| Physical sensitivity | −0.116 nm/ppm              | Literature value for ethanol on the sensor|
 | Signal direction    | Negative Δλ on adsorption   | Analyte adsorbs → redshift            |
 | Detection range     | 0.1 – 10 ppm typical        | Hardware-limited by SNR               |
 | Spectral resolution | 3648 points, 400–700 nm     | ThorLabs CCS200 spectrometer          |
@@ -107,7 +107,7 @@ is always logged alongside any model estimate. Discrepancies > 3σ trigger a qua
 ## Scope Boundaries
 
 **In scope:**
-- VOC gases measurable by Au-MIP LSPR (ethanol, IPA, methanol, mixed VOCs)
+- VOC gases measurable by LSPR sensor (ethanol, IPA, methanol, mixed VOCs)
 - Spectral data from CCS200 or any CSV with `wavelength` + `intensity` columns
 - Offline batch analysis and online real-time inference
 - Single-sensor deployment
@@ -125,7 +125,7 @@ is always logged alongside any model estimate. Discrepancies > 3σ trigger a qua
 | Term | Definition |
 |------|------------|
 | LSPR | Localized Surface Plasmon Resonance — optical phenomenon in Au nanoparticles |
-| Au-MIP | Gold nanoparticle + Molecularly Imprinted Polymer — the sensor material |
+| Sensor material | Application-specific — platform is sensor-agnostic |
 | Δλ | Peak wavelength shift (nm) — the primary physical signal |
 | ROI | Region of Interest — spectral window used for shift calculation |
 | CCS200 | ThorLabs CCS200 spectrometer — 3648-point, 400-700 nm, USB |

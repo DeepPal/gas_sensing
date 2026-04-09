@@ -5,7 +5,6 @@ import pytest
 
 from src.signal.roi import compute_band_ratio_matrix, find_monotonic_wavelengths
 
-
 # ---------------------------------------------------------------------------
 # compute_band_ratio_matrix
 # ---------------------------------------------------------------------------

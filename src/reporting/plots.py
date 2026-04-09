@@ -21,11 +21,12 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 from pathlib import Path
-from typing import Any,  Optional, Union
+import re
+from typing import Any, Optional, Union
 
 import matplotlib
+
 matplotlib.use("Agg")  # noqa: E402 — must precede pyplot import
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,7 +34,6 @@ import pandas as pd
 from scipy.stats import linregress, probplot
 
 from src.reporting.metrics import select_signal_column
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -238,10 +238,9 @@ def save_concentration_response_plot(
     ax2.set_title("Concentration Response Gradient")
     ax2.grid(True, alpha=0.3)
 
-    if clamp_to_roi and x_min is not None and x_max is not None:
-        if float(x_min) < float(x_max):
-            ax1.set_xlim(float(x_min), float(x_max))
-            ax2.set_xlim(float(x_min), float(x_max))
+    if clamp_to_roi and x_min is not None and x_max is not None and float(x_min) < float(x_max):
+        ax1.set_xlim(float(x_min), float(x_max))
+        ax2.set_xlim(float(x_min), float(x_max))
 
     fig.tight_layout()
     tmp_path = out_path + ".tmp"
@@ -458,7 +457,8 @@ def save_wavelength_shift_visualization(
     ax4.set_title(
         f"Zoomed Feature Region ({zoom_min:.1f}-{zoom_max:.1f} nm)\n{feature_type.upper()} positions marked"
     )
-    ax4.legend(loc="upper right", fontsize=7)
+    if ax4.get_legend_handles_labels()[0]:
+        ax4.legend(loc="upper right", fontsize=7)
     ax4.grid(True, alpha=0.3)
 
     # (2,2) Peak vs Valley R² comparison bar chart
@@ -506,7 +506,8 @@ def save_wavelength_shift_visualization(
     ax6.set_ylabel("Δλ from baseline (nm)")
     ax6.set_title("Wavelength Shift Comparison\n(Peak vs Valley)")
     ax6.axhline(0, color="black", linestyle="-", linewidth=0.5)
-    ax6.legend()
+    if ax6.get_legend_handles_labels()[0]:
+        ax6.legend()
     ax6.grid(True, alpha=0.3, axis="y")
 
     selected_label = f"Selected: {feature_type.upper()}" if feature_type != "unknown" else ""
@@ -845,11 +846,11 @@ def save_spectral_response_diagnostic(
                 else:
                     feature_wl = wl_win[extremum_idx]
                 feature_positions.append(float(feature_wl))
-            vals = np.array(feature_positions, dtype=float)
-            if vals.size != len(concentrations) or not np.all(np.isfinite(vals)):
+            vals_arr = np.array(feature_positions, dtype=float)
+            if vals_arr.size != len(concentrations) or not np.all(np.isfinite(vals_arr)):
                 continue
             try:
-                reg = linregress(concentrations, vals)
+                reg = linregress(concentrations, vals_arr)
                 r2_val = float(reg.rvalue**2)
             except Exception:
                 continue
@@ -1035,7 +1036,7 @@ def save_roi_repeatability_plot(
     xs = []
     ys = []
     for conc, trials in sorted(stable_by_conc.items(), key=lambda kv: kv[0]):
-        for trial, df in trials.items():
+        for _trial, df in trials.items():
             col = select_signal_column(df)
             wl = df["wavelength"].values
             y = df[col].values

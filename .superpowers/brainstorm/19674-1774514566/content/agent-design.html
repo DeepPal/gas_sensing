@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Agent Design</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0a0c12;color:#e0e8f8;padding:24px;font-size:13px;line-height:1.6}
+h2{font-size:1.15rem;font-weight:800;margin-bottom:4px;color:#fff}
+.subtitle{color:#888;font-size:.82rem;margin-bottom:20px}
+.section{margin-bottom:28px}
+.section-title{font-size:.63rem;font-weight:700;color:#7a8aaa;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;border-bottom:1px solid #1a2035;padding-bottom:4px}
+
+/* Two-layer diagram */
+.layers-horiz{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.agent-layer{border-radius:8px;padding:14px;position:relative}
+.det-layer{background:#0e1520;border:1px solid #1a3050}
+.llm-layer{background:#140e1a;border:1px solid #2a1a40}
+.layer-badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:.6rem;font-weight:800;letter-spacing:.06em;margin-bottom:8px}
+.badge-det{background:#1a2a40;color:#5a9fd4}
+.badge-llm{background:#2a1a40;color:#b070f8}
+.badge-rule{font-size:.58rem;padding:2px 6px;border-radius:3px;margin-left:6px}
+.rule-fast{background:#0a1a0a;color:#6ee06e;border:1px solid #1a4a1a}
+.rule-async{background:#1a0a1a;color:#b070f8;border:1px solid #3a1a4a}
+.agent-list{list-style:none;margin-top:6px;display:flex;flex-direction:column;gap:6px}
+.agent-list li{background:#080c10;border-radius:4px;padding:7px 10px;border-left:3px solid #1a3050;font-size:.75rem}
+.agent-list li.llm-item{border-left-color:#2a1a40}
+.agent-name{font-weight:700;color:#c8d8f8;display:block;margin-bottom:1px}
+.agent-name.llm-name{color:#d0a8f8}
+.agent-desc{color:#666;font-size:.7rem}
+.sep-arrow{display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#2a3050;align-self:center}
+
+/* Data flow */
+.flow{display:flex;align-items:stretch;gap:0;margin-top:10px}
+.flow-box{padding:8px 12px;font-size:.72rem;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.flow-arrow{display:flex;align-items:center;color:#2a3050;font-size:1rem;flex-shrink:0}
+.fb-hw{background:#0e1520;border:1px solid #1a3050;border-radius:4px 0 0 4px}
+.fb-sig{background:#0a1a0a;border:1px solid #1a3a1a;border-left:none}
+.fb-feat{background:#0e1520;border:1px solid #1a3050;border-left:none}
+.fb-agent{background:#100e1a;border:1px solid #2a1a40;border-left:none;border-radius:0 4px 4px 0}
+.flow-label{font-size:.6rem;color:#555;text-transform:uppercase;letter-spacing:.06em}
+.flow-val{font-size:.75rem;color:#90c8f8;font-weight:600}
+.flow-val.green{color:#6ee06e}
+.flow-val.purple{color:#b070f8}
+.rule-note{font-size:.6rem;padding:2px 5px;border-radius:2px;margin-top:2px;display:inline-block}
+
+/* Agent console mockup */
+.console{background:#080c10;border-radius:6px;border:1px solid #1a2035;overflow:hidden}
+.console-header{background:#111827;padding:7px 12px;font-size:.7rem;font-weight:700;color:#7a8aaa;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1a2035}
+.console-body{padding:8px;display:flex;flex-direction:column;gap:5px;max-height:260px;overflow:auto}
+.event{border-radius:4px;padding:6px 10px;font-size:.72rem;border-left:3px solid transparent}
+.ev-ok{background:#0a140a;border-left-color:#2a4a2a;color:#6ee06e}
+.ev-warn{background:#14100a;border-left-color:#4a3a0a;color:#f0b429}
+.ev-info{background:#0a0e14;border-left-color:#1a2a40;color:#5a9fd4}
+.ev-llm{background:#100a14;border-left-color:#3a1a4a;color:#c0a0f8}
+.ev-time{font-size:.6rem;color:#555;margin-right:6px;font-variant-numeric:tabular-nums}
+.ev-source{font-size:.6rem;padding:1px 5px;border-radius:2px;margin-right:6px;font-weight:700}
+.src-quality{background:#1a2a1a;color:#6ee06e}
+.src-drift{background:#2a1a0a;color:#f0b429}
+.src-cal{background:#1a2035;color:#5a9fd4}
+.src-claude{background:#2a1a40;color:#b070f8}
+.ev-text{color:inherit;line-height:1.4}
+
+/* Plugin table */
+.plugin-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.plugin-card{background:#0e1117;border:1px solid #1a2035;border-radius:5px;padding:10px}
+.plugin-type{font-size:.6rem;font-weight:700;color:#7a8aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.plugin-item{display:flex;align-items:center;gap:7px;padding:4px 0;border-bottom:1px solid #111827;font-size:.75rem}
+.plugin-item:last-child{border:none;padding-bottom:0}
+.plug-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.plug-existing{background:#6ee06e}
+.plug-planned{background:#5a9fd4}
+.plug-community{background:#555}
+.plug-name{color:#c8d8f8;font-weight:600;flex:1}
+.plug-status{font-size:.6rem;color:#555}
+
+/* confirm */
+.confirm-box{margin-top:20px;padding:14px;background:#0e1a0e;border:1px solid #1a3a1a;border-radius:6px}
+</style>
+</head>
+<body>
+
+<h2>Design Section 3 — Agentic AI Architecture (Hybrid)</h2>
+<p class="subtitle">The novel core of SpectraAgent. Two clearly separated layers — deterministic signal math + Claude API reasoning.</p>
+
+<!-- TWO LAYER ARCHITECTURE -->
+<div class="section">
+  <div class="section-title">Two-Layer Agent Architecture</div>
+  <div class="layers-horiz">
+    <div class="agent-layer det-layer">
+      <span class="layer-badge badge-det">DETERMINISTIC AGENTS</span>
+      <span class="badge-rule rule-fast">always running · &lt;1 ms · no API cost</span>
+      <ul class="agent-list">
+        <li>
+          <span class="agent-name">QualityAgent</span>
+          <span class="agent-desc">SNR gate, saturation check, outlier flagging. Hard-blocks on saturation only. Emits quality events per frame.</span>
+        </li>
+        <li>
+          <span class="agent-name">DriftAgent</span>
+          <span class="agent-desc">Peak shift trend monitoring via CUSUM. Emits WARN when drift rate &gt; threshold. Stores drift history.</span>
+        </li>
+        <li>
+          <span class="agent-name">CalibrationAgent</span>
+          <span class="agent-desc">AIC model selection across GPR/Langmuir/Freundlich/Hill. Triggers retraining when R² drops below threshold.</span>
+        </li>
+        <li>
+          <span class="agent-name">ExperimentPlannerAgent</span>
+          <span class="agent-desc">Bayesian optimization (BoTorch) to suggest next concentration. Maximises information gain in calibration space.</span>
+        </li>
+      </ul>
+    </div>
+    <div class="agent-layer llm-layer">
+      <span class="layer-badge badge-llm">CLAUDE API AGENTS</span>
+      <span class="badge-rule rule-async">on-demand · async · never in signal path</span>
+      <ul class="agent-list">
+        <li class="llm-item">
+          <span class="agent-name llm-name">AnomalyExplainer</span>
+          <span class="agent-desc">Given a drift alert + recent data → explains in plain English: "This pattern is consistent with surface fouling. The blue-shift rate of 0.08 nm/hr exceeds typical thermal drift."</span>
+        </li>
+        <li class="llm-item">
+          <span class="agent-name llm-name">ExperimentNarrator</span>
+          <span class="agent-desc">Explains WHY the Bayesian planner suggested a concentration: "The 0.05 ppm point would halve your LOD uncertainty. Your current gap between 0.1 and 0.01 ppm is statistically undersampled."</span>
+        </li>
+        <li class="llm-item">
+          <span class="agent-name llm-name">ReportWriter</span>
+          <span class="agent-desc">Given session metadata + results → writes Methods + Results sections in journal style (Sensors and Actuators B format). Fills in your actual numbers.</span>
+        </li>
+        <li class="llm-item">
+          <span class="agent-name llm-name">DiagnosticsAgent</span>
+          <span class="agent-desc">On hardware error or unexpected spectrum shape → explains likely cause and suggests fix: "VI_ERROR_TMO typically means a stale VISA handle — try disconnecting and reconnecting."</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- DATA FLOW RULE -->
+<div class="section">
+  <div class="section-title">Hard Rule — Claude never touches raw signal data</div>
+  <div class="flow">
+    <div class="flow-box fb-hw">
+      <span class="flow-label">Hardware</span>
+      <span class="flow-val">3648 px<br>raw counts</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box fb-sig">
+      <span class="flow-label">Signal Engine</span>
+      <span class="flow-val green">Δλ = −0.71 nm<br>SNR = 62.4</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box fb-feat">
+      <span class="flow-label">Det. Agents</span>
+      <span class="flow-val">quality=OK<br>drift=stable</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box fb-agent">
+      <span class="flow-label">Claude API</span>
+      <span class="flow-val purple">structured JSON<br>results only</span>
+    </div>
+  </div>
+  <p style="font-size:.7rem;color:#555;margin-top:6px">Claude receives: <code style="color:#888">{"delta_lambda": -0.71, "snr": 62.4, "drift_rate": 0.002, "quality": "ok", "sensor": "LSPR", "gas": "Ethanol"}</code> — never the spectrum array</p>
+</div>
+
+<!-- AGENT CONSOLE MOCKUP -->
+<div class="section">
+  <div class="section-title">5th Tab — Agent Console (what it looks like in the UI)</div>
+  <div class="console">
+    <div class="console-header">
+      <span>⬡ Agent Console</span>
+      <span style="margin-left:auto;color:#6ee06e;font-size:.65rem">● Live · 1,847 events</span>
+      <button style="padding:2px 8px;background:#1a1030;border:1px solid #3a1a50;border-radius:3px;color:#b070f8;font-size:.65rem;cursor:pointer">✦ Ask Claude</button>
+    </div>
+    <div class="console-body">
+      <div class="event ev-ok">
+        <span class="ev-time">14:32:11</span><span class="ev-source src-quality">QualityAgent</span>
+        <span class="ev-text">Frame 1847 — SNR=62.4, saturation=0.0%, quality=OK</span>
+      </div>
+      <div class="event ev-warn">
+        <span class="ev-time">14:31:08</span><span class="ev-source src-drift">DriftAgent</span>
+        <span class="ev-text">WARN — baseline drift +0.082 nm over last 8 min. Rate: 0.010 nm/min. CUSUM score: 4.2 (threshold 3.0)</span>
+      </div>
+      <div class="event ev-llm">
+        <span class="ev-time">14:31:10</span><span class="ev-source src-claude">Claude</span>
+        <span class="ev-text">This drift pattern is consistent with gradual thermal equilibration of the flow cell. The 0.010 nm/min rate is below typical surface fouling (usually &gt;0.05 nm/min). I recommend waiting 5–10 minutes for stabilisation before recording reference spectra. No immediate intervention needed.</span>
+      </div>
+      <div class="event ev-info">
+        <span class="ev-time">14:28:44</span><span class="ev-source src-cal">CalibrationAgent</span>
+        <span class="ev-text">Model comparison complete — Langmuir: AIC=−184.2 ✓ | Freundlich: AIC=−180.1 | Linear: AIC=−171.4. Selected: Langmuir (ΔAIC=4.1 vs next best)</span>
+      </div>
+      <div class="event ev-llm">
+        <span class="ev-time">14:28:46</span><span class="ev-source src-claude">Claude</span>
+        <span class="ev-text">Experiment suggestion: Add a data point at 0.048 ppm. Your current calibration has a gap between 0.01 and 0.1 ppm that accounts for 68% of your LOD uncertainty. A single point here would reduce σ_LOD by ~40%.</span>
+      </div>
+      <div class="event ev-ok">
+        <span class="ev-time">14:22:01</span><span class="ev-source src-quality">QualityAgent</span>
+        <span class="ev-text">Reference spectrum captured — peak at 531.499 nm, FWHM=18.2 nm, SNR=89.1. LSPRReference cache built.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PLUGIN SYSTEM -->
+<div class="section">
+  <div class="section-title">Plugin Architecture — Hardware + Sensor Physics</div>
+  <div class="plugin-grid">
+    <div class="plugin-card">
+      <div class="plugin-type">Hardware Drivers</div>
+      <div class="plugin-item"><div class="plug-dot plug-existing"></div><span class="plug-name">ThorLabs CCS200</span><span class="plug-status">existing ✓</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-planned"></div><span class="plug-name">Ocean Optics (USB2000+/Flame)</span><span class="plug-status">v1.1</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-planned"></div><span class="plug-name">Avantes AvaSpec</span><span class="plug-status">v1.2</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-existing"></div><span class="plug-name">Simulation (built-in)</span><span class="plug-status">existing ✓</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-community"></div><span class="plug-name">Custom (user plugin)</span><span class="plug-status">entry-point API</span></div>
+    </div>
+    <div class="plugin-card">
+      <div class="plugin-type">Sensor Physics Models</div>
+      <div class="plugin-item"><div class="plug-dot plug-existing"></div><span class="plug-name">LSPR (Au nanoparticles)</span><span class="plug-status">existing ✓</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-planned"></div><span class="plug-name">SPR (prism / fiber)</span><span class="plug-status">v1.1</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-planned"></div><span class="plug-name">UV-Vis Absorption (Beer-Lambert)</span><span class="plug-status">v1.1</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-planned"></div><span class="plug-name">NIR / NIRS</span><span class="plug-status">v1.2</span></div>
+      <div class="plugin-item"><div class="plug-dot plug-community"></div><span class="plug-name">Raman / fluorescence</span><span class="plug-status">community</span></div>
+    </div>
+  </div>
+  <p style="font-size:.7rem;color:#555;margin-top:8px">Each plugin registered via <code style="color:#888">pyproject.toml</code> entry points — <code style="color:#888">pip install spectraagent-ocean-optics</code> auto-discovers the driver at startup.</p>
+</div>
+
+<div class="confirm-box">
+  <strong style="color:#6ee06e">Does this design look right?</strong><br>
+  <span style="color:#888;font-size:.82rem">Specifically: (1) the two-layer agent split, (2) the Agent Console tab, (3) the plugin system. Reply <strong style="color:#fff">yes</strong> to continue to Section 4 — packaging, CLI, and report generation — or tell me what to change.</span>
+</div>
+
+</body>
+</html>

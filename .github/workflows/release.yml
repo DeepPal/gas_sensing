@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]*"   # e.g. v1.2.3, v2.0.0rc1
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+  id-token: write  # needed for Sigstore OIDC attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so setuptools-scm / changelog access works
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME}"           # e.g. v1.2.3
+          PKG_VERSION=$(python -c "import spectraagent; print(spectraagent.__version__)")
+          EXPECTED="v${PKG_VERSION}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "ERROR: git tag '$TAG' does not match spectraagent.__version__ ('$PKG_VERSION')"
+            echo "       Update spectraagent/__init__.py before tagging."
+            exit 1
+          fi
+          echo "Version check passed: $TAG == $EXPECTED"
+
+      - name: Install package (for import check above to work)
+        run: pip install -e ".[dev,ml]"
+
+      - name: Run fast test lane (release gate)
+        run: pytest -q --tb=short -m "not reliability"
+
+      - name: Run research preflight self-check (release gate)
+        run: python scripts/research_preflight.py --self-check
+
+      - name: Run research integrity self-check
+        run: python scripts/research_integrity_gate.py --self-check
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Check release artifact hygiene
+        run: python scripts/check_artifact_hygiene.py --dist-dir dist
+
+      - name: Generate artifact checksums
+        run: python scripts/generate_checksums.py --dist-dir dist --output sha256sums.txt
+
+      - name: Verify checksum manifest completeness
+        run: python scripts/verify_release_manifest.py --dist-dir dist --manifest sha256sums.txt
+
+      - name: Verify distributions
+        run: twine check dist/*
+
+      - name: Sign artifacts with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3
+        with:
+          inputs: dist/*.whl dist/*.tar.gz
+          upload-signing-artifacts: true
+
+      - name: Publish release checksums in workflow summary
+        run: |
+          {
+            echo "## Release Artifact Checksums"
+            echo ""
+            echo '```text'
+            cat dist/sha256sums.txt
+            echo '```'
+            echo ""
+            echo "## Sigstore Attestation"
+            echo "Artifacts are signed via [Sigstore](https://sigstore.dev). Verify with:"
+            echo '```bash'
+            echo "gh attestation verify <artifact.whl> --repo DeepPal/gas_sensing"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Extract changelog section for this release
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          # Extract the section between the first two version headers
+          NOTES=$(awk "/^## \[?${VERSION}\]?/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="See CHANGELOG.md for details."
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "SpectraAgent ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.notes }}
+          files: |
+            dist/*
+            dist/*.sigstore.json
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
+
+      # Optional: publish to PyPI when PYPI_API_TOKEN secret is configured.
+      # Safely no-op when token is not configured.
+      - name: Publish to PyPI
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "${PYPI_API_TOKEN:-}" ]; then
+            echo "PYPI_API_TOKEN is not set; skipping publish."
+            exit 0
+          fi
+          export TWINE_USERNAME=__token__
+          export TWINE_PASSWORD="$PYPI_API_TOKEN"
+          twine upload dist/*.whl dist/*.tar.gz

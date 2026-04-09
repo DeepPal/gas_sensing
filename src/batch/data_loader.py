@@ -2,7 +2,7 @@
 src.batch.data_loader
 =====================
 Utilities for discovering and loading raw spectrum CSV files from the Joy_Data
-directory layout used by the Au-MIP LSPR experiment.
+directory layout used by the the sensor LSPR experiment.
 
 Expected directory layout
 --------------------------

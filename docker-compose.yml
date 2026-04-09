@@ -1,26 +1,24 @@
 # =============================================================================
-# Au-MIP LSPR Gas Sensing Platform — Docker Compose
+# SpectraAgent — Spectrometer-Based Sensing Platform — Docker Compose
 # =============================================================================
 #
 # Services
 # --------
-#   api        FastAPI inference server  → http://localhost:8000
-#   dashboard  Streamlit analytics UI    → http://localhost:8501
-#   tests      CI test runner (profile: test)
+#   spectraagent  Live acquisition platform → http://localhost:8765
+#   dashboard     Streamlit analytics UI    → http://localhost:8501
+#   tests         CI test runner (profile: test)
 #
 # Quick start
 # -----------
-#   docker compose up                        # start api + dashboard
+#   docker compose up                        # start spectraagent + dashboard
 #   docker compose up --build                # rebuild images first
 #   docker compose --profile test run tests  # run CI test suite
 #   docker compose down                      # stop & remove containers
 #
 # Environment variables (.env file or shell exports)
-#   WORKERS=2           number of uvicorn workers
-#   LOG_LEVEL=info      uvicorn log level (debug | info | warning)
+#   LOG_LEVEL=info      application log level (debug | info | warning)
 #   CONFIG_PATH=config/config.yaml   override config file path
-
-version: "3.9"
+#   SPECTRAAGENT_BASE_URL=http://localhost:8765  dashboard link target
 
 # ---------------------------------------------------------------------------
 # Shared build context (both api + dashboard use the same source image)
@@ -36,28 +34,26 @@ x-common-env: &common-env
 
 services:
   # ==========================================================================
-  # Inference API — FastAPI / uvicorn
+  # SpectraAgent live platform — FastAPI + WebSocket + acquisition loop
   # ==========================================================================
-  api:
+  spectraagent:
     build:
       <<: *default-build
-      target: api
-    container_name: gas-api
-    image: gas-api:latest
+      target: spectraagent
+    container_name: spectraagent-live
+    image: spectraagent-live:latest
     ports:
-      - "8000:8000"
+      - "8765:8765"
     volumes:
-      # Mount data read-only; output is writable
       - ./data:/app/data:ro
       - ./output:/app/output
       - ./config:/app/config:ro
-      # Optional: mount trained models so they persist across rebuilds
       - ./output/models:/app/output/models
     environment:
       <<: *common-env
-      WORKERS: ${WORKERS:-2}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8765/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -81,10 +77,10 @@ services:
       - ./data:/app/data:ro
       - ./output:/app/output
       - ./config:/app/config:ro
+      - ./.streamlit:/app/.streamlit:ro
     environment:
       <<: *common-env
-      # Point dashboard at the API container by service name
-      API_BASE_URL: http://api:8000
+      SPECTRAAGENT_BASE_URL: ${SPECTRAAGENT_BASE_URL:-http://localhost:8765}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -92,7 +88,7 @@ services:
       retries: 3
       start_period: 20s
     depends_on:
-      api:
+      spectraagent:
         condition: service_healthy
     restart: unless-stopped
     networks:

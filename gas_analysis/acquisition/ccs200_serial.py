@@ -7,12 +7,15 @@ Based on ThorLabs TLCCS driver documentation.
 
 import builtins
 import contextlib
+import logging
 import struct
 import time
 from typing import Optional
 
 import numpy as np
 import pyvisa
+
+log = logging.getLogger(__name__)
 
 
 class CCS200Serial:
@@ -82,7 +85,7 @@ class CCS200Serial:
         with contextlib.suppress(builtins.BaseException):
             self.instrument.clear()
 
-        print("  ✓ Connected")
+        print("  [OK] Connected")
 
     def _initialize(self):
         """Initialize device communication."""
@@ -95,7 +98,7 @@ class CCS200Serial:
         if response and response[0] != 0x00:
             print(f"  Warning: Init returned {response[0]:02X}")
 
-        print("  ✓ Device initialized")
+        print("  [OK] Device initialized")
 
     def _send_command(self, cmd: int, data: bytes = None, read_length: int = 0) -> Optional[bytes]:
         """Send command and optionally read response."""
@@ -113,7 +116,8 @@ class CCS200Serial:
                 time.sleep(0.01)  # Small delay for device processing
                 try:
                     return self.instrument.read_bytes(read_length)
-                except:
+                except Exception as exc:
+                    log.warning("read_bytes failed: %s", exc)
                     return None
 
             return None
@@ -130,13 +134,13 @@ class CCS200Serial:
             if response and len(response) >= self.NUM_PIXELS * 8:
                 # Parse as double array
                 self._wavelengths = np.frombuffer(response[: self.NUM_PIXELS * 8], dtype=np.float64)
-                print("  ✓ Wavelengths loaded from device")
+                print("  [OK] Wavelengths loaded from device")
             else:
                 # Use default calibration
                 self._wavelengths = np.linspace(200.0, 1000.0, self.NUM_PIXELS)
-                print("  ℹ Using default wavelength calibration")
+                print("  [INFO] Using default wavelength calibration")
         except Exception as e:
-            print(f"  ℹ Wavelength load failed: {e}, using default")
+            print(f"  [INFO] Wavelength load failed: {e}, using default")
             self._wavelengths = np.linspace(200.0, 1000.0, self.NUM_PIXELS)
 
     def get_wavelengths(self) -> np.ndarray:
@@ -231,14 +235,14 @@ class CCS200Serial:
                 self._send_command(self.CMD_CLOSE)
                 self.instrument.close()
                 self.instrument = None
-        except:
+        except Exception:
             pass
 
         try:
             if self.rm:
                 self.rm.close()
                 self.rm = None
-        except:
+        except Exception:
             pass
 
     def __enter__(self):
@@ -277,24 +281,24 @@ if __name__ == "__main__":
         print("\nTaking measurement...")
         wavelengths, intensities = spec.get_spectrum()
 
-        print(f"  ✓ Data acquired: {len(intensities)} pixels")
-        print(f"  ✓ Intensity range: {intensities.min():.3f} - {intensities.max():.3f}")
-        print(f"  ✓ Mean intensity: {intensities.mean():.3f}")
+        print(f"  [OK] Data acquired: {len(intensities)} pixels")
+        print(f"  [OK] Intensity range: {intensities.min():.3f} - {intensities.max():.3f}")
+        print(f"  [OK] Mean intensity: {intensities.mean():.3f}")
 
         # Find peak
         peak_idx = np.argmax(intensities)
         print(
-            f"  ✓ Peak at: {wavelengths[peak_idx]:.2f} nm, intensity: {intensities[peak_idx]:.3f}"
+            f"  [OK] Peak at: {wavelengths[peak_idx]:.2f} nm, intensity: {intensities[peak_idx]:.3f}"
         )
 
         spec.close()
 
         print("\n" + "=" * 60)
-        print("✓ Test passed! Spectrometer is working.")
+        print("[OK] Test passed! Spectrometer is working.")
         print("=" * 60)
 
     except Exception as e:
-        print(f"\n✗ Error: {e}")
+        print(f"\n[FAIL] Error: {e}")
         import traceback
 
         traceback.print_exc()

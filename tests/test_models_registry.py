@@ -9,6 +9,7 @@ GPR tests use real GPRCalibration instances to exercise the full path.
 
 import json
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -82,8 +83,8 @@ class TestModelRegistryLoadAll:
         _write_calibration_json(tmp_path / "calibration_params.json", data)
         reg = _make_registry()
         reg.load_all(str(tmp_path))
-        assert reg.calibration_params["slope"] == pytest.approx(0.12)
-        assert reg.calibration_params["reference_wavelength"] == pytest.approx(717.8)
+        assert cast(dict, reg.calibration_params)["slope"] == pytest.approx(0.12)
+        assert cast(dict, reg.calibration_params)["reference_wavelength"] == pytest.approx(717.8)
 
     def test_load_calibration_batch_pipeline_format(self, tmp_path):
         data = {
@@ -95,7 +96,7 @@ class TestModelRegistryLoadAll:
         _write_calibration_json(tmp_path / "calibration_params.json", data)
         reg = _make_registry()
         reg.load_all(str(tmp_path))
-        assert reg.calibration_params["slope"] == pytest.approx(0.118)
+        assert cast(dict, reg.calibration_params)["slope"] == pytest.approx(0.118)
 
     def test_load_all_returns_status_dict_shape(self, tmp_path):
         reg = _make_registry()

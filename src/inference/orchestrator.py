@@ -33,6 +33,7 @@ import csv
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import shutil
 import threading
 import time
 from typing import Any
@@ -86,18 +87,22 @@ class _SessionWriter:
         self,
         session_dir: Path,
         flush_interval_s: float = 0.5,
-        save_raw: bool = False,
+        save_raw: bool = True,
     ) -> None:
         self._session_dir = session_dir
         self._flush_interval_s = flush_interval_s
         self._save_raw = save_raw
         self._csv_path = session_dir / "pipeline_results.csv"
         self._raw_path = session_dir / "raw_spectra.parquet"
+        # Per-flush partition files go here; merged into raw_spectra.parquet at stop().
+        # This avoids the O(n²) read-entire-file + rewrite pattern of the naive approach.
+        self._raw_parts_dir = session_dir / "_raw_parts"
 
         self._pending: list[dict[str, Any]] = []
         self._raw_buf: list[tuple] = []
         self._lock = threading.Lock()
         self._header_written = False
+        self._raw_part_idx = 0
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -112,19 +117,28 @@ class _SessionWriter:
         result_dict: dict[str, Any],
         raw_intensities: np.ndarray | None = None,
     ) -> None:
-        """Non-blocking enqueue from the acquisition thread."""
+        """Non-blocking enqueue from the acquisition thread.
+
+        Raw intensities are stored as a numpy array (not converted to a Python
+        list here) so the acquisition thread is not blocked by 3648 PyObject
+        allocations per frame.  The list conversion happens in the daemon flush
+        thread at 2 Hz instead.
+        """
         with self._lock:
-            self._pending.append(dict(result_dict))
+            # result_dict is a fresh local from _on_sample — no copy needed.
+            self._pending.append(result_dict)
             if self._save_raw and raw_intensities is not None:
                 ts = result_dict.get("timestamp", "")
-                self._raw_buf.append((ts, raw_intensities.tolist()))
+                self._raw_buf.append((ts, raw_intensities.copy()))
 
     def stop(self) -> None:
-        """Flush remaining data, stop the thread."""
+        """Flush remaining data, stop the thread, and merge raw Parquet partitions."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=5.0)
         self._flush()
+        if self._save_raw:
+            self._merge_raw_parts()
 
     def _write_loop(self) -> None:
         while self._running:
@@ -154,13 +168,43 @@ class _SessionWriter:
             try:
                 import pandas as pd
 
-                df = pd.DataFrame(raw_rows, columns=["timestamp", "intensities"])
-                if self._raw_path.exists():
-                    existing = pd.read_parquet(self._raw_path)
-                    df = pd.concat([existing, df], ignore_index=True)
-                df.to_parquet(self._raw_path, index=False)
+                self._raw_parts_dir.mkdir(parents=True, exist_ok=True)
+                part_path = self._raw_parts_dir / f"part_{self._raw_part_idx:06d}.parquet"
+                self._raw_part_idx += 1
+                # Convert numpy arrays to lists here (daemon thread, 2 Hz) rather
+                # than in enqueue() (acquisition thread, 20 Hz).
+                df = pd.DataFrame(
+                    [(ts, arr.tolist()) for ts, arr in raw_rows],
+                    columns=["timestamp", "intensities"],
+                )
+                df.to_parquet(part_path, index=False)
             except Exception as exc:
                 log.debug("Raw spectrum flush failed: %s", exc)
+
+    def _merge_raw_parts(self) -> None:
+        """Merge per-flush Parquet partitions into a single raw_spectra.parquet.
+
+        Called once at session end.  O(n) in total frames — partitions are
+        concatenated in order and the temporary directory is removed.
+        """
+        if not self._raw_parts_dir.exists():
+            return
+        parts = sorted(self._raw_parts_dir.glob("part_*.parquet"))
+        if not parts:
+            return
+        try:
+            import pandas as pd
+
+            df = pd.concat([pd.read_parquet(p) for p in parts], ignore_index=True)
+            df.to_parquet(self._raw_path, index=False)
+            shutil.rmtree(self._raw_parts_dir, ignore_errors=True)
+            log.info(
+                "Raw spectra merged: %d frames → %s",
+                len(df),
+                self._raw_path.name,
+            )
+        except Exception as exc:
+            log.warning("Raw spectra merge failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +298,10 @@ class SensorOrchestrator:
         self._session_dir: Path | None = None
         self._writer: _SessionWriter | None = None
         self._gas_label: str = "unknown"
+
+        # Watchdog: consecutive pipeline errors → auto-stop to prevent silent stall
+        self._consecutive_errors: int = 0
+        self._MAX_CONSECUTIVE_ERRORS: int = 10
 
         # Hardware service (populated in start_session)
         try:
@@ -444,8 +492,19 @@ class SensorOrchestrator:
             result = self.pipeline.process_spectrum(
                 wl, intensities, timestamp=timestamp, sample_id=f"S{sample_num:06d}"
             )
+            self._consecutive_errors = 0  # reset on success
         except Exception as exc:
-            log.debug("Pipeline error on sample %d: %s", sample_num, exc)
+            self._consecutive_errors += 1
+            log.warning(
+                "Pipeline error on sample %d (%d consecutive): %s",
+                sample_num, self._consecutive_errors, exc,
+            )
+            if self._consecutive_errors >= self._MAX_CONSECUTIVE_ERRORS:
+                log.error(
+                    "Stopping acquisition after %d consecutive pipeline errors",
+                    self._consecutive_errors,
+                )
+                self._live_store.set_running(False)
             return
 
         spec = result.spectrum

@@ -1,7 +1,7 @@
 """
 src.models
 ==========
-ML model definitions, the central model registry, and ONNX export.
+ML model definitions, the central model registry, ONNX export, and versioning.
 
 Modules
 -------
@@ -11,6 +11,9 @@ cnn
 registry
     ``ModelRegistry`` — loads CNN / GPR / calibration from ``models/registry/``
     and exposes a unified prediction interface with graceful degradation.
+versioning
+    ``ModelVersionStore`` — timestamped saves, manifests, promotion, rollback.
+    No PyTorch/joblib hard dependency at import time.
 onnx_export
     ``export_cnn_to_onnx`` — export fitted CNN to ONNX for edge deployment.
     ``validate_onnx_export`` — verify numerical agreement between PyTorch and ONNX.
@@ -18,9 +21,12 @@ onnx_export
 """
 
 from src.models.registry import ModelRegistry
+from src.models.versioning import ModelVersionStore, VersionRecord
 
 __all__ = [
     "ModelRegistry",
+    "ModelVersionStore",
+    "VersionRecord",
     "export_cnn_to_onnx",
     "get_cnn_classifier",
     "get_onnx_inference_wrapper",

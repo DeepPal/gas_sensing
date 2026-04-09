@@ -1,10 +1,10 @@
-site_name: Au-MIP LSPR Gas Sensing Platform
+site_name: SpectraAgent
 site_description: >-
-  Commercial-grade Au nanoparticle MIP LSPR gas sensing platform —
-  real-time acquisition, machine learning analysis, and publication-ready outputs.
+  Universal agentic spectroscopy platform — hardware-agnostic real-time acquisition,
+  physics-informed ML calibration, Claude AI agents, and publication-ready outputs.
 site_author: Chulalongkorn University Gas Sensing Lab
-repo_url: https://github.com/your-org/gas-sensing-platform
-repo_name: gas-sensing-platform
+repo_url: https://github.com/your-org/spectraagent
+repo_name: spectraagent
 docs_dir: docs
 
 theme:
@@ -75,8 +75,14 @@ nav:
   - Home: index.md
   - Architecture: SYSTEM_ARCHITECTURE.md
   - Engineering Standards: ENGINEERING_STANDARDS.md
-  - Validation (ICH Q2): ICH_Q2_VALIDATION.md
-  - Validation Strategy: VALIDATION_STRATEGY.md
+  - Hardware:
+    - CCS200 Setup: hardware/CCS200_SETUP.md
+  - Guides:
+    - Calibration Workflow: guides/CALIBRATION_WORKFLOW.md
+    - CI Troubleshooting: guides/CI_TROUBLESHOOTING.md
+  - Validation:
+    - ICH Q2 Report: ICH_Q2_VALIDATION.md
+    - Validation Strategy: VALIDATION_STRATEGY.md
   - API Reference:
     - Overview: api/index.md
     - Signal Processing:
@@ -89,6 +95,12 @@ nav:
       - Denoising: api/preprocessing/denoising.md
     - Calibration:
       - Isotherms: api/calibration/isotherms.md
+      - Physics-Informed GPR: api/calibration/physics_kernel.md
+      - PLS Calibration: api/calibration/pls.md
+      - Conformal Prediction: api/calibration/conformal.md
+      - Active Learning: api/calibration/active_learning.md
+      - Batch Reproducibility: api/calibration/batch_reproducibility.md
+      - Selectivity: api/calibration/selectivity.md
       - Transforms: api/calibration/transforms.md
       - Multi-ROI Fusion: api/calibration/multi_roi.md
       - ROI Scan: api/calibration/roi_scan.md
@@ -99,19 +111,28 @@ nav:
       - ONNX Export: api/models/onnx_export.md
     - Scientific:
       - Limit of Detection: api/scientific/lod.md
-      - Selectivity: api/scientific/selectivity.md
+      - Selectivity Matrix: api/scientific/selectivity.md
       - Regression: api/scientific/regression.md
+    - Inference:
+      - RealTimePipeline: api/inference/realtime_pipeline.md
+      - SessionAnalyzer: api/inference/session_analyzer.md
+      - Orchestrator: api/inference/orchestrator.md
+    - Spectrometer:
+      - Registry: api/spectrometer/registry.md
+      - Base: api/spectrometer/base.md
+      - Simulated: api/spectrometer/simulated.md
+    - I/O:
+      - HDF5: api/io/hdf5.md
     - Batch Processing:
       - Aggregation: api/batch/aggregation.md
       - Preprocessing: api/batch/preprocessing.md
       - Response Analysis: api/batch/response.md
     - Reporting:
       - Metric Aggregation: api/reporting/metrics.md
+      - Publication Figures: api/reporting/publication.md
       - Environment Compensation: api/reporting/environment.md
       - I/O Serialisers: api/reporting/io.md
       - Plots: api/reporting/plots.md
-    - Inference:
-      - Orchestrator: api/inference/orchestrator.md
     - REST API:
       - Routes - Health: api/rest/health.md
       - Routes - Predict: api/rest/predict.md

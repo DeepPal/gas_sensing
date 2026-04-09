@@ -108,10 +108,10 @@ class RealtimeAcquisitionService:
                 try:
                     self._try_interface(iface)
                     if self.spectrometer:
-                        print(f"  ✓ Connected via {iface}")
+                        print(f"  [OK] Connected via {iface}")
                         break
                 except Exception as e:
-                    print(f"  ✗ {iface} failed: {str(e)[:60]}")
+                    print(f"  [FAIL] {iface} failed: {str(e)[:60]}")
                     continue
         else:
             self._try_interface(interface)
@@ -127,9 +127,9 @@ class RealtimeAcquisitionService:
         self.wavelengths = self.spectrometer.get_wavelengths()
         self.target_idx = np.argmin(np.abs(self.wavelengths - self.target_wavelength))
 
-        print(f"  ✓ Wavelength range: {self.wavelengths[0]:.1f} - {self.wavelengths[-1]:.1f} nm")
-        print(f"  ✓ Target: {self.wavelengths[self.target_idx]:.2f} nm (index {self.target_idx})")
-        print(f"  ✓ Pixels: {len(self.wavelengths)}")
+        print(f"  [OK] Wavelength range: {self.wavelengths[0]:.1f} - {self.wavelengths[-1]:.1f} nm")
+        print(f"  [OK] Target: {self.wavelengths[self.target_idx]:.2f} nm (index {self.target_idx})")
+        print(f"  [OK] Pixels: {len(self.wavelengths)}")
         return True
 
     def _try_interface(self, interface: str):
@@ -188,67 +188,104 @@ class RealtimeAcquisitionService:
             self.callbacks.remove(callback)
 
     def _acquisition_loop(self):
-        """Main acquisition thread."""
+        """Main acquisition thread.
+
+        Uses continuous scan mode (tlccs_startScanCont) when the spectrometer
+        supports it — this matches ThorLabs OceanView throughput (~15–20 Hz at
+        50 ms integration) by letting the CCD expose the next frame while the
+        previous one is being transferred over USB.
+
+        Falls back to single-scan mode for other spectrometer types.
+        """
         self.stats["start_time"] = time.time()
 
-        while self.running:
-            t_start = time.time()
+        # Use continuous mode if the hardware driver supports it
+        use_cont = (
+            hasattr(self.spectrometer, "start_continuous")
+            and hasattr(self.spectrometer, "get_data_cont")
+            and hasattr(self.spectrometer, "stop_continuous")
+        )
 
+        if use_cont:
             try:
-                intensities = self.spectrometer.get_data()
-                if intensities is None or len(intensities) == 0:
-                    raise ValueError("Empty or invalid spectral data received")
-
-                intensities = self._apply_normalization(intensities)
-                t_acquisition = time.time() - t_start
-
-                # Validate data quality
-                if np.any(np.isnan(intensities)) or np.any(np.isinf(intensities)):
-                    raise ValueError("Invalid spectral data (NaN/Inf detected)")
-
-                if np.max(intensities) <= 0:
-                    raise ValueError("All intensities are zero or negative")
-
-                sample = {
-                    "timestamp": t_start,
-                    "sample_num": self.sample_count,
-                    "intensities": intensities,
-                    "target_intensity": float(intensities[self.target_idx]),
-                    "integration_ms": self.integration_time_ms,
-                    "acquisition_time_ms": t_acquisition * 1000,
-                }
-
-                self.sample_count += 1
-                self.stats["avg_acquisition_time"] = (
-                    0.9 * self.stats["avg_acquisition_time"] + 0.1 * t_acquisition
-                )
-
-                with self._buffer_lock:
-                    self.data_buffer.append(sample)
-                    # deque handles automatic cleanup
-
-                for cb in self.callbacks:
-                    try:
-                        cb(sample)
-                    except Exception as e:
-                        print(f"Callback error: {e}")
-
-                elapsed = time.time() - t_start
-                target_period = self.integration_time_ms / 1000.0 + 0.015
-                sleep_time = max(0, target_period - elapsed)
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                else:
-                    self.stats["dropped_samples"] += 1
-
+                self.spectrometer.start_continuous()
             except Exception as e:
-                self.stats["dropped_samples"] += 1
-                self._request_restart(f"Acquisition error: {e}")
-                time.sleep(0.05)
+                print(f"  [WARN] Continuous mode unavailable ({e}), using single-scan")
+                use_cont = False
 
-            # Handle pending restart requests outside the try/except to avoid swallowing
-            if self._restart_requested:
-                self._perform_restart()
+        try:
+            while self.running:
+                t_start = time.time()
+
+                try:
+                    if use_cont:
+                        intensities = self.spectrometer.get_data_cont()
+                    else:
+                        intensities = self.spectrometer.get_data()
+
+                    if intensities is None or len(intensities) == 0:
+                        raise ValueError("Empty or invalid spectral data received")
+
+                    intensities = self._apply_normalization(intensities)
+                    t_acquisition = time.time() - t_start
+
+                    # Validate data quality
+                    if np.any(np.isnan(intensities)) or np.any(np.isinf(intensities)):
+                        raise ValueError("Invalid spectral data (NaN/Inf detected)")
+
+                    if np.max(intensities) <= 0:
+                        raise ValueError("All intensities are zero or negative")
+
+                    sample = {
+                        "timestamp": t_start,
+                        "sample_num": self.sample_count,
+                        "intensities": intensities,
+                        "target_intensity": float(intensities[self.target_idx]),
+                        "integration_ms": self.integration_time_ms,
+                        "acquisition_time_ms": t_acquisition * 1000,
+                    }
+
+                    self.sample_count += 1
+                    self._last_sample_time = t_start
+                    self.stats["avg_acquisition_time"] = (
+                        0.9 * self.stats["avg_acquisition_time"] + 0.1 * t_acquisition
+                    )
+
+                    with self._buffer_lock:
+                        self.data_buffer.append(sample)
+
+                    for cb in self.callbacks:
+                        try:
+                            cb(sample)
+                        except Exception as e:
+                            print(f"Callback error: {e}")
+
+                    # In continuous mode the CCD is already exposing the next
+                    # frame — no extra sleep needed; USB transfer is the bottleneck.
+                    # In single-scan mode pace to (integration + 15 ms).
+                    if not use_cont:
+                        elapsed = time.time() - t_start
+                        target_period = self.integration_time_ms / 1000.0 + 0.015
+                        sleep_time = max(0, target_period - elapsed)
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+                        else:
+                            self.stats["dropped_samples"] += 1
+
+                except Exception as e:
+                    self.stats["dropped_samples"] += 1
+                    self._request_restart(f"Acquisition error: {e}")
+                    time.sleep(0.05)
+
+                # Handle pending restart requests outside the try/except
+                if self._restart_requested:
+                    self._perform_restart()
+        finally:
+            if use_cont:
+                try:
+                    self.spectrometer.stop_continuous()
+                except Exception:
+                    pass
 
     def start(self):
         """Start acquisition thread."""
@@ -261,7 +298,7 @@ class RealtimeAcquisitionService:
         self._start_health_watchdog()
 
         rate = 1000.0 / self.integration_time_ms
-        print(f"\n✓ Acquisition started at {rate:.1f} Hz")
+        print(f"\n[OK] Acquisition started at {rate:.1f} Hz")
         print(f"  Target wavelength: {self.target_wavelength} nm")
 
     def stop(self):
@@ -272,23 +309,37 @@ class RealtimeAcquisitionService:
             self._thread.join(timeout=2.0)
         if self.spectrometer:
             self.spectrometer.close()
-        print("\n✓ Acquisition stopped")
+        print("\n[OK] Acquisition stopped")
 
     def _apply_normalization(self, intensities):
-        if (
-            not self.normalization_enabled
-            or self.dark_spectrum is None
-            or self.reference_spectrum is None
-        ):
-            return intensities
+        """Apply dark-current subtraction and optional reference normalisation.
 
+        Three operating modes:
+        1. **Dark + reference** (``normalization_enabled=True``):
+           ``(I − dark) / max(reference − dark, ε)``  — transmittance normalised.
+        2. **Dark only** (``dark_spectrum`` set but no reference):
+           ``max(I − dark, 0)``  — dark-subtracted, floor-clipped.
+        3. **None** — return raw intensities unchanged.
+        """
         if not isinstance(intensities, np.ndarray):
             intensities = np.array(intensities, dtype=np.float64)
 
-        dark = self.dark_spectrum
-        reference = self.reference_spectrum
-        denom = np.maximum(reference - dark, 1e-9)
-        return (intensities - dark) / denom
+        # Dark-only mode: subtract without reference
+        if self.dark_spectrum is not None and not self.normalization_enabled:
+            return np.maximum(intensities - self.dark_spectrum, 0.0)
+
+        # Full normalisation: dark subtraction + reference scaling
+        if (
+            self.normalization_enabled
+            and self.dark_spectrum is not None
+            and self.reference_spectrum is not None
+        ):
+            dark = self.dark_spectrum
+            reference = self.reference_spectrum
+            denom = np.maximum(reference - dark, 1e-9)
+            return (intensities - dark) / denom
+
+        return intensities
 
     def get_latest_sample(self) -> Optional[dict]:
         """Get most recent sample."""
@@ -357,7 +408,7 @@ class RealtimeAcquisitionService:
                         ]
                         writer.writerow(row)
 
-            print(f"✓ Data saved to: {csv_path}")
+            print(f"[OK] Data saved to: {csv_path}")
             print(
                 f"  Samples: {len(self.data_buffer)} | Mode: {'Full spectrum' if full_spectrum else 'Compact'}"
             )
@@ -378,9 +429,9 @@ class RealtimeAcquisitionService:
                         d["target_intensity"],
                     ]
                     writer.writerow(row)
-            print(f"✓ Data saved to temp: {temp_path} ({len(self.data_buffer)} samples)")
+            print(f"[OK] Data saved to temp: {temp_path} ({len(self.data_buffer)} samples)")
         except Exception as e:
-            print(f"✗ Failed to save data: {e}")
+            print(f"[FAIL] Failed to save data: {e}")
 
     # ------------------------------------------------------------------
     # Calibration / normalization helpers
@@ -397,6 +448,31 @@ class RealtimeAcquisitionService:
                 time.sleep(settle_ms / 1000.0)
 
         return np.mean(np.stack(spectra, axis=0), axis=0)
+
+    def capture_dark(self, num_frames: int = 20, settle_ms: float = 0.0) -> np.ndarray:
+        """Capture and store a dark-current correction spectrum.
+
+        Block all light from the sensor, then call this method.  The
+        averaged dark spectrum is subtracted from every subsequent frame
+        in ``_apply_normalization``.  This corrects for detector bias and
+        thermal noise without requiring a separate reference measurement.
+
+        Parameters
+        ----------
+        num_frames :
+            Number of frames to average (more = lower noise floor).
+        settle_ms :
+            Wait between frames (ms).  Use 0 for connected instruments
+            with a stable dark floor.
+
+        Returns
+        -------
+        dark : ndarray, shape (n_pixels,)
+            The captured dark spectrum (also stored internally).
+        """
+        dark = self.capture_average_spectrum(num_samples=num_frames, settle_ms=settle_ms)
+        self.dark_spectrum = dark
+        return dark
 
     def configure_normalization(self, dark: np.ndarray, reference: np.ndarray):
         if dark.shape != reference.shape:
@@ -433,7 +509,7 @@ class RealtimeAcquisitionService:
 
         Args:
             approx_wavelength: Optional center wavelength to limit the search window.
-            window_nm: Width (±) around the approx wavelength to search. Ignored if approx is None.
+            window_nm: Width (+/-) around the approx wavelength to search. Ignored if approx is None.
         """
         if not self.spectrometer or self.wavelengths is None:
             raise RuntimeError("Spectrometer must be connected before auto-selecting wavelength")
@@ -446,7 +522,7 @@ class RealtimeAcquisitionService:
             search_mask = delta <= max(window_nm, 0.1)
             if not search_mask.any():
                 print(
-                    f"  ⚠ No pixels within ±{window_nm} nm of {approx_wavelength} nm; scanning full range"
+                    f"  [WARN] No pixels within +/-{window_nm} nm of {approx_wavelength} nm; scanning full range"
                 )
                 search_mask = np.ones_like(self.wavelengths, dtype=bool)
 
@@ -460,7 +536,7 @@ class RealtimeAcquisitionService:
         self.target_wavelength = float(self.wavelengths[target_idx])
 
         print(
-            f"  ✓ Auto-selected wavelength: {self.target_wavelength:.2f} nm (index {self.target_idx})"
+            f"  [OK] Auto-selected wavelength: {self.target_wavelength:.2f} nm (index {self.target_idx})"
         )
 
     def _should_retry_native(self, exc: Exception) -> bool:
@@ -470,10 +546,10 @@ class RealtimeAcquisitionService:
     def _attempt_native_reset(self):
         resource = self.resource_string
         if not resource:
-            print("  ⚠ Cannot auto-reset device without resource string")
+            print("  [WARN] Cannot auto-reset device without resource string")
             return
 
-        print(f"  ⚠ Detected locked device ({resource}). Attempting VISA clear...")
+        print(f"  [WARN] Detected locked device ({resource}). Attempting VISA clear...")
         try:
             import pyvisa  # type: ignore
 
@@ -485,9 +561,9 @@ class RealtimeAcquisitionService:
                 inst.close()
             with contextlib.suppress(Exception):
                 rm.close()
-            print("  ✓ Issued device clear; retrying connection in 1s")
+            print("  [OK] Issued device clear; retrying connection in 1s")
         except Exception as reset_exc:
-            print(f"  ⚠ VISA clear failed: {reset_exc}")
+            print(f"  [WARN] VISA clear failed: {reset_exc}")
 
         time.sleep(1.0)
 
@@ -563,11 +639,11 @@ def create_console_visualizer(service, window_size: int = 50):
             line = ""
             for v in history[-50:]:
                 idx = int(7 * (v - min_val) / range_val)
-                chars = " _▁▂▃▄▅▆▇"
+                chars = " _1234567"
                 line += chars[min(idx, 7)]
 
             print(
-                f"\r[{sample['sample_num']:6d}] λ={service.target_wavelength:.1f}nm I={sample['target_intensity']:10.5f} {line}",
+                f"\r[{sample['sample_num']:6d}] nm={service.target_wavelength:.1f}nm I={sample['target_intensity']:10.5f} {line}",
                 end="",
                 flush=True,
             )
@@ -665,7 +741,7 @@ def main():
             # Run plot in separate thread
             plot_thread = threading.Thread(target=plotter.show, daemon=True)
             plot_thread.start()
-            print("✓ Live plot started (matplotlib)")
+            print("[OK] Live plot started (matplotlib)")
 
         # Optional: Enable real-time CSV logging
         log_to_csv = True  # Set to False to disable real-time logging
@@ -692,7 +768,7 @@ def main():
                 ]
             )
             csv_file.flush()
-            print(f"✓ Real-time logging to: {csv_path}")
+            print(f"[OK] Real-time logging to: {csv_path}")
 
         def file_logger(sample):
             # Log to CSV in real-time
@@ -746,7 +822,7 @@ def main():
         # Close real-time CSV file if open
         if csv_file:
             csv_file.close()
-            print("✓ Closed real-time log file")
+            print("[OK] Closed real-time log file")
 
         try:
             service.save_data(full_spectrum=False)
@@ -755,7 +831,7 @@ def main():
         except Exception as e:
             print(f"\nSave error: {e}")
 
-        print("\n✓ Done")
+        print("\n[OK] Done")
 
     return 0
 

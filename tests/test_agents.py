@@ -6,6 +6,7 @@ src.agents.quality (DataQualityAgent).
 """
 
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import numpy as np
 
@@ -21,14 +22,12 @@ class TestDriftDetectionAgent:
     """Tests for slope-based and offset-based drift detection."""
 
     def _make_agent(self, **kwargs) -> DriftDetectionAgent:
-        defaults = dict(
-            window_size=10,
-            drift_threshold_nm_per_min=0.5,
-            offset_threshold_nm=0.3,
-            min_samples=5,
+        return DriftDetectionAgent(
+            window_size=int(kwargs.get("window_size", 10)),
+            drift_threshold_nm_per_min=float(kwargs.get("drift_threshold_nm_per_min", 0.5)),
+            offset_threshold_nm=float(kwargs.get("offset_threshold_nm", 0.3)),
+            min_samples=int(kwargs.get("min_samples", 5)),
         )
-        defaults.update(kwargs)
-        return DriftDetectionAgent(**defaults)
 
     def _now(self, offset_s: float = 0.0) -> datetime:
         return datetime.now(timezone.utc) + timedelta(seconds=offset_s)
@@ -60,7 +59,7 @@ class TestDriftDetectionAgent:
             agent.push(wl, self._now(i * 5))
 
         status = agent.get_status()
-        assert status["drift_rate_nm_per_min"] > 0.4
+        assert cast(float, status["drift_rate_nm_per_min"]) > 0.4
 
     def test_offset_alert_on_large_offset(self):
         agent = self._make_agent(
@@ -74,7 +73,7 @@ class TestDriftDetectionAgent:
             agent.push(first + 0.5, self._now(i * 5))
 
         status = agent.get_status()
-        assert abs(status["baseline_offset_nm"]) > 0.05
+        assert abs(cast(float, status["baseline_offset_nm"])) > 0.05
 
     def test_alert_has_correct_type(self):
         agent = self._make_agent(
@@ -128,7 +127,7 @@ class TestDriftDetectionAgent:
         # After reset_baseline, offset from a new reading at the same wl should be ~0
         agent.push(717.9, self._now(10))
         status_after = agent.get_status()
-        assert abs(status_after.get("baseline_offset_nm", 0)) < 0.5
+        assert abs(cast(float, status_after.get("baseline_offset_nm", 0.0))) < 0.5
 
     def test_alert_message_is_string(self):
         agent = self._make_agent(
@@ -160,13 +159,16 @@ class TestDataQualityAgent:
         return wl, it
 
     def test_ok_spectrum(self):
-        agent = DataQualityAgent(min_snr=1.0)  # relaxed SNR so gaussian peak passes
+        # UPDATED (2026-04-07): SNR < min_snr is now a hard fail (C6 fix)
+        # Use very low min_snr to avoid hard-failing on the test spectrum
+        agent = DataQualityAgent(min_snr=0.1)
         wl, it = self._wl_it()
         result = agent.check(wl, it)
         assert isinstance(result, QualityResult)
-        assert result.code in (QualityCode.OK, QualityCode.WARNING_LOW_SNR)
-        # Either OK or just a SNR warning — spectrum is not a hard fail
+        # With low SNR threshold, should pass OK
+        assert result.code == QualityCode.OK
         assert not result.is_hard_fail
+        assert result.passed
 
     def test_saturated_spectrum_fails(self):
         agent = DataQualityAgent(saturation_threshold=60000)
@@ -237,10 +239,14 @@ class TestDataQualityAgent:
         assert result.quality_score <= 0.5
 
     def test_ok_score_non_zero(self):
-        """A non-catastrophic spectrum should have a quality_score > 0."""
-        agent = DataQualityAgent()
+        """A non-catastrophic spectrum should have a quality_score > 0.
+
+        UPDATED (2026-04-07): SNR is now a hard fail, use very low min_snr threshold.
+        """
+        agent = DataQualityAgent(min_snr=0.1)  # Very low so test spectrum passes
         wl, it = self._wl_it()
         result = agent.check(wl, it)
+        # With low min_snr, spectrum should pass and have non-zero score
         assert result.quality_score > 0.0
 
     def test_quality_result_has_expected_fields(self):

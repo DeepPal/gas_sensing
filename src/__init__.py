@@ -1,7 +1,7 @@
 """
 src
 ===
-Au-MIP LSPR Gas Sensing Platform — modular source package.
+SpectraAgent — Spectrometer-Based Sensing Platform — modular source package.
 
 Layer order (lower number = fewer dependencies):
   Layer 0: configs/          — YAML loader, no project imports

@@ -1,5 +1,6 @@
 """Tests for src.reporting.metrics — pure metric aggregation utilities."""
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,6 @@ from src.reporting.metrics import (
     summarize_quality_control,
     summarize_top_comparison,
 )
-
 
 # ---------------------------------------------------------------------------
 # select_signal_column
@@ -144,7 +144,7 @@ def _make_aggregated(
     seed: int = 0,
 ) -> dict[float, dict[str, pd.DataFrame]]:
     rng = np.random.default_rng(seed)
-    agg = {}
+    agg: dict[float, dict[str, pd.DataFrame]] = {}
     wl = np.linspace(680.0, 730.0, 80)
     for c in concs:
         agg[c] = {}
@@ -311,7 +311,7 @@ class TestSummarizeTopComparison:
 
     def test_missing_keys_graceful(self):
         """Partial payload — missing keys should return None, not raise."""
-        results = {"absorbance": {}}
+        results: dict[str, dict[str, Any]] = {"absorbance": {}}
         summary = summarize_top_comparison(results)
         assert len(summary) == 1
         assert summary[0]["roi_max_r2"] is None
@@ -324,7 +324,7 @@ class TestSummarizeTopComparison:
 
 
 def _make_qc_data(
-    concs: list = None,
+    concs: list[float] | None = None,
     snr: float = 20.0,
     signal: float = 0.5,
     n_trials: int = 3,

@@ -1,13 +1,15 @@
 """
-Au-MIP LSPR Gas Sensing Platform — Streamlit Dashboard
+SpectraAgent — Spectrometer-Based Sensing Platform — Streamlit Dashboard
 =======================================================
 
-Four-tab interactive dashboard:
+Five-tab interactive dashboard:
 
-  Tab 1 — Automation Pipeline  : 5-agent workflow (acquire → train → predict → export)
+  Tab 1 — Guided Calibration   : Step-by-step offline batch workflow (acquire → train → predict → export)
   Tab 2 — Experiment (Guided)  : Step-by-step guided calibration workflow
   Tab 3 — Batch Analysis       : Offline exploration of Joy_Data CSV files
   Tab 4 — Live Sensor          : Real-time CCS200 monitoring and readout
+  Tab 5 — Data-Driven Science  : Dataset explorer, feature discovery, model training,
+                                 cross-dataset analysis, publication figures
 
 Run from the project root::
 
@@ -19,8 +21,10 @@ Run from the project root::
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 import sys
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,11 +42,15 @@ if str(REPO_ROOT) not in sys.path:
 # Logging (Streamlit runs in a fresh process; initialise here)
 # ---------------------------------------------------------------------------
 try:
+    import os as _os
+
     from gas_analysis.logging_setup import configure_logging  # noqa: E402
 
+    _log_dir = Path(_os.environ.get("LOG_DIR", str(REPO_ROOT / "logs")))
+    _log_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(
         level=logging.INFO,
-        log_file=REPO_ROOT / "logs" / "dashboard.log",
+        log_file=_log_dir / "dashboard.log",
         console=False,  # Streamlit captures stderr; write to file instead
     )
 except Exception:
@@ -51,6 +59,7 @@ except Exception:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
 log = logging.getLogger(__name__)
+LIVE_PLATFORM_URL = os.environ.get("SPECTRAAGENT_BASE_URL", "http://localhost:8765")
 
 # ---------------------------------------------------------------------------
 # Optional tab modules — import failures are surfaced in the UI, not hidden
@@ -75,8 +84,37 @@ except Exception as _exc:
     _import_errors["experiment"] = str(_exc)
     log.warning("Experiment tab unavailable: %s", _exc)
 
+try:
+    from dashboard.science_tab import render as _render_science  # type: ignore[import]
+
+    SCIENCE_AVAILABLE = True
+except Exception as _exc:
+    SCIENCE_AVAILABLE = False
+    _import_errors["science"] = str(_exc)
+    log.warning("Science tab unavailable: %s", _exc)
+
+try:
+    from dashboard.predict_tab import render as _render_predict  # type: ignore[import]
+
+    PREDICT_AVAILABLE = True
+except Exception as _exc:
+    PREDICT_AVAILABLE = False
+    _import_errors["predict"] = str(_exc)
+    log.warning("Predict tab unavailable: %s", _exc)
+
+# Shared project store — initialise once before any tab renders
+try:
+    from dashboard.project_store import get_project, render_session_browser  # type: ignore[import]
+    _project = get_project()
+    PROJECT_STORE_AVAILABLE = True
+except Exception as _exc:
+    PROJECT_STORE_AVAILABLE = False
+    _import_errors["project_store"] = str(_exc)
+    log.warning("ProjectStore unavailable: %s", _exc)
+
 # Core signal-processing imports — prefer src.preprocessing (new canonical location)
 try:
+    from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
     from src.preprocessing.baseline import airpls_baseline, als_baseline
     from src.preprocessing.baseline import correct_baseline as baseline_correction
     from src.preprocessing.denoising import smooth_spectrum, wavelet_denoise
@@ -85,7 +123,7 @@ try:
 except Exception as _exc:
     # Fallback to legacy location during transition
     try:
-        from gas_analysis.core.signal_proc import (
+        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
             als_baseline,
             baseline_correction,
             smooth_spectrum,
@@ -99,29 +137,206 @@ except Exception as _exc:
         log.error("signal_proc unavailable: %s", _exc2)
 
 # ---------------------------------------------------------------------------
+# Authentication & Health Check (must happen before page config)
+# ---------------------------------------------------------------------------
+try:
+    from dashboard.auth import check_password
+    from dashboard.health import startup_check
+    from dashboard.startup_validation import run_startup_validation
+
+    # Run comprehensive startup validation first
+    if not run_startup_validation(REPO_ROOT):
+        st.error(
+            "Critical startup validation failed. "
+            "Check logs/ directory for details."
+        )
+        st.stop()
+
+    # Run startup health checks
+    startup_check()
+
+    # Enforce password authentication for lab security
+    if not check_password():
+        st.stop()
+
+except Exception as _exc:
+    log.error("Auth/health check failed: %s", _exc)
+    st.error("Authentication system failed. Contact lab admin.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Live server — start once per process before any Streamlit calls
+# ---------------------------------------------------------------------------
+_LIVE_SERVER_PORT = 5006
+
+try:
+    from dashboard.live_server import start_live_server as _start_live_server
+
+    _start_live_server(port=_LIVE_SERVER_PORT)
+except Exception as _exc:
+    log.warning("Live server could not start (live view will be unavailable): %s", _exc)
+
+# ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Au-MIP LSPR Gas Analysis",
+    page_title="SpectraAgent Gas Analysis",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------------------------
+# Sidebar: Health Check & Lab Info
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🏥 System Status")
+
+    try:
+        from dashboard.health import HealthCheck
+
+        hc = HealthCheck(REPO_ROOT)
+        status = hc.get_status()
+
+        # Overall status indicator
+        overall_text = "✅ Healthy" if status["overall_healthy"] else "⚠️ Issues Detected"
+        st.markdown(
+            f"**Status:** {overall_text}  \n"
+            f"**Hostname:** {status['hostname']}"
+        )
+
+        # Disk space indicator
+        disk = status["disk_space"]
+        disk_color = "🟢" if disk["healthy"] else "🔴"
+        st.markdown(f"{disk_color} Disk: {disk['available_gb']:.1f} GB available")
+
+        # Hardware availability
+        hw = status["hardware"]
+        spec_status = "✓" if hw["spectrometer"]["available"] else "✗"
+        live_status = "✓" if hw["live_server"]["available"] else "✗"
+        st.markdown(
+            f"📡 Hardware:  \n"
+            f"  • Spectrometer: {spec_status}  \n"
+            f"  • Live Server: {live_status}"
+        )
+
+        # Expandable detailed report
+        with st.expander("📋 Detailed Health Report"):
+            st.code(hc.to_json(), language="json")
+
+    except Exception as _health_err:
+        st.warning(f"Health check unavailable: {_health_err}")
+
+    st.divider()
+    st.markdown("### 🔗 Platform Links")
+    st.link_button(
+        "⚡ Live Acquisition Platform",
+        LIVE_PLATFORM_URL,
+        help="Open SpectraAgent — real-time spectrum, AI agents, session recording",
+        use_container_width=True,
+    )
+    st.caption(f"Live platform: {LIVE_PLATFORM_URL}")
+    with st.expander("🚀 Getting Started", expanded=False):
+        st.markdown("""
+**Recommended workflow:**
+1. **Tab 2** — Single measurement (new to the platform)
+2. **Tab 1** — Full calibration pipeline (advanced)
+3. **Tab 3** — Analyze saved batch/session data
+4. **Tab 4** — Live hardware monitoring
+5. **Tab 5** — ML training & publication figures
+
+**Your data is saved to:**
+- Tab 1 pipeline → `output/automation_dataset/`
+- Tab 2 experiments → `output/experiments/`
+- Live sessions → `output/sessions/`
+""")
+    # Session browser — only render if project store loaded correctly
+    if PROJECT_STORE_AVAILABLE:
+        render_session_browser()
+
+    # ── Quality Dashboard ─────────────────────────────────────────────
+    if PROJECT_STORE_AVAILABLE:
+        st.divider()
+        st.markdown("### 🩺 Session Quality")
+        try:
+            _qd_proj = get_project()
+            _qd_perf = _qd_proj.performance or {}
+            _qd_r2 = _qd_perf.get("r_squared")
+            _qd_lod = _qd_perf.get("lod_ppm")
+            _qd_rdiag = _qd_perf.get("residual_diagnostics") or {}
+            _qd_steps = _qd_proj.step_complete
+
+            # Step completion pipeline
+            _step_icons = {
+                "acquisition": ("📡", "acquisition"),
+                "preprocessing": ("⚗️", "preprocessing"),
+                "training": ("🧠", "training"),
+                "validation": ("✅", "validation"),
+            }
+            _step_html = ""
+            for _k, (_icon, _label) in _step_icons.items():
+                _done = _qd_steps.get(_k, False)
+                _color = "#16a34a" if _done else "#9ca3af"
+                _step_html += (
+                    f"<span style='color:{_color};font-size:1.1em' title='{_label}'>"
+                    f"{_icon}</span> "
+                )
+            st.sidebar.markdown(_step_html + "<br><small>Pipeline steps</small>", unsafe_allow_html=True)
+
+            # R² traffic light
+            if _qd_r2 is not None:
+                if _qd_r2 >= 0.99:
+                    st.sidebar.success(f"R² = {_qd_r2:.4f} — Publication grade")
+                elif _qd_r2 >= 0.95:
+                    st.sidebar.warning(f"R² = {_qd_r2:.4f} — Acceptable")
+                else:
+                    st.sidebar.error(f"R² = {_qd_r2:.4f} — Low quality")
+            else:
+                st.sidebar.caption("R²: not trained yet")
+
+            # LOD / LOB / NEC
+            if _qd_lod is not None:
+                st.sidebar.caption(f"LOD: {_qd_lod:.3g} ppm")
+            _qd_lob = _qd_perf.get("lob_ppm")
+            _qd_nec = _qd_perf.get("nec_ppm")
+            if _qd_lob is not None:
+                st.sidebar.caption(f"LOB: {_qd_lob:.3g} ppm")
+            if _qd_nec is not None:
+                st.sidebar.caption(f"NEC: {_qd_nec:.3g} ppm")
+
+            # Residuals
+            if _qd_rdiag:
+                _overall = _qd_rdiag.get("overall_pass")
+                if _overall is True:
+                    st.sidebar.success("Residuals: PASS")
+                elif _overall is False:
+                    st.sidebar.warning("Residuals: issues found")
+
+            # Predictions count
+            _n_pred = len(_qd_proj.predictions)
+            if _n_pred > 0:
+                st.sidebar.caption(f"Predictions recorded: {_n_pred}")
+        except Exception as _qd_e:
+            st.sidebar.caption(f"Quality dashboard error: {_qd_e}")
+
+    st.divider()
+
+# ---------------------------------------------------------------------------
 # Tab layout
 # ---------------------------------------------------------------------------
-tab_agentic, tab_exp, tab_batch, tab_live = st.tabs(
+tab_agentic, tab_predict, tab_exp, tab_batch, tab_live, tab_science = st.tabs(
     [
-        "🤖 Automation Pipeline",
+        "📋 Guided Calibration",
+        "🎯 Predict Unknown",
         "🧪 Experiment (Guided)",
         "📊 Batch Analysis",
         "📡 Live Sensor",
+        "🔬 Data-Driven Science",
     ]
 )
 
 # ===========================================================================
-# Tab 1 — Automation Pipeline
+# Tab 1 — Guided Calibration (offline batch workflow)
 # ===========================================================================
 with tab_agentic:
     if AGENTIC_AVAILABLE:
@@ -132,7 +347,18 @@ with tab_agentic:
             st.code(_import_errors.get("agentic", "Unknown error"))
 
 # ===========================================================================
-# Tab 2 — Experiment (Guided)
+# Tab 2 — Predict Unknown
+# ===========================================================================
+with tab_predict:
+    if PREDICT_AVAILABLE:
+        _render_predict()
+    else:
+        st.error("Predict Unknown tab is unavailable.")
+        with st.expander("Error details"):
+            st.code(_import_errors.get("predict", "Unknown error"))
+
+# ===========================================================================
+# Tab 3 — Experiment (Guided)
 # ===========================================================================
 with tab_exp:
     if EXPERIMENT_AVAILABLE:
@@ -145,8 +371,17 @@ with tab_exp:
 # ===========================================================================
 # Tab 3 — Batch Analysis
 # ===========================================================================
-with tab_batch:
+
+
+def _render_batch() -> None:
     st.title("🔬 Batch Spectrum Analysis")
+
+    st.info(
+        "**Where is my data?** "
+        "Tab 1 (pipeline) → `output/automation_dataset/` | "
+        "Tab 2 (experiment) → `output/experiments/` | "
+        "Sessions → `output/sessions/`"
+    )
 
     if not SIGNAL_PROC_AVAILABLE:
         st.error(
@@ -155,17 +390,111 @@ with tab_batch:
         )
         with st.expander("Error details"):
             st.code(_import_errors.get("signal_proc", "Unknown error"))
-        st.stop()
+        return
 
     # ---- Sidebar --------------------------------------------------------
     st.sidebar.header("Data Configuration")
-    data_root = st.sidebar.text_input(
-        "Data Root",
-        str(REPO_ROOT / "data"),
-        help="Directory containing gas sub-folders (e.g. data/JOY_Data/)",
+
+    # --- Data source selector ---
+    _data_source = st.sidebar.selectbox(
+        "Data source",
+        ["Batch data (output/batch/)", "Session data (output/sessions/)"],
+        index=0,
+        help="Choose between batch-processed data or recorded sensor sessions.",
     )
 
-    root_path = Path(data_root)
+    if _data_source == "Session data (output/sessions/)":
+        _sessions_root = REPO_ROOT / "output" / "sessions"
+        _session_dirs = sorted(
+            [d for d in _sessions_root.iterdir() if d.is_dir() and (d / "pipeline_results.csv").exists()],
+            reverse=True,
+        ) if _sessions_root.exists() else []
+
+        if not _session_dirs:
+            st.sidebar.warning("No sessions with `pipeline_results.csv` found in `output/sessions/`.")
+            st.info(
+                "No recorded sessions found. Run a live sensor session (Tab 4) or "
+                "use the CLI (`python run.py --mode sensor`) to generate session data."
+            )
+            return
+
+        _selected_session = st.sidebar.selectbox(
+            "Select session",
+            _session_dirs,
+            format_func=lambda d: d.name,
+        )
+        st.subheader(f"Session: {_selected_session.name}")
+
+        _results_csv = _selected_session / "pipeline_results.csv"
+        try:
+            _df_sess = pd.read_csv(_results_csv)
+        except Exception as _exc:
+            st.error(f"Failed to load `pipeline_results.csv`: {_exc}")
+            return
+
+        st.dataframe(_df_sess, use_container_width=True)
+
+        _expected_cols = {
+            "peak_wavelength": "Peak Wavelength (nm)",
+            "wavelength_shift": "Wavelength Shift (nm)",
+            "concentration_ppm": "Concentration (ppm)",
+        }
+        _available = [c for c in _expected_cols if c in _df_sess.columns]
+
+        if _available:
+            _x_col = "frame" if "frame" in _df_sess.columns else _df_sess.index.name or None
+            _x_vals = _df_sess["frame"] if "frame" in _df_sess.columns else _df_sess.index
+
+            if "peak_wavelength" in _df_sess.columns:
+                st.subheader("Peak Wavelength over Time")
+                _fig_wl, _ax_wl = plt.subplots(figsize=(9, 3))
+                _ax_wl.plot(_x_vals, _df_sess["peak_wavelength"], color="steelblue", linewidth=1.5)
+                _ax_wl.set_xlabel("Frame")
+                _ax_wl.set_ylabel("Peak Wavelength (nm)")
+                _ax_wl.grid(True, alpha=0.3)
+                st.pyplot(_fig_wl)
+                plt.close(_fig_wl)
+
+            if "concentration_ppm" in _df_sess.columns:
+                st.subheader("Concentration over Time")
+                _fig_conc, _ax_conc = plt.subplots(figsize=(9, 3))
+                _ax_conc.plot(_x_vals, _df_sess["concentration_ppm"], color="darkorange", linewidth=1.5)
+                if "ci_low" in _df_sess.columns and "ci_high" in _df_sess.columns:
+                    _ax_conc.fill_between(
+                        _x_vals, _df_sess["ci_low"], _df_sess["ci_high"],
+                        alpha=0.2, color="darkorange", label="95% CI",
+                    )
+                    _ax_conc.legend()
+                _ax_conc.set_xlabel("Frame")
+                _ax_conc.set_ylabel("Concentration (ppm)")
+                _ax_conc.grid(True, alpha=0.3)
+                st.pyplot(_fig_conc)
+                plt.close(_fig_conc)
+        else:
+            st.info("Session CSV loaded. Expected columns (peak_wavelength, concentration_ppm) not found — showing raw data above.")
+        return
+
+    # Auto-detect best default data root: prefer output/batch (has real data)
+    _default_root = REPO_ROOT / "output" / "batch"
+    if not _default_root.exists() or not any(_default_root.iterdir()):
+        _joy = REPO_ROOT / "data" / "JOY_Data"
+        _joy_legacy = REPO_ROOT / "Joy_Data"
+        _default_root = _joy if _joy.exists() else (_joy_legacy if _joy_legacy.exists() else REPO_ROOT / "data")
+
+    data_root = st.sidebar.text_input(
+        "Data Root",
+        str(_default_root),
+        help="Directory containing gas sub-folders (e.g. output/batch/ or data/JOY_Data/)",
+    )
+
+    root_path = Path(data_root).resolve()
+    # Restrict traversal to paths within the repo root to prevent directory traversal
+    try:
+        root_path.relative_to(REPO_ROOT)
+    except ValueError:
+        st.sidebar.error("Data Root must be inside the project directory.")
+        return
+
     if root_path.exists():
         available_gases = sorted(d.name for d in root_path.iterdir() if d.is_dir())
     else:
@@ -174,11 +503,13 @@ with tab_batch:
     if not available_gases:
         st.sidebar.warning("No gas directories found. Check the Data Root path.")
         st.info(
-            "Expected structure:\n```\ndata/JOY_Data/\n"
-            "├── Ethanol/\n│   ├── 0.5 ppm-1/\n│   └── ...\n"
-            "└── ref_EtOH.csv\n```"
+            "Expected structure (e.g. `output/batch/`):\n```\nbatch/\n"
+            "├── Ethanol/\n│   ├── aggregated/\n│   │   ├── 0.1/ → *.csv\n│   │   └── ...\n"
+            "└── ...\n```\n\n"
+            "Or point to your own folder:\n```\nMyData/\n"
+            "├── Ethanol/\n│   └── *.csv\n└── ref_EtOH.csv\n```"
         )
-        st.stop()
+        return
 
     gas_type = st.sidebar.selectbox("Select Gas", available_gases)
     gas_path = root_path / gas_type
@@ -189,7 +520,7 @@ with tab_batch:
 
     if not csv_files:
         st.info(f"No CSV files found in `{gas_path}`.")
-        st.stop()
+        return
 
     file_map = {f.name: f for f in csv_files}
     selected_filename = st.sidebar.selectbox("Select Spectrum", list(file_map.keys()))
@@ -240,7 +571,7 @@ with tab_batch:
         except Exception as exc:
             st.error(f"Failed to load spectrum: {exc}")
             log.error("Spectrum load error (%s): %s", selected_file, exc)
-            st.stop()
+            return
 
         # Load reference
         intensity_ref = None
@@ -294,9 +625,7 @@ with tab_batch:
             wavelet = st.sidebar.selectbox(
                 "Wavelet", ["db4", "db8", "sym4", "sym8", "coif4"], index=0
             )
-            mode = st.sidebar.selectbox("Threshold Mode", ["soft", "hard"], index=0)
-            sigma_est = st.sidebar.selectbox("Noise Estimate", ["mad", "std"], index=0)
-            processed = wavelet_denoise(processed, wavelet=wavelet, mode=mode, sigma_est=sigma_est)
+            processed = wavelet_denoise(processed, wavelet=wavelet)
             ax.plot(wl, processed, label="DWT Denoised", color="purple", linewidth=1.5)
 
         st.sidebar.markdown("---")
@@ -308,7 +637,7 @@ with tab_batch:
         if baseline_method == "Polynomial":
             poly_base = st.sidebar.slider("Poly Order (Baseline)", 1, 5, 1)
             processed = baseline_correction(
-                wl, processed, method="polynomial", poly_order=poly_base
+                wl, processed, method="polynomial", order=poly_base
             )
             ax.plot(wl, processed, label="Poly Baseline Corrected", color="green", linestyle="--")
 
@@ -377,6 +706,23 @@ with tab_batch:
             "and generates heatmaps, calibration curves, and LOD estimates."
         )
 
+        # ── Sensor peak search window ─────────────────────────────────────
+        with st.expander("Sensor Peak Window (must match your sensor)", expanded=False):
+            st.caption(
+                "Wavelength window used to locate the sensor response peak for Δλ "
+                "computation. Set to the region where your sensor peak sits — "
+                "outside this window the peak is ignored."
+            )
+            _pw_col1, _pw_col2 = st.columns(2)
+            _batch_peak_min = _pw_col1.number_input(
+                "Peak search min (nm)", min_value=100.0, max_value=2000.0,
+                value=480.0, step=10.0, key="batch_peak_min",
+            )
+            _batch_peak_max = _pw_col2.number_input(
+                "Peak search max (nm)", min_value=100.0, max_value=2000.0,
+                value=800.0, step=10.0, key="batch_peak_max",
+            )
+
         if st.button("Generate Heatmap & Calibration Curve"):
             with st.spinner(f"Processing {len(csv_files)} files…"):
                 try:
@@ -390,7 +736,7 @@ with tab_batch:
                         exp_scan = scan_experiment_root(gas_path, gas_type=gas_type)
                     except ValueError as _ve:
                         st.warning(str(_ve))
-                        st.stop()
+                        return
 
                     if not exp_scan.concentrations:
                         st.warning(
@@ -398,7 +744,7 @@ with tab_batch:
                             "Check that folder names contain a numeric concentration "
                             "(e.g. `0.5 ppm-1`, `vary-EtOH-0.5-1`)."
                         )
-                        st.stop()
+                        return
 
                     st.success(
                         f"Found {len(exp_scan.concentrations)} concentration levels: "
@@ -443,7 +789,7 @@ with tab_batch:
 
                     if not mean_spectra or common_wl is None:
                         st.error("No spectra could be loaded.")
-                        st.stop()
+                        return
 
                     Z = np.array(mean_spectra)
                     concs = np.array(conc_levels)
@@ -451,6 +797,18 @@ with tab_batch:
                     # --- Response variable: Δλ (LSPR-correct) or peak intensity ---
                     # LSPR primary signal is peak wavelength SHIFT relative to a
                     # reference (air/blank).  Load ref peak wavelength if available.
+                    # Compute search window first so reference peak uses same bounds
+                    _bpmin = st.session_state.get("batch_peak_min", _batch_peak_min)
+                    _bpmax = st.session_state.get("batch_peak_max", _batch_peak_max)
+                    _win_mask_batch = (common_wl >= _bpmin) & (common_wl <= _bpmax)
+                    if _win_mask_batch.sum() < 3:
+                        # Window covers no points — fall back to full spectrum
+                        _win_mask_batch = np.ones(len(common_wl), dtype=bool)
+                        st.warning(
+                            f"Peak search window {_bpmin:.0f}–{_bpmax:.0f} nm covers no "
+                            "interpolated wavelength points — using full spectrum."
+                        )
+
                     _ref_peak_wl: float | None = None
                     if selected_ref_file:
                         try:
@@ -459,31 +817,93 @@ with tab_batch:
                             _df_r = _rsc(selected_ref_file)
                             _wl_r = _df_r["wavelength"].values
                             _i_r = _df_r["intensity"].values
-                            _ref_peak_wl = float(_wl_r[np.argmax(_i_r)])
+                            # Lorentzian sub-pixel detection within the search window
+                            try:
+                                _rp = _detect_peak_app(_wl_r, _i_r, _bpmin, _bpmax)
+                                _ref_peak_wl = _rp if _rp is not None else float(_wl_r[np.argmax(_i_r)])
+                            except Exception:
+                                _ref_peak_wl = float(_wl_r[np.argmax(_i_r)])
                         except Exception:
                             _ref_peak_wl = None
 
                     if _ref_peak_wl is not None:
-                        # Δλ = peak_wavelength(sample) − peak_wavelength(reference)
+                        # Δλ = peak in window(sample) − ref peak
+                        # Lorentzian sub-pixel detection; falls back to argmax internally
+                        def _batch_peak_wl(wl_arr, int_arr, wmin, wmax):
+                            try:
+                                p = _detect_peak_app(wl_arr, int_arr, wmin, wmax)
+                                return p if p is not None else float(wl_arr[_win_mask_batch][np.argmax(int_arr[_win_mask_batch])])
+                            except Exception:
+                                return float(wl_arr[_win_mask_batch][np.argmax(int_arr[_win_mask_batch])])
+
                         _peak_wl_per_conc = np.array(
-                            [float(common_wl[np.argmax(spec)]) for spec in Z]
+                            [
+                                _batch_peak_wl(common_wl, spec, _bpmin, _bpmax)
+                                for spec in Z
+                            ]
                         )
                         responses = _peak_wl_per_conc - _ref_peak_wl
                         response_label = "Δλ (nm)"
                         sensitivity_unit = "nm/ppm"
                         st.info(
-                            f"**LSPR mode** — response = Δλ relative to "
-                            f"reference peak at **{_ref_peak_wl:.2f} nm**"
+                            f"Response = Δλ relative to reference peak at "
+                            f"**{_ref_peak_wl:.2f} nm** | search window "
+                            f"**{_bpmin:.0f}–{_bpmax:.0f} nm**"
                         )
                     else:
-                        _peak_idx = int(np.argmax(np.mean(Z, axis=0)))
-                        responses = Z[:, _peak_idx]
-                        response_label = f"Intensity @ {common_wl[_peak_idx]:.1f} nm (a.u.)"
+                        _peak_idx = int(np.argmax(np.mean(Z[:, _win_mask_batch], axis=0)))
+                        # Map windowed index back to full common_wl index
+                        _peak_idx_full = int(np.where(_win_mask_batch)[0][_peak_idx])
+                        responses = Z[:, _peak_idx_full]
+                        response_label = f"Intensity @ {common_wl[_peak_idx_full]:.1f} nm (a.u.)"
                         sensitivity_unit = "a.u./ppm"
                         st.warning(
                             "No reference spectrum — falling back to **peak intensity** "
-                            "(not Δλ). Load a reference file for LSPR-correct analysis."
+                            f"(window {_bpmin:.0f}–{_bpmax:.0f} nm). "
+                            "Load a reference file for Δλ analysis."
                         )
+
+                    # --- Per-trial spread for error bars and RSD ---
+                    # Compute per-trial response for each concentration to get σ across replicates.
+                    # Uses the same response variable (Δλ or peak intensity) as the calibration curve.
+                    _conc_stds = np.zeros(len(concs))
+                    _conc_n_trials: list[int] = []
+                    _conc_rsd_pct: list[float] = []
+                    for _ci, _c_val in enumerate(concs):
+                        _trial_resp: list[float] = []
+                        for _frames_list in scan_data.get(_c_val, {}).values():
+                            if not _frames_list:
+                                continue
+                            try:
+                                _t_spec = np.mean(
+                                    [
+                                        np.interp(
+                                            common_wl,
+                                            _f["wavelength"].values,
+                                            _f["intensity"].values,
+                                        )
+                                        for _f in _frames_list
+                                    ],
+                                    axis=0,
+                                )
+                                if _ref_peak_wl is not None:
+                                    _trial_resp.append(
+                                        _batch_peak_wl(common_wl, _t_spec, _bpmin, _bpmax) - _ref_peak_wl
+                                    )
+                                else:
+                                    _trial_resp.append(float(_t_spec[_peak_idx_full]))
+                            except Exception:
+                                continue
+                        _conc_n_trials.append(len(_trial_resp))
+                        if len(_trial_resp) >= 2:
+                            _std_v = float(np.std(_trial_resp, ddof=1))
+                            _mean_v = float(np.mean(_trial_resp))
+                            _conc_stds[_ci] = _std_v
+                            _conc_rsd_pct.append(
+                                abs(_std_v / _mean_v * 100) if _mean_v != 0 else float("nan")
+                            )
+                        else:
+                            _conc_rsd_pct.append(float("nan"))
 
                     # --- Spectral overlay ---
                     colors = [f"hsl({h},70%,50%)" for h in np.linspace(0, 240, len(concs))]
@@ -511,13 +931,22 @@ with tab_batch:
                     x_fit = np.linspace(concs.min(), concs.max(), 100)
 
                     fig_cal = go.Figure()
+                    _has_error_bars = any(s > 0 for s in _conc_stds)
                     fig_cal.add_trace(
                         go.Scatter(
                             x=concs,
                             y=responses,
                             mode="markers",
-                            name="Measured",
+                            name="Measured (mean ± σ)",
                             marker=dict(size=12, color="red"),
+                            error_y=dict(
+                                type="data",
+                                array=_conc_stds.tolist(),
+                                visible=_has_error_bars,
+                                color="rgba(200,50,50,0.6)",
+                                thickness=2,
+                                width=6,
+                            ),
                         )
                     )
                     fig_cal.add_trace(
@@ -536,6 +965,34 @@ with tab_batch:
                         height=400,
                     )
                     st.plotly_chart(fig_cal, use_container_width=True)
+
+                    # --- Per-concentration reproducibility table ---
+                    with st.expander("📋 Per-Concentration Reproducibility Statistics"):
+                        _rsd_display = [
+                            f"{v:.1f} %" if not np.isnan(v) else "— (1 trial)"
+                            for v in _conc_rsd_pct
+                        ]
+                        _std_display = [
+                            f"{s:.4g}" if s > 0 else "—"
+                            for s in _conc_stds
+                        ]
+                        _repro_df = pd.DataFrame(
+                            {
+                                "Concentration (ppm)": concs,
+                                f"Response ({response_label})": np.round(responses, 4),
+                                "σ (std across trials)": _std_display,
+                                "RSD": _rsd_display,
+                                "n trials": _conc_n_trials,
+                            }
+                        )
+                        st.dataframe(_repro_df, use_container_width=True, hide_index=True)
+                        if any(not np.isnan(v) for v in _conc_rsd_pct):
+                            _valid_rsd = [v for v in _conc_rsd_pct if not np.isnan(v)]
+                            st.caption(
+                                f"Mean RSD across concentrations: **{np.mean(_valid_rsd):.1f} %** "
+                                f"| Max: **{np.max(_valid_rsd):.1f} %** "
+                                "(RSD < 5 % indicates good reproducibility for gas sensing)"
+                            )
 
                     # --- Heatmap ---
                     fig_hm = go.Figure(
@@ -583,19 +1040,24 @@ with tab_batch:
                     try:
                         from src.scientific.lod import (
                             calculate_lod_3sigma,
+                            calculate_loq_10sigma,
                             lod_bootstrap_ci,
                             mandel_linearity_test,
                         )
 
                         lod = calculate_lod_3sigma(baseline_noise, slope)
                         lod_str = f"{lod:.3f} ppm"
+                        loq = calculate_loq_10sigma(baseline_noise, slope)
+                        loq_str = f"{loq:.3f} ppm"
 
                         # Bootstrap 95 % CI on LOD
                         try:
-                            boot = lod_bootstrap_ci(concs, responses, n_bootstrap=500)
+                            _lod_pt, _lod_lo, _lod_hi = lod_bootstrap_ci(
+                                concs, responses, n_bootstrap=500
+                            )
                             lod_ci_str = (
-                                f"{boot['lod_mean']:.3f} ppm "
-                                f"[{boot['lod_ci_low']:.3f}–{boot['lod_ci_high']:.3f}]"
+                                f"{_lod_pt:.3f} ppm "
+                                f"[{_lod_lo:.3f}–{_lod_hi:.3f}]"
                             )
                         except Exception:
                             lod_ci_str = "N/A"
@@ -609,20 +1071,22 @@ with tab_batch:
                     except Exception:
                         lod_str = "N/A"
                         lod_ci_str = "N/A"
+                        loq_str = "N/A"
                         mandel = None
 
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Sensitivity", f"{abs(slope):.4g} {sensitivity_unit}")
                     c1.metric("Linearity R²", f"{r_val**2:.4f}")
                     _noise_label = (
                         "Δλ Noise σ (nm)" if _ref_peak_wl is not None else "Baseline Noise σ"
                     )
                     c2.metric(_noise_label, f"{baseline_noise:.2e}")
-                    c2.metric("LOD (3σ/slope)", lod_str)
+                    c2.metric("LOD (3σ/S)", lod_str, help="IUPAC LOD = 3σ_noise / sensitivity")
+                    c3.metric("LOQ (10σ/S)", loq_str, help="IUPAC LOQ = 10σ_noise / sensitivity — lowest reliably quantifiable concentration")
                     c3.metric("LOD 95 % CI (bootstrap)", lod_ci_str)
                     if mandel:
                         verdict = "PASS" if mandel["is_linear"] else "FAIL"
-                        c3.metric(
+                        c4.metric(
                             "Mandel Linearity",
                             f"{verdict}  p={mandel['p_value']:.3f}",
                             help="ICH Q2(R1) F-test: PASS = quadratic term not significant (p>0.05)",
@@ -638,9 +1102,10 @@ with tab_batch:
                     )
                     if st.button("Fit Isotherms (AIC selection)", key="btn_isotherms"):
                         try:
-                            from src.calibration.isotherms import select_isotherm
+                            from src.calibration.isotherms import IsothermResult, select_isotherm
 
-                            iso = select_isotherm(concs, responses)
+                            iso_sel = select_isotherm(concs, responses)
+                            iso = cast(IsothermResult, iso_sel["best_result"])
 
                             i_c1, i_c2 = st.columns([2, 1])
                             with i_c1:
@@ -680,12 +1145,16 @@ with tab_batch:
                                 st.caption(f"AIC = {iso.aic:.2f}")
                                 st.caption(f"R² = {iso.r_squared:.4f}")
                                 st.caption(f"RMSE = {iso.rmse:.4g}")
+                                st.caption(iso_sel["recommendation"])
                                 st.markdown("**Parameters:**")
                                 for pname, pval in iso.params.items():
                                     if pname == "sign":
                                         continue
                                     perr = iso.param_stderrs.get(pname, float("nan"))
                                     st.caption(f"`{pname}` = {pval:.4g} ± {perr:.2g}")
+                                st.markdown("**AIC table:**")
+                                for _mn, _ma, _mr2, _mrmse in cast(list, iso_sel["aic_table"]):
+                                    st.caption(f"{_mn}: AIC={_ma:.2f}, R²={_mr2:.4f}")
 
                         except Exception as exc:
                             st.error(f"Isotherm fitting failed: {exc}")
@@ -739,6 +1208,7 @@ with tab_batch:
                                         if batch_specs:
                                             m = np.mean(batch_specs, axis=0)
                                             g_concs.append(cv)
+                                            assert g_wl_ref is not None
                                             # Use peak wavelength (nm) — sensitivity
                                             # in nm/ppm makes K ratios dimensionless
                                             # and physically correct for LSPR sensors.
@@ -890,6 +1360,7 @@ with tab_batch:
                             ("Sensitivity", f"{abs(slope):.4g} {sensitivity_unit}"),
                             ("Linearity R²", f"{r_val**2:.4f}"),
                             ("LOD (3σ/S)", lod_str),
+                            ("LOQ (10σ/S)", loq_str),
                             ("LOD 95% CI", lod_ci_str),
                             ("Stable-plateau frames", "20-frame tail + MAD gating"),
                         ]
@@ -901,7 +1372,7 @@ with tab_batch:
                         "h1{color:#1a4f8a}table{border-collapse:collapse;width:560px}"
                         "tr:nth-child(even){background:#f7f7f7}</style></head><body>"
                         "<h1>Gas Sensor Calibration Report</h1>"
-                        "<p><em>Generated by Au-MIP LSPR Analysis Platform</em></p>"
+                        "<p><em>Generated by the sensor LSPR Analysis Platform</em></p>"
                         f"<h2>Summary — {gas_type}</h2>"
                         f"<table>{_rpt_rows}</table>"
                         "</body></html>"
@@ -935,12 +1406,12 @@ with tab_batch:
                             if not _cnn_pt.exists():
                                 st.error(
                                     f"CNN checkpoint not found at `{_cnn_pt}`. "
-                                    "Train a model first via Tab 1 (Automation Pipeline)."
+                                    "Train a model first via Tab 1 (Guided Calibration)."
                                 )
                             else:
                                 _clf = CNNGasClassifier.load(str(_cnn_pt))
                                 _out = export_cnn_to_onnx(_clf, str(_cnn_onnx))
-                                _ok, _delta = validate_onnx_export(_clf, _out)
+                                _ok, _delta = validate_onnx_export(_clf, str(_out))
                                 if _ok:
                                     st.success(
                                         f"ONNX export validated — max output Δ = {_delta:.2e}. "
@@ -966,6 +1437,11 @@ with tab_batch:
 
                         st.code(traceback.format_exc())
 
+
+
+with tab_batch:
+    _render_batch()
+
 # ===========================================================================
 # Tab 4 — Live Sensor
 # ===========================================================================
@@ -973,7 +1449,7 @@ with tab_live:
     try:
         from dashboard.sensor_dashboard import render as _render_live  # type: ignore[import]
 
-        _render_live()
+        _render_live(live_server_port=_LIVE_SERVER_PORT)
     except ImportError as exc:
         st.error(f"Live sensor module not available: {exc}")
         log.warning("sensor_dashboard import failed: %s", exc)
@@ -984,3 +1460,14 @@ with tab_live:
             import traceback
 
             st.code(traceback.format_exc())
+
+# ===========================================================================
+# Tab 5 — Data-Driven Science
+# ===========================================================================
+with tab_science:
+    if SCIENCE_AVAILABLE:
+        _render_science()
+    else:
+        st.error("Data-Driven Science tab is unavailable.")
+        with st.expander("Error details"):
+            st.code(_import_errors.get("science", "Unknown error"))

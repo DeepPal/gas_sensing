@@ -1,7 +1,7 @@
 """
 src.agents.training
 ===================
-Training Agent — autonomous closed-loop model retraining for the Au-MIP
+Training Agent — autonomous closed-loop model retraining for the the sensor
 LSPR gas sensing platform.
 
 What it does

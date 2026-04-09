@@ -1,0 +1,44 @@
+<h2>What should the dashboard be built on?</h2>
+<p class="subtitle">This is the key architectural decision — it determines UI quality ceiling, packaging, and performance</p>
+
+<div class="options">
+
+  <div class="option" data-choice="streamlit" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Stay Streamlit — polish what's there</h3>
+      <p>Enhance the existing 4-tab Streamlit app with better layout, custom CSS, and the FastAPI live server already embedded as an iframe for real-time data. Fast to improve, familiar codebase.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>No rewrite needed</li><li>All existing logic preserved</li><li>Fast to iterate</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>1 Hz polling ceiling</li><li>Hard to package as .exe</li><li>Limited UI control</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hybrid — Streamlit config + FastAPI live view (recommended)</h3>
+      <p>Keep Streamlit for the analysis, experiment setup, and agentic pipeline tabs. Fully replace the Live Sensor tab with the FastAPI+uPlot server already in the codebase, extended with controls. One Python process, two ports.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Real-time at true 20 Hz</li><li>Professional live UI</li><li>Builds on existing live_server.py</li><li>Moderate effort</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Two UI paradigms in one app</li><li>Still hard to package as .exe</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="webapp" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Full Web App — FastAPI backend + HTML/JS frontend</h3>
+      <p>Replace Streamlit entirely. FastAPI backend serves all data via REST + WebSocket. All tabs rewritten as HTML/CSS/JS pages with uPlot charts. Packaged as a Docker container or a Python-bundled server you open in a browser.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>True instrument-grade UI</li><li>20 Hz across all views</li><li>Easily packaged/deployed</li><li>Highest quality ceiling</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Largest effort — full rewrite</li><li>Lose Streamlit's rapid prototyping</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">My recommendation: <strong>B</strong> — the live server foundation is already there, and it gets you 80% of the quality at 30% of the effort</p>

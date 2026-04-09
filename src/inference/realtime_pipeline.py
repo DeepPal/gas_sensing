@@ -33,11 +33,12 @@ import uuid
 import numpy as np
 
 from src.features.lspr_features import (
-    LSPR_REFERENCE_PEAK_NM,
-    LSPR_SENSITIVITY_NM_PER_PPM,
+    LSPRReference,
+    compute_lspr_reference,
     concentration_from_shift,
     detect_lspr_peak,
     estimate_shift_xcorr,
+    extract_lspr_features,
     refine_peak_centroid,
 )
 from src.preprocessing import (
@@ -45,6 +46,7 @@ from src.preprocessing import (
     compute_snr,
     is_valid_spectrum,
     smooth_spectrum,
+    spike_rejection,
 )
 
 log = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ class PipelineConfig:
 
     # Sensor / hardware
     integration_time_ms: float = 50.0
-    target_wavelength: float = 532.0
+    target_wavelength: float = -1.0  # sentinel: auto → midpoint of search window
     acquisition_rate_hz: float = 2.0
 
     # Stage 1: Preprocessing
@@ -74,16 +76,33 @@ class PipelineConfig:
     denoising_poly: int = 2
     apply_baseline: bool = False  # For LSPR peak-shift: usually False
     baseline_method: str = "als"
+    spike_rejection: bool = True   # Hampel identifier before smoothing
+    spike_window: int = 7          # local neighbourhood half-width (pixels)
+    spike_threshold: float = 3.0   # rejection threshold (× local σ_MAD)
 
     # Stage 2: Feature extraction
-    reference_wavelength: float = LSPR_REFERENCE_PEAK_NM
-    peak_search_min_nm: float = 480.0
-    peak_search_max_nm: float = 600.0
+    # ── SENSOR-SPECIFIC — must be set for your sensor ──────────────────────
+    # reference_wavelength: expected peak location for the reference (blank)
+    #   spectrum.  Used as the xcorr ROI centre and as the argmax fallback.
+    #   Default (-1.0 sentinel) → auto-set to midpoint of search window in
+    #   __post_init__.  Set explicitly to your sensor's known reference peak.
+    # peak_search_min/max_nm: wavelength window searched for the sensor peak.
+    #   Set to the narrowest range that reliably contains your sensor's
+    #   response peak across all operating conditions.  A too-wide window
+    #   will pick up analyte absorptions or spectrometer noise edges.
+    # Default: 350–950 nm covers most CCD spectrometer sensors (visible range).
+    # ──────────────────────────────────────────────────────────────────────
+    reference_wavelength: float = -1.0  # sentinel: auto → midpoint of search window
+    peak_search_min_nm: float = 350.0
+    peak_search_max_nm: float = 950.0
     shift_window_nm: float = 20.0
     shift_upsample: int = 10
 
     # Stage 3: Calibration (heuristic fallback)
-    calibration_slope: float = LSPR_SENSITIVITY_NM_PER_PPM  # nm/ppm
+    # calibration_slope sign convention:
+    #   Negative (e.g. -0.116 nm/ppm) → sensor peak blue-shifts on gas exposure.
+    #   Positive                       → sensor peak red-shifts on gas exposure.
+    calibration_slope: float = 0.0  # nm/ppm — must be set from calibration; sign depends on sensor
     calibration_intercept: float = 0.0
 
     # Stage 4: Quality control
@@ -92,6 +111,15 @@ class PipelineConfig:
 
     # Buffer / output
     buffer_size: int = 10_000
+
+    def __post_init__(self) -> None:
+        # Auto-set sentinel fields to the midpoint of the search window when
+        # the caller did not provide an explicit value (-1.0 sentinel).
+        midpoint = (self.peak_search_min_nm + self.peak_search_max_nm) / 2
+        if self.reference_wavelength < 0:
+            self.reference_wavelength = midpoint
+        if self.target_wavelength < 0:
+            self.target_wavelength = midpoint
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +154,10 @@ class SpectrumData:
     # Stage 3 intelligence outputs (set by SensorOrchestrator if models loaded)
     gas_type: str | None = None
     gpr_uncertainty: float | None = None
+
+    # Stage 3 conformal prediction interval (90% coverage, set when GPR + calibration data present)
+    ci_low: float | None = None   # lower bound (ppm)
+    ci_high: float | None = None  # upper bound (ppm)
 
     # Stage 4 outputs
     saturation_flag: bool = False
@@ -166,8 +198,22 @@ class PreprocessingStage:
             return spectrum, results
 
         try:
+            # Spike rejection must run BEFORE smoothing.
+            # Savitzky-Golay cannot flatten single-pixel spikes (Lorentzian fit
+            # will return wrong FWHM if even one spike pixel is in the fit window).
+            cleaned = (
+                spike_rejection(
+                    raw,
+                    window=self.config.spike_window,
+                    threshold=self.config.spike_threshold,
+                )
+                if self.config.spike_rejection
+                else raw
+            )
+            results["spike_rejection"] = self.config.spike_rejection
+
             smoothed = smooth_spectrum(
-                raw,
+                cleaned,
                 window=self.config.denoising_window,
                 poly_order=self.config.denoising_poly,
                 method=self.config.denoising_method,
@@ -206,7 +252,9 @@ class FeatureExtractionStage:
         reference_intensities: np.ndarray | None = None,
     ) -> None:
         self.config = config
-        self._reference: np.ndarray | None = reference_intensities
+        self._reference: np.ndarray | None = (
+            None if reference_intensities is None else reference_intensities.copy()
+        )
 
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Update the reference spectrum used for shift calculation."""
@@ -273,13 +321,39 @@ class CalibrationStage:
 
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
-        self._gpr_model: Any = None  # set by SensorOrchestrator
+        self._gpr_model: Any = None  # set by SensorOrchestrator or set_gpr()
         self._cnn_model: Any = None
-        self._reference: np.ndarray | None = None  # set via set_reference()
+        self._reference: np.ndarray | None = None  # raw intensities, set via set_reference()
+        self._lspr_ref: LSPRReference | None = None  # lazy-init on first frame with wavelengths
+        self._conformal: Any = None  # ConformalCalibrator, set by set_gpr()
+
+    def set_gpr(
+        self,
+        model: Any,
+        X_cal: Any = None,
+        y_cal: Any = None,
+    ) -> None:
+        """Inject a fitted GPR model and calibration data for conformal intervals.
+
+        Parameters
+        ----------
+        model  : fitted GPRCalibration or PhysicsInformedGPR
+        X_cal  : (n, d) calibration features — same feature space the model was fit on
+        y_cal  : (n,) calibration targets (concentrations ppm)
+        """
+        self._gpr_model = model
+        if X_cal is not None and y_cal is not None:
+            from src.calibration.conformal import ConformalCalibrator
+            cal = ConformalCalibrator()
+            cal.calibrate(model, np.asarray(X_cal), np.asarray(y_cal))
+            self._conformal = cal
+        else:
+            self._conformal = None
 
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Provide the reference spectrum used by GPR feature extraction."""
         self._reference = reference_intensities.copy()
+        self._lspr_ref = None  # invalidate cache — rebuilt on next frame
 
     def set_calibration(
         self,
@@ -315,13 +389,19 @@ class CalibrationStage:
         # GPR (if model loaded externally by orchestrator)
         if self._gpr_model is not None and spectrum.processed_intensities is not None:
             try:
-                from src.features import extract_lspr_features
-
-                if hasattr(self, "_reference") and self._reference is not None:
+                if self._reference is not None:
+                    # Lazy-init the reference Lorentzian fit on the first frame.
+                    # Wavelengths are only available here (not in set_reference),
+                    # so we defer until we have both arrays.
+                    if self._lspr_ref is None:
+                        self._lspr_ref = compute_lspr_reference(
+                            spectrum.wavelengths, self._reference
+                        )
                     feat = extract_lspr_features(
                         spectrum.wavelengths,
                         spectrum.processed_intensities,
                         self._reference,
+                        lspr_ref=self._lspr_ref,
                     )
                     X = np.array([feat.feature_vector])
                     mean, std = self._gpr_model.predict(X, return_std=True)
@@ -329,6 +409,35 @@ class CalibrationStage:
                     spectrum.concentration_std_ppm = float(std[0])
                     spectrum.gpr_uncertainty = float(std[0])
                     results["gpr"] = True
+
+                    # Conformal prediction interval (90% coverage, if calibrated)
+                    if self._conformal is not None:
+                        try:
+                            lo, hi = self._conformal.predict_interval(
+                                self._gpr_model, X, alpha=0.10
+                            )
+                            spectrum.ci_low = float(lo[0])
+                            spectrum.ci_high = float(hi[0])
+                        except Exception as ci_exc:
+                            log.debug("Conformal interval failed: %s", ci_exc)
+                elif spectrum.wavelength_shift is not None:
+                    # Fallback: no reference spectrum available — use Δλ directly
+                    # as a 1-D input to the GPR (works when GPR was fit on shifts).
+                    X_shift = np.array([[spectrum.wavelength_shift]])
+                    mean, std = self._gpr_model.predict(X_shift, return_std=True)
+                    spectrum.concentration_ppm = float(max(0.0, mean[0]))
+                    spectrum.concentration_std_ppm = float(std[0])
+                    spectrum.gpr_uncertainty = float(std[0])
+                    results["gpr"] = True
+                    if self._conformal is not None:
+                        try:
+                            lo, hi = self._conformal.predict_interval(
+                                self._gpr_model, X_shift, alpha=0.10
+                            )
+                            spectrum.ci_low = float(lo[0])
+                            spectrum.ci_high = float(hi[0])
+                        except Exception as ci_exc:
+                            log.debug("Conformal interval (shift fallback) failed: %s", ci_exc)
             except Exception as exc:
                 log.debug("GPR inference failed: %s", exc)
 
@@ -442,6 +551,7 @@ class RealTimePipeline:
     def set_reference(self, reference_intensities: np.ndarray) -> None:
         """Set or update the reference spectrum for shift calculation."""
         self._features.set_reference(reference_intensities)
+        self._calibration.set_reference(reference_intensities)  # invalidates LSPRReference cache
         log.info("Reference spectrum updated (%d points).", len(reference_intensities))
 
     def set_calibration(
@@ -569,3 +679,55 @@ class RealTimePipeline:
         """Return the last *n* results from the buffer."""
         buf = list(self._result_buffer)
         return buf[-n:] if len(buf) > n else buf
+
+    def process_frame(self, frame: Any) -> PipelineResult:
+        """Process a :class:`~src.spectrometer.SpectralFrame` through the pipeline.
+
+        Convenience bridge that extracts ``wavelengths`` and ``intensities``
+        from *frame* and calls :meth:`process_spectrum`.  Accepts any object
+        with ``wavelengths``, ``intensities``, and ``timestamp`` attributes,
+        including :class:`~src.spectrometer.SpectralFrame` and plain dicts.
+
+        Parameters
+        ----------
+        frame :
+            A ``SpectralFrame`` (or duck-typed equivalent).
+
+        Returns
+        -------
+        PipelineResult
+            Same result as :meth:`process_spectrum`.
+
+        Example
+        -------
+        ::
+
+            from src.spectrometer import SpectrometerRegistry
+            from src.inference.realtime_pipeline import RealTimePipeline, PipelineConfig
+
+            pipeline = RealTimePipeline(PipelineConfig())
+            pipeline.set_calibration(slope=-0.116, intercept=0.0)
+
+            with SpectrometerRegistry.create("simulated") as spec:
+                frame = spec.acquire()
+                result = pipeline.process_frame(frame)
+                if result.success:
+                    print(f"{result.spectrum.concentration_ppm:.3f} ppm")
+        """
+        if isinstance(frame, dict):
+            wl = np.asarray(frame["wavelengths"], dtype=np.float64)
+            intensities = np.asarray(frame["intensities"], dtype=np.float64)
+            ts = frame.get("timestamp")
+            sample_id = frame.get("sample_id") or frame.get("serial_number")
+        else:
+            wl = np.asarray(frame.wavelengths, dtype=np.float64)
+            intensities = np.asarray(frame.intensities, dtype=np.float64)
+            ts = getattr(frame, "timestamp", None)
+            sample_id = getattr(frame, "serial_number", None)
+
+        return self.process_spectrum(
+            wavelengths=wl,
+            intensities=intensities,
+            timestamp=ts,
+            sample_id=sample_id,
+        )

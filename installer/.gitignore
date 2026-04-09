@@ -1,0 +1,8 @@
+# Installer build output — never commit .exe artifacts
+dist/
+*.exe
+resources/installer_banner.bmp
+resources/installer_icon.bmp
+# Python path written during install
+python_path.txt
+api_key_hint.txt

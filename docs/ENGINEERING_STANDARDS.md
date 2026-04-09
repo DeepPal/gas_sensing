@@ -75,3 +75,70 @@ Store ADR files in docs/adr.
 - Phase 1: establish CI, ADRs, local quality gate script.
 - Phase 2: raise type-check coverage and add schema validation checks.
 - Phase 3: enforce reproducibility manifests for all experiment runs.
+
+## 10. CI Lanes and Required Status Checks
+
+The CI pipeline is split into two lanes with a strict dependency order:
+
+```
+quality-fast  →  reliability  →  docker-build  →  docs
+```
+
+### Lane definitions
+
+| Job name       | Trigger       | What it runs                                      | Time budget |
+|----------------|---------------|---------------------------------------------------|-------------|
+| `quality-fast` | Every push/PR | Ruff lint, mypy (src/), fast pytest suite         | ~2–3 min    |
+| `reliability`  | After fast ✅  | Reliability-marked pytest suite, JUnit XML        | ≤45 s total |
+| `docker-build` | After both ✅  | Docker image build                                | ~3–5 min    |
+| `docs`         | After fast ✅  | MkDocs build                                      | ~1 min      |
+
+A nightly workflow (`reliability-nightly.yml`) re-runs the reliability suite with
+**enforced** runtime budgets (45 s total, 12 s per test) and uploads a full
+markdown report as a GitHub Actions artifact.
+
+### Branch protection settings (recommended for `main`)
+
+Navigate to **Settings → Branches → Branch protection rules** and configure:
+
+1. **Require a pull request before merging** — avoid direct pushes to `main`.
+2. **Require status checks to pass before merging** — add both required checks:
+	- `quality-fast`
+	- `reliability`
+3. **Require branches to be up to date before merging** — ensures CI runs on
+	the latest merge base (prevents stale-green PRs).
+4. **Do not allow bypassing the above settings** — enforce even for admins to
+	preserve scientific reproducibility guarantees.
+
+```
+Required checks (exact job names from .github/workflows/quality.yml):
+  ✅  quality-fast
+  ✅  reliability
+```
+
+### Local quality gate (mirrors CI)
+
+Run the full gate before pushing:
+
+```bash
+# Fast lane only (lint + types + tests, ~1 min)
+python scripts/quality_gate.py --lane fast
+
+# Full gate including reliability suite + budget check
+python scripts/quality_gate.py --lane all --reliability-report --enforce-reliability-budget
+
+# Or via Make:
+make quality-gate
+```
+
+The gate exits non-zero if any check fails, matching CI behaviour.
+
+### Runtime budget thresholds
+
+| Scope        | Budget   | Mode                  |
+|--------------|----------|-----------------------|
+| Total suite  | 45 s     | Enforced nightly, advisory on PR |
+| Single test  | 12 s     | Enforced nightly, advisory on PR |
+
+Budget reports are uploaded as GitHub Actions artifacts and appended to the
+GitHub Step Summary for every reliability run.

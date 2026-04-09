@@ -12,8 +12,8 @@ Typical usage::
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+import os
 from typing import Optional
 
 import numpy as np
@@ -22,7 +22,6 @@ from scipy.stats import linregress
 
 from src.reporting.metrics import select_signal_column
 from src.signal.roi import compute_band_ratio_matrix
-
 
 # ---------------------------------------------------------------------------
 # Trial stacking helper

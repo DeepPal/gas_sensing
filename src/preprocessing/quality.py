@@ -98,6 +98,105 @@ def estimate_noise_metrics(
     return NoiseMetrics(rms=rms, mad=mad, spectral_entropy=entropy, snr=snr)
 
 
+class NoiseFloorTracker:
+    """Rolling per-frame estimate of the spectrometer dark noise floor.
+
+    The noise floor is estimated from the spectral edge pixels (regions far
+    from any LSPR peak) on every frame.  A rolling median over recent frames
+    gives a stable, outlier-robust baseline.
+
+    Usage
+    -----
+    ::
+
+        tracker = NoiseFloorTracker()
+        for frame in acquisition_loop:
+            tracker.update(frame.intensities)
+            if tracker.is_degrading:
+                alert("Noise floor elevated — check lamp / dark current")
+            current_floor = tracker.noise_floor_rms
+
+    This distinguishes three noise components that have different physical
+    causes and require different interventions:
+
+    * **Shot noise**: scales as √I — handled by weighted Lorentzian fit
+    * **Dark noise**: fixed per frame — this tracker measures it
+    * **Structural baseline shift**: slow drift — tracked by DriftAgent
+    """
+
+    def __init__(
+        self,
+        window_frames: int = 100,
+        edge_fraction: float = 0.05,
+        degradation_factor: float = 2.0,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        window_frames:
+            Number of recent frames used for the rolling noise estimate.
+        edge_fraction:
+            Fraction of spectrum pixels (each end) used as the off-peak noise
+            region.  0.05 = first and last 5% of channels.
+        degradation_factor:
+            Alert if recent noise floor exceeds baseline by this factor.
+            Default 2.0 = noise doubled (significant lamp or CCD degradation).
+        """
+        from collections import deque
+        self._window = window_frames
+        self._edge_frac = edge_fraction
+        self._factor = degradation_factor
+        self._history: deque[float] = deque(maxlen=window_frames)
+
+    def update(self, intensities: np.ndarray) -> float:
+        """Record one frame's noise floor estimate and return it.
+
+        Parameters
+        ----------
+        intensities:
+            Raw (pre-smoothing) 1-D intensity array.
+
+        Returns
+        -------
+        float
+            Estimated noise floor RMS for this frame.
+        """
+        if len(intensities) == 0:
+            return 0.0
+        n = len(intensities)
+        edge = max(5, int(n * self._edge_frac))
+        noise_region = np.concatenate([intensities[:edge], intensities[-edge:]])
+        rms = float(np.std(noise_region))
+        self._history.append(rms)
+        return rms
+
+    @property
+    def noise_floor_rms(self) -> float:
+        """Median noise floor RMS over the rolling window (counts)."""
+        if not self._history:
+            return 0.0
+        return float(np.median(list(self._history)))
+
+    @property
+    def is_degrading(self) -> bool:
+        """True if recent noise floor is > ``degradation_factor`` × early baseline.
+
+        Requires at least 20 frames.  Uses the first 10% of the window as
+        the baseline reference (avoids warm-up transient contaminating the alert).
+        """
+        h = list(self._history)
+        if len(h) < 20:
+            return False
+        n_base = max(5, len(h) // 10)
+        baseline = float(np.median(h[:n_base]))
+        recent = float(np.median(h[-n_base:]))
+        return baseline > 1e-12 and recent > baseline * self._factor
+
+    def reset(self) -> None:
+        """Clear history (e.g., after hardware reconfiguration)."""
+        self._history.clear()
+
+
 def check_saturation(
     intensities: np.ndarray,
     threshold: float = 60_000.0,

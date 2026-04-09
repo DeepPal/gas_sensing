@@ -64,7 +64,7 @@ peak_idx = int(np.argmax(proc))
 feat = np.array([[
     float(proc[peak_idx]),            # peak intensity
     float(wl_live[peak_idx]),         # peak wavelength
-    float(np.trapz(proc, wl_live)),   # spectral area
+    float(np.trapezoid(proc, wl_live)),   # spectral area
     float(np.std(proc)),              # spectral variance
 ]])
 ```

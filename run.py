@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Au-MIP LSPR Gas Sensing Platform — Unified CLI Entry Point
+SpectraAgent — Spectrometer-Based Sensing Platform — Unified CLI Entry Point
 ===========================================================
 
 Thin wrapper that delegates to existing, well-tested modules.  No business
@@ -33,6 +33,7 @@ import logging
 from pathlib import Path
 import sys
 import time
+from typing import Any, cast
 import warnings
 
 # ---------------------------------------------------------------------------
@@ -41,8 +42,10 @@ import warnings
 # ---------------------------------------------------------------------------
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stdout is not None:
+            cast(Any, sys.stdout).reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+            cast(Any, sys.stderr).reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -107,9 +110,9 @@ class Config:
     """
 
     integration_time_ms: float = 30.0
-    #: LSPR reference peak for Au nanoparticles (green region, ~531–532 nm)
+    #: LSPR reference peak for nanoparticles (green region, ~531–532 nm)
     target_wavelength: float = 532.0
-    #: Literature sensitivity for ethanol on Au-MIP: 0.116 nm/ppm
+    #: Literature sensitivity for ethanol on the sensor: 0.116 nm/ppm
     calibration_slope: float = 0.116
     calibration_intercept: float = 0.0
     reference_wavelength: float = 532.0
@@ -153,9 +156,10 @@ class SpectrometerInterface:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self._service = None
+        self._service: Any | None = None
         self.wavelengths: np.ndarray | None = None
         self.is_simulation = False
+        self._last_sample_num: int = -1  # deduplication: skip already-processed samples
 
     def connect(self, resource: str | None = None) -> bool:
         """Connect to the spectrometer.
@@ -168,13 +172,18 @@ class SpectrometerInterface:
                 RealtimeAcquisitionService,
             )
 
-            self._service = RealtimeAcquisitionService(
+            service = RealtimeAcquisitionService(
                 integration_time_ms=self.config.integration_time_ms,
                 target_wavelength=self.config.target_wavelength,
                 resource_string=resource,
             )
-            self._service.connect()
-            self.wavelengths = self._service.wavelengths
+            service.connect()
+            # start() launches the acquisition thread — must be called after
+            # connect() so the spectrometer handle is ready.  Without this the
+            # data_buffer stays empty and total_samples is always 0.
+            service.start()
+            self._service = service
+            self.wavelengths = service.wavelengths
             log.info("Connected to CCS200 spectrometer")
             return True
 
@@ -189,19 +198,30 @@ class SpectrometerInterface:
         return True
 
     def acquire(self) -> dict | None:
-        """Return the next spectrum sample dict."""
+        """Return the next unprocessed spectrum sample, or None if no new data.
+
+        Uses ``sample_num`` deduplication so repeated calls at a higher
+        frequency than the acquisition rate do not re-process the same frame.
+        """
         if self.is_simulation:
             return self._simulate_spectrum()
         if self._service:
-            sample = self._service.get_latest_sample()
-            if sample:
-                sample["wavelengths"] = self.wavelengths
+            sample = cast(dict[str, Any] | None, self._service.get_latest_sample())
+            if sample is None:
+                return None
+            # Skip if we've already processed this sample number
+            num = int(sample.get("sample_num", -1))
+            if num == self._last_sample_num:
+                return None
+            self._last_sample_num = num
+            sample["wavelengths"] = self.wavelengths
             return sample
         return None
 
     def _simulate_spectrum(self) -> dict:
         """Generate a realistic Gaussian-absorption LSPR spectrum."""
         wl = self.wavelengths
+        assert wl is not None
         noise = np.random.normal(0, self._SIM_NOISE_STD, len(wl))
         absorption = self._SIM_AMPLITUDE * np.exp(
             -((wl - self._SIM_CENTER_NM) ** 2) / (2 * self._SIM_WIDTH_NM**2)
@@ -223,6 +243,7 @@ class SpectrometerInterface:
                 self._service.stop()
             except Exception as exc:
                 log.warning("Error closing spectrometer: %s", exc)
+        self._last_sample_num = -1
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +495,7 @@ class GasSensingSystem:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run.py",
-        description="Au-MIP LSPR Gas Sensing Platform",
+        description="SpectraAgent — Spectrometer-Based Sensing Platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

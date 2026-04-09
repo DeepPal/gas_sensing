@@ -7,6 +7,159 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Dependency automation and release runbook (2026-04-09)
+- `.github/dependabot.yml` — enabled weekly Dependabot updates for `pip`, GitHub Actions, and frontend `npm` dependencies
+- `docs/guides/RELEASE_RUNBOOK.md` — added a practical release checklist aligned with tag-based release workflow and artifact verification requirements
+
+### Changed — Governance ownership and quality ratchet (2026-04-09)
+- `.github/CODEOWNERS` — tightened ownership routing for release/governance-critical files (`pyproject.toml`, `Dockerfile`, `docker-compose.yml`, status docs, scripts, dependabot config)
+- `pyproject.toml` — raised coverage threshold from 70 to 75
+- `CONTRIBUTING.md` — linked release process to the release runbook
+
+### Added — Repository hygiene + governance hardening (2026-04-09)
+- `.github/workflows/secret-scan.yml` — added Gitleaks-based secret scanning on PRs and pushes to `main`
+- `scripts/check_repo_hygiene.py` — added CI guard that fails on flattened absolute-path artifacts and forbidden generated runtime files tracked in git
+- `scripts/check_status_sync.py` — added CI guard enforcing canonical status-tracking references across `README.md`, `CONTRIBUTING.md`, `REMAINING_WORK.md`, and `PRODUCTION_READINESS.md`
+
+### Changed — Quality gate strictness (2026-04-09)
+- `.github/workflows/quality.yml` — `workflow-hygiene` now runs repository-hygiene and status-sync checks
+- `.github/workflows/quality.yml` — promoted legacy mypy lane to required (removed advisory `continue-on-error`)
+
+### Fixed — Repo index contamination (2026-04-09)
+- Removed malformed duplicate frontend tree tracked under flattened absolute-path prefix (`cUsersdeeppDesktop...`)
+- Removed accidental flattened test-results artifact tracked under `UsersdeeppDesktop...`
+- Stopped tracking generated runtime artifacts under `output/memory/` and `output/test-results/` and tightened ignore rules in `.gitignore`
+
+### Added — CI reliability, release integrity, and diagnostics (2026-04-02)
+- `.github/workflows/release.yml` — added Sigstore signing/verification coverage for release artifacts and hardened provenance checks in the release lane
+- `.github/workflows/quality.yml` — added flaky-test detection/reporting lane and surfaced reliability diagnostics in CI outputs
+- `scripts/detect_flaky_tests.py` — new reliability utility to detect repeated unstable tests from JUnit history and emit markdown/JUnit-friendly summaries
+- `scripts/generate_pr_comment.py` — new PR diagnostics helper that turns CI outcomes into actionable troubleshooting comments
+- `MANIFEST.in`, `pyproject.toml` — strengthened packaging hygiene to keep generated/non-distribution artifacts out of release wheels/sdists
+- `docs/guides/` and CI troubleshooting docs — expanded guidance for recurring workflow failures, release checks, and deployment smoke validation
+
+### Fixed — Deployment contract and dashboard auth hardening (2026-04-01)
+- `Dockerfile` — fixed editable-install build path by copying the application tree before `pip install -e`, added an explicit `api` target, and kept `spectraagent` as the live-platform runtime target
+- `docker-compose.yml` — aligned the default deployment with the actual product architecture: `spectraagent` now runs on port `8765` with `/api/health`, while `dashboard` points users at the live platform URL via `SPECTRAAGENT_BASE_URL`
+- `dashboard/auth.py` — removed the hardcoded fallback password, added PBKDF2-SHA256 verifier support, added a password-management CLI, and kept plaintext env/file support only for compatibility
+- `run_dashboard_secure.bat`, `run_dashboard_secure.sh` — fail closed when no password is configured and surface the hashed-password setup path
+- `DEPLOY_RESEARCH_LAB.md`, `PRODUCTION_READINESS.md` — synced deployment and security docs to the actual implementation
+
+### Added — Research integrity gate and replay verification (2026-04-01)
+- `dashboard/reproducibility.py` — manifests now include per-artifact SHA256 checksums for tamper-evident replay
+- `scripts/replay_session.py` — verifies a session manifest against on-disk artifact checksums
+- `scripts/research_integrity_gate.py` — validates manifest schema + checksums and includes a built-in tamper-detection self-check mode
+- `tests/test_reproducibility_manifest.py` — added checksum generation and tamper-detection coverage
+- `.github/workflows/release.yml` — release pipeline now executes integrity self-check after test lane
+
+### Added — Uncertainty UI, export quality gates, and robustness CLI (2026-04-01)
+- `dashboard/agentic_pipeline_tab.py`:
+  - Added calibration-curve 95% CI band (GPR-based with linear fallback)
+  - Updated live inference metrics to display concentration estimate as
+    `mean ± 1σ` in ppm
+  - Added hard export quality gates for `R² >= 0.95`, `SNR >= 3`, and
+    replicate drift `<= 2 nm`, with explicit override checkbox
+  - Added export metadata sidecar JSON including `quality_flags` and
+    override traceability for report generation
+- `spectraagent/commands/robustness.py`: new `RobustnessRunner` command module
+  for scripted robustness sweeps and publication-ready LOD/R² comparison tables
+- `spectraagent/__main__.py`: new `spectraagent robustness` CLI command with
+  `--param`, `--range`, `--steps`, `--runs`, `--dataset-dir`, and `--output-csv`
+
+### Added — Codemap audit & B1 status correction (2026-04-01)
+- Confirmed `estimate_response_kinetics` / `KineticFeatures` (τ₆₃, τ₉₅) already
+  implemented in `src/features/lspr_features.py` and wired into
+  `src/inference/session_analyzer.py` + `SensorMemory`; updated
+  `REMAINING_WORK.md` B1 status to ✅ IMPLEMENTED and priority matrix accordingly
+
+### Added — Governance & tracking consistency (2026-04-01)
+- `.github/workflows/security.yml` — dedicated Security Gates workflow:
+  CodeQL (Python + JavaScript), `pip-audit` dependency vulnerability scan,
+  Bandit source scan, and PR dependency diff review (`dependency-review-action`)
+- Status-document truth sync to reduce planning drift between docs and code:
+  `PRODUCTION_READINESS.md` and `REMAINING_WORK.md` updated to reflect
+  completed production/security/science work items
+- Canonical status-tracking references documented in `README.md` and
+  `CONTRIBUTING.md` so future contributors/agents update the same sources
+
+### Added — Production hardening & scientific completeness (2026-03-30)
+- `src/calibration/batch_reproducibility.py` — batch sensor QC: pooled LOD, inter-sensor
+  RSD, accept/reject verdict with configurable thresholds
+- `src/calibration/selectivity.py` — selectivity report from calibration data: IUPAC K values,
+  cross-reactivity coefficients, selectivity flag (excellent/good/poor)
+- `src/reporting/publication.py` — publication-quality figure generation (Nature/ACS journal style)
+- `tests/integration/test_production_compliance.py` — 37 integration tests: full IUPAC triad,
+  response kinetics, selectivity, batch reproducibility, public API completeness, audit trail
+- LOB (Limit of Blank) added to IUPAC triad — `lob`, `lob_ci_low`, `lob_ci_high`
+- Bootstrap CI on LOD/LOQ (2 000 iterations) — `lod_ci_low/high`, `loq_ci_low/high`
+- Limit of Linearity (LOL) computed from 5+ calibration points using Mandel F-test
+- Methods audit trail in `SessionAnalyzer` — records sigma source, method name, timestamp,
+  references (IUPAC 1995, ICH Q2(R1)), git commit hash
+- Lorentzian peak fit in `LSPRPhysicsPlugin` — replaces centroid estimate; result cached
+  across frames via `compute_reference_cache()`
+- Leave-one-out coverage check for conformal predictor
+- `src/io/hdf5.py` — HDF5 archival for spectral datasets (write + read round-trip)
+- `src/spectrometer/` — hardware abstraction layer: `AbstractSpectrometer`, `SpectralFrame`,
+  `SpectrometerRegistry`, `SimulatedSpectrometer` (LSPR/fluorescence/absorbance modes),
+  `CCS200Adapter`
+- `src/calibration/pls.py` — PLS calibration with LOOCV and VIP scores
+- `tests/test_spectrometer.py`, `tests/test_hdf5.py`, `tests/test_pls_calibration.py`,
+  `tests/test_publication_figures.py`, `tests/test_reproducibility_manifest.py` — 60+ new tests
+
+### Fixed — Production hardening (2026-03-30)
+- `gas_analysis/acquisition/ccs200_realtime.py` — Unicode symbols (`✓`, `✗`, `⚠`) in print
+  statements raised `UnicodeEncodeError` on Windows cp1252 console, silently triggering
+  simulation fallback even when hardware was connected; replaced with ASCII equivalents
+- `gas_analysis/acquisition/ccs200_realtime.py` — `_last_sample_time` was never updated in
+  acquisition loop; health watchdog silence-check was permanently disabled
+- `spectraagent/drivers/thorlabs.py` — `set_integration_time_ms()` only updated the sleep
+  timing attribute; never propagated to the hardware DLL via `spec.set_integration_time()`
+- `spectraagent/webapp/frontend/src/App.tsx` — WebSocket `onclose` callback fired
+  asynchronously after `ws.close()` in cleanup, scheduling a reconnect timer on an unmounted
+  component; fixed with `unmounted` flag + `clearTimeout` in both WebSocket effects
+- `spectraagent/webapp/frontend/src/App.tsx` — simulation badge checked only `health.simulate`
+  (CLI flag); silent hardware fallback sets `hardware="Simulation"` with `simulate=false`;
+  badge now checks both
+- `tests/spectraagent/webapp/agents/test_claude_agents.py` — all `messages.create` assertions
+  updated to `messages.stream` after production code switched to streaming API
+
+### Added — SpectraAgent live platform (2026-03-26 to 2026-03-29)
+- `spectraagent/` package — full agentic spectroscopy server:
+  - `__main__.py` — Typer CLI (`spectraagent start`, `spectraagent plugins list`)
+  - `webapp/server.py` — FastAPI app factory with all HTTP + WebSocket routes
+  - `webapp/agent_bus.py` — `AgentBus`: thread-safe bridge (call_soon_threadsafe + asyncio queues)
+  - `webapp/session_writer.py` — `SessionWriter`: crash-safe per-frame CSV + metadata JSON
+  - `webapp/agents/quality.py` — `QualityAgent`: SNR check + saturation hard-gate
+  - `webapp/agents/drift.py` — `DriftAgent`: rolling peak-shift trend detection
+  - `webapp/agents/calibration.py` — `CalibrationAgent`: accumulates (conc, shift) points
+  - `webapp/agents/planner.py` — `ExperimentPlannerAgent`: wraps `BayesianExperimentDesigner`
+  - `webapp/agents/claude_agents.py` — `AnomalyExplainer`, `ExperimentNarrator`,
+    `DiagnosticsAgent`, `ReportWriter`, `ClaudeAgentRunner`
+  - `drivers/` — `AbstractHardwareDriver`, `ThorlabsDriver`, `SimulationDriver`, `validation.py`
+  - `physics/` — `AbstractSensorPhysicsPlugin`, `LSPRPhysicsPlugin`
+  - `config.py` — TOML config loader (`spectraagent.toml`)
+- `spectraagent/webapp/frontend/` — React + TypeScript + Vite frontend:
+  - Live spectrum chart (WebSocket), agent event feed, hardware badge
+  - Session start/stop controls, reference capture, calibration panel
+  - Ask Claude (SSE streaming), auto-explain toggle
+- `spectraagent.toml` — default configuration file
+- Entry-points in `pyproject.toml`: `spectraagent.hardware` and `spectraagent.sensor_physics`
+
+### Added — Scientific hardening (2026-03-20 to 2026-03-25)
+- `src/calibration/conformal.py` — split conformal prediction with normalised scores;
+  provable coverage guarantee; `ConformalCalibrator` wired into `RealTimePipeline`
+- `src/calibration/physics_kernel.py` — `PhysicsInformedGPR` with Langmuir isotherm mean
+  function; Mandel F-test gate suppresses Langmuir on linear data
+- `src/calibration/active_learning.py` — `BayesianExperimentDesigner` with logspace
+  max-variance acquisition; replaces fixed concentration grids
+- `src/inference/session_analyzer.py` — `SessionAnalyzer`: post-session LOD/LOQ/T90/T10/
+  drift rate/linearity; runs automatically on `POST /acquisition/stop`
+- `src/inference/realtime_pipeline.py` — `RealTimePipeline`: 4-stage pipeline wired into
+  per-frame hot path; emits `concentration_ppm`, `ci_low`, `ci_high`, `peak_shift_nm`,
+  `gas_type`, `confidence_score` to WebSocket broadcast
+- `src/public_api.py` — stable commercial import facade (PEP 561 typed package)
+- `src/py.typed` — PEP 561 marker
+
 ### Added — Commercial-grade analysis quality (2026-03)
 - `config/MODEL.yaml` — versioned ML hyperparameter registry (CNN architecture, GPR kernel,
   multi-task future path, production model paths); merged from stale `configs/` directory

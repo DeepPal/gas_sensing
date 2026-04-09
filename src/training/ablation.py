@@ -1,7 +1,7 @@
 """
 src.training.ablation
 =====================
-Preprocessing ablation study for the Au-MIP LSPR gas-sensing pipeline.
+Preprocessing ablation study for the the sensor LSPR gas-sensing pipeline.
 
 What it does
 ------------

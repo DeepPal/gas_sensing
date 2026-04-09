@@ -27,6 +27,8 @@ Design notes
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
 
 import numpy as np
 import pytest
@@ -41,7 +43,7 @@ if realtime_pipeline_spec is None:
         allow_module_level=True,
     )
 
-from src.inference.realtime_pipeline import (  # noqa: E402
+from src.inference.realtime_pipeline import (  # noqa: E402  # type: ignore[no-redef]
     PipelineConfig,
     PipelineResult,
     RealTimePipeline,
@@ -57,6 +59,8 @@ def _make_pipeline(
     target_wl: float = 532.0,
     slope: float = 0.116,
     intercept: float = 0.0,
+    peak_search_min_nm: float = 480.0,
+    peak_search_max_nm: float = 600.0,
 ) -> RealTimePipeline:
     """Create a ``RealTimePipeline`` with deterministic calibration."""
     cfg = PipelineConfig(
@@ -64,6 +68,8 @@ def _make_pipeline(
         calibration_slope=slope,
         calibration_intercept=intercept,
         reference_wavelength=target_wl,
+        peak_search_min_nm=peak_search_min_nm,
+        peak_search_max_nm=peak_search_max_nm,
     )
     pipeline = RealTimePipeline(cfg)
     pipeline.set_calibration(slope=slope, intercept=intercept, reference_wl=target_wl)
@@ -153,16 +159,21 @@ class TestProcessSpectrum:
         assert isinstance(result.success, bool)
 
     def test_peak_wavelength_in_range(self, synthetic_spectrum: dict) -> None:
-        pipeline = _make_pipeline(target_wl=531.5)
+        search_min, search_max = 480.0, 600.0
+        pipeline = _make_pipeline(
+            target_wl=531.5,
+            peak_search_min_nm=search_min,
+            peak_search_max_nm=search_max,
+        )
         result = pipeline.process_spectrum(
             synthetic_spectrum["wavelengths"],
             synthetic_spectrum["intensities"],
         )
         if result.success and result.spectrum.peak_wavelength is not None:
-            # Peak should be in the LSPR region ±50 nm
-            assert 480 < result.spectrum.peak_wavelength < 600, (
+            # Peak must lie within the configured search window
+            assert search_min < result.spectrum.peak_wavelength < search_max, (
                 f"Peak wavelength {result.spectrum.peak_wavelength:.1f} nm is outside "
-                "the expected LSPR region (480–600 nm)"
+                f"the configured search window ({search_min}–{search_max} nm)"
             )
 
     def test_snr_non_negative(self, synthetic_spectrum: dict) -> None:

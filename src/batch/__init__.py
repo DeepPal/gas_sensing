@@ -1,7 +1,7 @@
 """
 src.batch
 =========
-Batch analysis pipeline for Au-MIP LSPR gas sensing.
+Batch analysis pipeline for the sensor LSPR gas sensing.
 
 Modules
 -------

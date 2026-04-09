@@ -1,10 +1,14 @@
 # Methods Section Template for Publication
 
+**Platform version**: Phase 5E (2026-04-08). Copy the sections marked `[FILL]` with your own experimental details. Sections without `[FILL]` can be used verbatim or with minor adaptation.
+
+---
+
 ## Suggested Title Options
 
-1. "An Autonomous AI-Driven Framework for SPR-Based Optical Fiber Gas Sensor Characterization"
-2. "Closed-Loop Bayesian Optimization for Automated Gas Sensor Calibration"
-3. "Agentic AI for Reproducible Optical Gas Sensing: From Raw Spectra to Publication-Ready Metrics"
+1. "Automated AI-Assisted LSPR Gas Sensor Characterisation with Full IUPAC/ICH Q2(R1) Analytical Validation"
+2. "Agentic Calibration Platform for LSPR-Based VOC Detection: From Raw Spectra to Publication-Ready Metrics"
+3. "SpectraAgent: An Open-Source Pipeline for Reproducible LSPR Sensor Characterisation with Statistical Validation"
 
 ---
 
@@ -12,221 +16,155 @@
 
 ### 2.1 Sensor Fabrication and Experimental Setup
 
-[Your existing sensor description here]
+[FILL: your sensor description — chip material, functionalisation, flow cell geometry, gas delivery system]
 
-### 2.2 Autonomous Characterization Agent
+Spectral acquisition was performed using a ThorLabs CCS200 compact spectrometer (range 200–1000 nm, 3648 pixels) connected via USB to a host computer running the SpectraAgent platform (commit `[FILL: git rev-parse --short HEAD]`). Integration time was set to [FILL] ms with [FILL]-frame averaging. The sensor was allowed to thermally equilibrate for ≥10 minutes before any measurement. Room temperature was [FILL: mean ± std] °C across all sessions.
 
-#### 2.2.1 System Architecture
+### 2.2 Reference Spectrum Capture and Differential Signal
 
-We developed an autonomous agent system for end-to-end gas sensor characterization. The system comprises ten Python modules (~5,000 lines of code) organized into three functional layers:
+Prior to each calibration session, a reference spectrum was recorded under clean carrier gas (dry N₂ / laboratory air — [FILL]). The reference LSPR peak position (λ_ref) and linewidth (FWHM_ref) were determined by fitting a Lorentzian function to the peak region:
 
-1. **Core Layer**: Pipeline execution, configuration management, and quality control
-2. **Optimization Layer**: Bayesian experiment design and adaptive retry logic
-3. **Monitoring Layer**: Anomaly detection, health monitoring, and benchmarking
+$$I(\lambda) = I_0 + \frac{A \cdot (\Gamma/2)^2}{(\lambda - \lambda_0)^2 + (\Gamma/2)^2}$$
 
-The agent operates in a closed-loop fashion: (1) ingest new experimental data, (2) execute the analysis pipeline, (3) evaluate results against quality thresholds, (4) adapt parameters if thresholds are not met, and (5) generate structured reports.
+where λ₀ is the centre wavelength and Γ is the FWHM. The differential signal for each measurement frame was computed as:
 
-#### 2.2.2 Quality Control Gates
+$$\Delta I(\lambda) = I_{\text{sample}}(\lambda) - I_{\text{ref}}(\lambda)$$
 
-Quality control thresholds were established based on ICH Q2(R1) guidelines and IUPAC recommendations:
+The primary sensing signal is the peak wavelength shift Δλ = λ₀,sample − λ_ref, which is proportional to the local refractive index change at the sensor surface.
 
-| Metric | Threshold | Reference |
-|--------|-----------|-----------|
-| R² (coefficient of determination) | ≥ 0.90 | ICH Q2(R1) |
-| Limit of Detection (LOD) | ≤ 6.0 ppm | IUPAC 3σ method |
-| Responsive frame fraction | ≥ 50% | Application-specific |
-| Maximum failed trials | ≤ 2 | Application-specific |
+### 2.3 Calibration Curve and Sensitivity
 
-A normalized quality score (0-1) was computed as a weighted combination of individual metric scores, enabling quantitative comparison across runs.
+Calibration data consisted of [FILL: N] concentration levels spaced [FILL: logarithmically / uniformly] over the range [FILL: C_min–C_max] ppm, with [FILL: n] replicate measurements per level at steady state. The last [FILL: 10] frames of each equilibration plateau were averaged as the representative response.
 
-#### 2.2.3 Adaptive Retry Logic
+A linear calibration model was fitted by ordinary least squares (OLS):
 
-When quality thresholds were not met, the agent automatically retried with progressively relaxed parameter profiles:
+$$\Delta\lambda = S \cdot C + b$$
 
-1. **Strict**: Default high-quality settings (avg_top_n=6, diff_threshold=null)
-2. **Relaxed PELT**: For weak signals (avg_top_n=8, diff_threshold=0.005)
-3. **Exploratory**: Maximum sensitivity (avg_top_n=12, diff_threshold=0.0)
+where S (nm ppm⁻¹) is the sensitivity, C is the analyte concentration (ppm), and b is the intercept. Sensitivity uncertainty was quantified as the OLS standard error of the slope SE(S), and a 95% confidence interval was derived using the t-distribution with n−2 degrees of freedom.
 
-This adaptive approach ensures robust characterization across varying signal quality conditions.
+**Homoscedasticity check (Breusch-Pagan test)**: Prior to using OLS, residuals were tested for constant variance using the Breusch-Pagan Lagrange-Multiplier test at a Bonferroni-corrected significance level of α = 0.017 (family-wise α = 0.05 over three simultaneous tests). When heteroscedasticity was detected (p < 0.017), weighted least squares (WLS) was automatically applied using weights w_i = 1/C_i² (proportional error model), and the WLS sensitivity is reported in place of OLS.
 
-#### 2.2.4 Bayesian Optimization for Experiment Design
+**Linearity check (Mandel's F-test, ICH Q2 §4.2)**: Linearity was assessed by comparing the residual sum of squares of the linear fit against a second-degree polynomial using an F-test. p ≥ 0.05 confirms linearity. The limit of linearity (LOL) was the highest concentration for which linearity was not rejected.
 
-To reduce the number of experiments required for characterization, we implemented Bayesian optimization using Gaussian Process (GP) regression with a Matérn kernel (ν=2.5). The Expected Improvement (EI) acquisition function was used to balance exploration and exploitation:
+**Residual normality (Shapiro-Wilk)** and **autocorrelation (Durbin-Watson)** were also tested as mandatory checks per ICH Q2(R1).
 
-$$EI(x) = (μ(x) - f_{best} - ξ) Φ(Z) + σ(x) φ(Z)$$
+### 2.4 Detection Limits (IUPAC 2012 / ICH Q2(R1))
 
-where $Z = (μ(x) - f_{best} - ξ) / σ(x)$, $μ(x)$ and $σ(x)$ are the GP mean and standard deviation, and $ξ=0.01$ is the exploration parameter.
+The following detection limit hierarchy was computed and verified (IUPAC 2012):
 
-The optimizer proposes the next concentration to test, reducing the total experiments needed to characterize the sensor's linear range and detection limits.
+$$\text{NEC} \leq \text{LOB} \leq \text{LOD} \leq \text{LOQ}$$
 
-#### 2.2.5 Anomaly Detection and Health Monitoring
+**Blank measurements**: [FILL: N_blank ≥ 6] spectra measured in clean carrier gas (no analyte) provided the blank signal distribution. Peak wavelengths from these spectra gave μ_blank and σ_blank after conversion to Δλ units (subtracting λ_ref).
 
-Real-time sensor health monitoring was implemented using:
+**Noise Equivalent Concentration (NEC)**:
+$$\text{NEC} = \frac{\sigma_{\text{blank}}}{|S|}$$
 
-1. **Statistical Process Control (SPC)**: Shewhart control charts with ±3σ limits and CUSUM for detecting small persistent shifts
-2. **Machine Learning**: Isolation Forest for multivariate outlier detection
-3. **Physics-Informed Checks**: Validation of response times (T90, T10), linearity (R²), and hysteresis
+**Limit of Blank (LOB)** (IUPAC 2012, one-sided 95th percentile of blank distribution):
+$$\text{LOB} = \frac{|\mu_{\text{blank}}| + 1.645\,\sigma_{\text{blank}}}{|S|}$$
 
-Detected anomalies were classified by severity (info, warning, critical) with actionable recommendations.
+**Limit of Detection (LOD)** (IUPAC 3σ criterion):
+$$\text{LOD} = \frac{3\,\sigma_{\text{blank}}}{|S|}$$
 
-#### 2.2.6 Reproducibility and Logging
+**Limit of Quantification (LOQ)** (IUPAC 10σ criterion):
+$$\text{LOQ} = \frac{10\,\sigma_{\text{blank}}}{|S|}$$
 
-All runs generated comprehensive metadata for reproducibility:
-- Timestamps in ISO 8601 format (UTC)
-- Python and package versions
-- Git commit hash
-- Full configuration used
-- All pipeline attempts with parameters and results
+**Bootstrap confidence intervals** (n = 1000 iterations, 95% CI): When blank measurements are provided, σ_blank is held fixed during bootstrap resampling of the calibration data so that the CI captures only slope uncertainty. This prevents artificially narrow CIs that would result from re-estimating σ from OLS residuals in each bootstrap iteration.
 
-Structured logs (JSON) and human-readable reports (Markdown) were automatically generated.
+**Prediction interval at LOD** (EURACHEM/CITAC CG 4 §A3): The 95% prediction interval for a new single measurement at concentration x₀ = LOD is:
 
-### 2.3 Benchmarking Methodology
+$$\hat{y} \pm t_{\alpha/2,\,n-2} \cdot s_e \cdot \sqrt{1 + \frac{1}{n} + \frac{(x_0 - \bar{x})^2}{\sum(x_i - \bar{x})^2}}$$
 
-#### 2.3.1 Comparison Methods
+This interval is wider than the OLS confidence band and is the formally correct uncertainty for LOD derivation.
 
-Three analysis approaches were compared:
+### 2.5 Figure of Merit (FOM)
 
-1. **Manual**: Traditional human-operated workflow with parameter tuning
-2. **Fixed Script**: One-shot automated script without adaptation
-3. **Autonomous Agent**: Full adaptive agent with QC and retry logic
+The sensor Figure of Merit was computed as:
 
-#### 2.3.2 Statistical Analysis
+$$\text{FOM} = \frac{|S|}{\text{FWHM}_{\text{ref}}} \quad \text{(ppm}^{-1}\text{)}$$
 
-Paired t-tests were used to compare means between methods. Effect sizes were quantified using Cohen's d:
+where FWHM_ref is the linewidth of the reference LSPR peak from the Lorentzian fit. FOM normalises sensitivity by peak sharpness, enabling direct comparison of sensing performance across sensor platforms and analytes (Willets & Van Duyne, *Annu. Rev. Phys. Chem.* 2007; Homola, *Chem. Rev.* 2008).
 
-$$d = \frac{\bar{x}_1 - \bar{x}_2}{s_{pooled}}$$
+### 2.6 Cross-Session Reproducibility and Stability
 
-Effect sizes were interpreted as: negligible (d < 0.2), small (0.2 ≤ d < 0.5), medium (0.5 ≤ d < 0.8), or large (d ≥ 0.8).
+Cross-session reproducibility was assessed using:
 
-95% confidence intervals were computed for all differences. Statistical significance was set at α = 0.05.
+- **Paired t-test** (H₀: mean Δλ_session_A = mean Δλ_session_B at matched concentrations)
+- **Bland-Altman analysis**: bias ± 1.96·σ_diff limits of agreement
+- **F-test for variance equality** (H₀: σ²_A = σ²_B)
+- **Mann-Whitney U test** (non-parametric, for n < 10 or non-normal distributions)
+- **Mann-Kendall trend test** for monotonic sensitivity/LOD drift across sessions. The non-parametric Kendall τ statistic was used in preference to OLS regression for small session counts (n < 10) where linearity cannot be assumed. Significant increasing trend (p < 0.05) indicates sensor degradation.
 
-### 2.4 Software and Data Availability
+Intra-day and inter-day relative standard deviations (RSD%) were computed per ICH Q2(R1) §4.4 (repeatability) and §4.5 (intermediate precision).
 
-The autonomous agent system was implemented in Python 3.10+ and is available at [repository URL]. Key dependencies include:
-- NumPy, SciPy, scikit-learn for numerical computation
-- Matplotlib for visualization
-- PyYAML for configuration management
+### 2.7 Software and Reproducibility
 
-All experimental data and analysis scripts are provided in the supplementary materials.
+All statistical calculations were performed using the SpectraAgent platform ([FILL: repository URL], commit `[FILL: git rev-parse --short HEAD]`). Key dependencies: Python 3.10+, NumPy [FILL: version], SciPy [FILL: version], scikit-learn [FILL: version]. Session data, fitted models, and all metric outputs are archived in `output/sessions/` and linked to the exact git commit hash at time of acquisition.
 
 ---
 
 ## 3. Results (Template)
 
-### 3.1 Autonomous Characterization Performance
+### 3.1 Calibration Performance
 
-The autonomous agent successfully characterized [N] gas sensor samples with the following results:
+| Analyte | S (nm ppm⁻¹) | SE(S) | R² | R² (LOOCV) | FWHM_ref (nm) | FOM (ppm⁻¹) | Method |
+|---------|-------------|-------|-----|-----------|--------------|-------------|--------|
+| [FILL]  | [FILL]      | [FILL]| [FILL] | [FILL] | [FILL]    | [FILL]      | OLS / WLS |
 
-| Metric | Manual | Autonomous Agent | Improvement |
-|--------|--------|------------------|-------------|
-| Analysis time (s) | X ± Y | A ± B | -Z% (p < 0.01) |
-| Human interventions | N | 0 | -100% |
-| Final R² | X ± Y | A ± B | +Z% |
-| LOD (ppm) | X ± Y | A ± B | -Z% |
+Mandel linearity test: F = [FILL], p = [FILL] ([FILL: linear / nonlinear at α = 0.05]).
 
-### 3.2 Bayesian Optimization Results
+Residual diagnostics: Durbin-Watson = [FILL] ([FILL: no autocorrelation / autocorrelation detected]); Shapiro-Wilk W = [FILL], p = [FILL] ([FILL: normal / non-normal]); Breusch-Pagan p = [FILL] ([FILL: homoscedastic → OLS retained / heteroscedastic → WLS applied]).
 
-Bayesian optimization reduced the number of experiments required to achieve target LOD:
+### 3.2 Detection Limits
 
-| Approach | Experiments Required | LOD Achieved |
-|----------|---------------------|--------------|
-| Fixed grid (10 points) | 10 | X ppm |
-| Bayesian optimization | 6 ± 1 | Y ppm |
-| Reduction | 40% | Equivalent |
+| Analyte | NEC (ppm) | LOB (ppm) | LOD (ppm) | 95% CI | LOQ (ppm) | LOL (ppm) | σ_blank (nm) | N_blank |
+|---------|-----------|-----------|-----------|--------|-----------|-----------|-------------|---------|
+| [FILL]  | [FILL]    | [FILL]    | [FILL]    | [[FILL], [FILL]] | [FILL] | [FILL] | [FILL] | [FILL] |
 
-### 3.3 Anomaly Detection Validation
+Hierarchy check: NEC ≤ LOB ≤ LOD ≤ LOQ — [FILL: ALL PASS / see note].
 
-The anomaly detection system correctly identified:
-- [N] drift events
-- [M] outlier measurements
-- [K] response time anomalies
+σ_blank source: [FILL: N_blank dedicated blank measurements / OLS residuals (note: blank measurements preferred)].
 
-False positive rate: X%
-Detection latency: < 1 minute
+### 3.3 Cross-Session Reproducibility
 
-### 3.4 Reproducibility Assessment
+| Sessions | Paired t p | Bland-Altman bias (nm) | LoA (nm) | F-test p | MK τ | MK trend | LOD RSD% |
+|----------|-----------|----------------------|---------|---------|------|---------|---------|
+| [FILL]   | [FILL]    | [FILL]               | [[FILL],[FILL]] | [FILL] | [FILL] | [FILL] | [FILL] |
 
-Across [N] repeated characterization runs:
-- Coefficient of variation (CV) for R²: X%
-- CV for LOD: Y%
-- CV for sensitivity: Z%
-
-All runs produced consistent metrics with zero human intervention.
+Intra-day RSD (repeatability): [FILL]% (n = [FILL] replicates at [FILL] ppm).
+Inter-day RSD (intermediate precision): [FILL]% over [FILL] days.
 
 ---
 
-## 4. Discussion (Key Points)
+## Supplementary Information Checklist
 
-### 4.1 Novelty and Contributions
+For journal submission include:
 
-1. **First autonomous agent for SPR gas sensor characterization**: Unlike previous ML-based approaches that focus on classification or regression, our system provides complete end-to-end automation.
-
-2. **Bayesian optimization for experiment design**: Traditional fixed concentration grids are replaced with intelligent experiment proposal, reducing characterization time.
-
-3. **Real-time health monitoring**: Continuous SPC and ML-based anomaly detection enables early warning of sensor degradation.
-
-4. **Rigorous benchmarking**: Statistical comparison with effect sizes provides quantitative evidence of improvement.
-
-### 4.2 Comparison with Literature
-
-| Reference | Approach | Automation Level | Our Improvement |
-|-----------|----------|------------------|-----------------|
-| [Ref 1] | CNN classification | Post-processing only | End-to-end automation |
-| [Ref 2] | SVM regression | Fixed parameters | Adaptive retry |
-| [Ref 3] | Manual calibration | Human-operated | Zero intervention |
-
-### 4.3 Limitations and Future Work
-
-1. Current implementation requires Python 3.10+
-2. Bayesian optimization assumes smooth response surface
-3. Multi-agent architecture for multi-sensor systems is planned
+- [ ] Session manifests (`output/sessions/*/session_meta.json`)
+- [ ] Git commit hash at time of acquisition
+- [ ] Raw calibration data CSV with concentration, Δλ, Δλ CI for each frame
+- [ ] Blank measurement data (all N_blank Δλ values)
+- [ ] Residual diagnostics report (Durbin-Watson, Shapiro-Wilk, Breusch-Pagan values)
+- [ ] Bootstrap CI parameters (n_bootstrap, confidence level, fix_noise_std flag)
+- [ ] Prediction interval at LOD (to distinguish from confidence band)
+- [ ] Temperature and humidity per session
+- [ ] FOM calculation inputs (S, FWHM_ref, source of FWHM fit)
+- [ ] WLS weight specification (if WLS was applied)
+- [ ] Mann-Kendall τ, p-value, n_sessions for any multi-session stability claim
+- [ ] Integrity verification output (`research_integrity_gate.py --self-check`)
+- [ ] Software version and dependency list (`pip freeze > requirements_snapshot.txt`)
 
 ---
 
-## 5. Conclusions (Template)
+## References to Cite
 
-We presented an autonomous AI-driven framework for SPR-based optical fiber gas sensor characterization. The system achieved:
-
-1. **X% reduction** in analysis time compared to manual workflows (p < 0.01, d = Y)
-2. **Zero human intervention** with adaptive quality control
-3. **40% fewer experiments** via Bayesian optimization
-4. **Real-time anomaly detection** with < 1 minute latency
-
-This work demonstrates that agentic AI can serve as a "research co-worker" for optical gas sensing, moving beyond traditional ML-as-post-processing to fully autonomous laboratory operation.
-
----
-
-## Supplementary Information
-
-### S1. Agent Configuration
-
-Complete configuration file: `config/agent_config.yaml`
-
-### S2. Module Documentation
-
-Full API documentation: `docs/SYSTEM_ARCHITECTURE.md`
-
-### S3. Benchmark Data
-
-Raw benchmark results: `output/benchmarks/benchmark_report.json`
-
-### S4. Reproducibility Package
-
-Docker image and instructions: `Dockerfile`, `docker-compose.yml`
-
----
-
-## Author Contributions
-
-- **[Author 1]**: Conceptualization, sensor fabrication, experimental data collection
-- **[Author 2]**: Agent system design and implementation
-- **[Author 3]**: Statistical analysis and benchmarking
-- **[Author 4]**: Supervision and manuscript review
-
-## Acknowledgments
-
-[Your acknowledgments here]
-
-## References
-
-[Your references here - include the key citations from the system architecture document]
+- IUPAC 2012: Long & Winefordner (1983) + IUPAC Commission recommendations
+- ICH Q2(R1) (2005): *Validation of Analytical Procedures: Text and Methodology*
+- EURACHEM/CITAC CG 4 (2019): *Quantifying Uncertainty in Analytical Measurement*
+- Breusch & Pagan (1979): *Econometrica* — heteroscedasticity test
+- Shapiro & Wilk (1965): *Biometrika* — normality test
+- Mandel (1964): *The Statistical Analysis of Experimental Data*
+- Bland & Altman (1986): *The Lancet* — method agreement
+- Mann (1945) + Kendall (1975): non-parametric trend test
+- Willets & Van Duyne (2007): *Annu. Rev. Phys. Chem.* 58, 267–297 — FOM definition
+- Homola (2008): *Chem. Rev.* 108, 462–493 — SPR sensing fundamentals
+- ISO 5725-2:2019 — accuracy (trueness and precision) methodology

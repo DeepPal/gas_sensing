@@ -1,0 +1,3 @@
+# SpectrometerRegistry
+
+::: src.spectrometer.registry

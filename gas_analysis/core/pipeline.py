@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import matplotlib
 import numpy as np
@@ -33,6 +33,165 @@ CONFIG = load_config()
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 import contextlib
+
+from src.batch.aggregation import (
+    average_stable_block as _average_stable_block_src,
+)
+from src.batch.aggregation import (
+    average_top_frames as _average_top_frames_src,
+)
+from src.batch.aggregation import (
+    find_stable_block as _find_stable_block_src,
+)
+from src.batch.aggregation import (
+    select_canonical_per_concentration as _select_canonical_src,
+)
+from src.batch.preprocessing import sort_frame_paths as _sort_frame_paths_src
+from src.batch.response import (
+    aggregate_responsive_delta_maps as _aggregate_responsive_delta_maps_src,
+)
+from src.batch.response import (
+    scale_reference_to_baseline as _scale_reference_to_baseline_src,
+)
+from src.batch.response import (
+    score_trial_quality as _score_trial_quality_src,
+)
+from src.batch.response import (
+    summarize_responsive_delta as _summarize_responsive_delta_src,
+)
+from src.calibration.multi_roi import (
+    fit_multi_roi_fusion as _fit_multi_roi_fusion,
+)
+from src.calibration.multi_roi import (
+    select_multi_roi_candidates as _select_multi_roi_candidates,
+)
+from src.calibration.roi_scan import (
+    RoiScanConfig as _RoiScanConfig,
+)
+from src.calibration.roi_scan import (
+    compute_concentration_response as _compute_concentration_response_pure,
+)
+from src.calibration.roi_scan import (
+    stack_trials_for_response as _stack_trials_for_response,
+)
+from src.calibration.transforms import transform_concentrations as _transform_concentrations
+from src.reporting.environment import (
+    compute_environment_coefficients as _compute_environment_coefficients_pure,
+)
+from src.reporting.environment import (
+    compute_environment_summary as _compute_environment_summary_pure,
+)
+from src.reporting.io import (
+    save_aggregated_spectra as _save_aggregated_spectra_io,
+)
+from src.reporting.io import (
+    save_aggregated_summary as _save_aggregated_summary_io,
+)
+from src.reporting.io import (
+    save_canonical_spectra as _save_canonical_spectra_io,
+)
+from src.reporting.io import (
+    save_concentration_response_metrics as _save_concentration_response_metrics_io,
+)
+from src.reporting.io import (
+    save_dynamics_error as _save_dynamics_error_io,
+)
+from src.reporting.io import (
+    save_dynamics_summary as _save_dynamics_summary_io,
+)
+from src.reporting.io import (
+    save_environment_compensation_summary as _save_env_compensation_summary_io,
+)
+from src.reporting.io import (
+    save_noise_metrics as _save_noise_metrics_io,
+)
+from src.reporting.io import (
+    save_quality_summary as _save_quality_summary_io,
+)
+from src.reporting.io import (
+    save_roi_performance_metrics as _save_roi_performance_metrics_io,
+)
+from src.reporting.metrics import (
+    common_signal_columns as _common_signal_columns,
+)
+from src.reporting.metrics import (
+    compute_noise_metrics_map,
+    compute_roi_performance,
+    compute_roi_repeatability,
+    summarize_dynamics_metrics,
+    summarize_top_comparison,
+)
+from src.reporting.metrics import (
+    select_common_signal as _select_common_signal,
+)
+from src.reporting.metrics import (
+    summarize_quality_control as _summarize_quality_control_pure,
+)
+from src.reporting.plots import (
+    save_aggregated_plots as _save_aggregated_plots_src,
+)
+from src.reporting.plots import (
+    save_calibration_outputs as _save_calibration_outputs_src,
+)
+from src.reporting.plots import (
+    save_canonical_overlay as _save_canonical_overlay_src,
+)
+from src.reporting.plots import (
+    save_concentration_response_plot as _save_concentration_response_plot_pure,
+)
+from src.reporting.plots import (
+    save_research_grade_calibration_plot as _save_research_grade_calibration_plot_src,
+)
+from src.reporting.plots import (
+    save_roi_discovery_plot as _save_roi_discovery_plot_src,
+)
+from src.reporting.plots import (
+    save_roi_repeatability_plot as _save_roi_repeatability_plot_src,
+)
+from src.reporting.plots import (
+    save_spectral_response_diagnostic as _save_spectral_response_diagnostic_pure,
+)
+from src.reporting.plots import (
+    save_wavelength_shift_visualization as _save_wavelength_shift_visualization_src,
+)
+from src.scientific.regression import (
+    ransac as _ransac,
+)
+from src.scientific.regression import (
+    theil_sen as _theil_sen,
+)
+from src.scientific.regression import (
+    weighted_linear as _weighted_linear,
+)
+from src.signal.peak import (
+    estimate_shift_crosscorr as _estimate_shift_crosscorr,
+)
+from src.signal.peak import (
+    gaussian_peak_center as _gaussian_peak_center,
+)
+from src.signal.roi import (
+    compute_band_ratio_matrix as _compute_band_ratio_matrix,
+)
+from src.signal.roi import (
+    find_monotonic_wavelengths as _find_monotonic_wavelengths,
+)
+
+# ---------------------------------------------------------------------------
+# Migrated to src/ — imported here as aliases so all internal callers work
+# unchanged. The duplicate function bodies below have been removed.
+# ---------------------------------------------------------------------------
+from src.signal.transforms import (
+    append_absorbance_column as _append_absorbance_column,
+)
+from src.signal.transforms import (
+    compute_transmittance,
+)
+from src.signal.transforms import (
+    ensure_odd_window as _ensure_odd_window,
+)
+from src.signal.transforms import (
+    smooth as _smooth,
+)
 
 from ..advanced.mcr_als import (
     fit_mcrals_from_canonical,
@@ -59,90 +218,6 @@ from .preprocessing import (
     estimate_noise_metrics,
     normalize_spectrum,
     smooth_spectrum,
-)
-
-# ---------------------------------------------------------------------------
-# Migrated to src/ — imported here as aliases so all internal callers work
-# unchanged. The duplicate function bodies below have been removed.
-# ---------------------------------------------------------------------------
-from src.signal.transforms import (
-    append_absorbance_column as _append_absorbance_column,
-    compute_transmittance,
-    ensure_odd_window as _ensure_odd_window,
-    smooth as _smooth,
-)
-from src.signal.peak import (
-    estimate_shift_crosscorr as _estimate_shift_crosscorr,
-    gaussian_peak_center as _gaussian_peak_center,
-)
-from src.scientific.regression import (
-    ransac as _ransac,
-    theil_sen as _theil_sen,
-    weighted_linear as _weighted_linear,
-)
-from src.signal.roi import (
-    compute_band_ratio_matrix as _compute_band_ratio_matrix,
-    find_monotonic_wavelengths as _find_monotonic_wavelengths,
-)
-from src.calibration.transforms import transform_concentrations as _transform_concentrations
-from src.calibration.multi_roi import (
-    fit_multi_roi_fusion as _fit_multi_roi_fusion,
-    select_multi_roi_candidates as _select_multi_roi_candidates,
-)
-from src.reporting.metrics import (
-    common_signal_columns as _common_signal_columns,
-    compute_noise_metrics_map,
-    compute_roi_performance,
-    compute_roi_repeatability,
-    select_common_signal as _select_common_signal,
-    summarize_dynamics_metrics,
-    summarize_quality_control as _summarize_quality_control_pure,
-    summarize_top_comparison,
-)
-from src.reporting.environment import (
-    compute_environment_coefficients as _compute_environment_coefficients_pure,
-    compute_environment_summary as _compute_environment_summary_pure,
-)
-from src.calibration.roi_scan import (
-    RoiScanConfig as _RoiScanConfig,
-    compute_concentration_response as _compute_concentration_response_pure,
-    stack_trials_for_response as _stack_trials_for_response,
-)
-from src.reporting.io import (
-    save_aggregated_spectra as _save_aggregated_spectra_io,
-    save_aggregated_summary as _save_aggregated_summary_io,
-    save_canonical_spectra as _save_canonical_spectra_io,
-    save_concentration_response_metrics as _save_concentration_response_metrics_io,
-    save_dynamics_error as _save_dynamics_error_io,
-    save_dynamics_summary as _save_dynamics_summary_io,
-    save_environment_compensation_summary as _save_env_compensation_summary_io,
-    save_noise_metrics as _save_noise_metrics_io,
-    save_quality_summary as _save_quality_summary_io,
-    save_roi_performance_metrics as _save_roi_performance_metrics_io,
-)
-from src.reporting.plots import (
-    save_aggregated_plots as _save_aggregated_plots_src,
-    save_calibration_outputs as _save_calibration_outputs_src,
-    save_canonical_overlay as _save_canonical_overlay_src,
-    save_concentration_response_plot as _save_concentration_response_plot_pure,
-    save_research_grade_calibration_plot as _save_research_grade_calibration_plot_src,
-    save_roi_discovery_plot as _save_roi_discovery_plot_src,
-    save_roi_repeatability_plot as _save_roi_repeatability_plot_src,
-    save_spectral_response_diagnostic as _save_spectral_response_diagnostic_pure,
-    save_wavelength_shift_visualization as _save_wavelength_shift_visualization_src,
-)
-from src.batch.aggregation import (
-    average_stable_block as _average_stable_block_src,
-    average_top_frames as _average_top_frames_src,
-    find_stable_block as _find_stable_block_src,
-    select_canonical_per_concentration as _select_canonical_src,
-)
-from src.batch.preprocessing import sort_frame_paths as _sort_frame_paths_src
-from src.batch.response import (
-    aggregate_responsive_delta_maps as _aggregate_responsive_delta_maps_src,
-    scale_reference_to_baseline as _scale_reference_to_baseline_src,
-    score_trial_quality as _score_trial_quality_src,
-    summarize_responsive_delta as _summarize_responsive_delta_src,
 )
 
 
@@ -621,6 +696,9 @@ def _compute_response_time_series(
     dataset_label: Optional[str],
     response_cfg: dict[str, object],
 ) -> tuple[pd.DataFrame, list[int], list[int]]:
+    """Thin adapter — preprocesses DataFrames and delegates to src.batch.time_series."""
+    from src.batch.time_series import compute_response_time_series as _rts
+
     if not frames:
         return None, [], []
 
@@ -640,396 +718,46 @@ def _compute_response_time_series(
         roi_mask = np.ones_like(base_wl, dtype=bool)
     roi_wavelengths = base_wl[roi_mask]
 
-    absorb_matrix = []
-    mean_absorb = []
-    roi_matrix = []
+    absorb_rows: list[np.ndarray] = []
+    mean_absorb_list: list[float] = []
+    roi_rows: list[np.ndarray] = []
     for df in processed:
         wl = df["wavelength"].to_numpy()
         signal = df[absorb_col].to_numpy(dtype=float)
         if not np.array_equal(wl, base_wl):
             signal = np.interp(base_wl, wl, signal)
-        absorb_matrix.append(signal)
-        mean_absorb.append(float(np.nanmean(signal)))
-        roi_matrix.append(signal[roi_mask])
-    absorb_matrix = np.vstack(absorb_matrix)
-    mean_absorb = np.array(mean_absorb, dtype=float)
-    roi_matrix = np.vstack(roi_matrix)
+        absorb_rows.append(signal)
+        mean_absorb_list.append(float(np.nanmean(signal)))
+        roi_rows.append(signal[roi_mask])
+    absorb_matrix = np.vstack(absorb_rows)
+    mean_absorb = np.array(mean_absorb_list, dtype=float)
+    roi_matrix = np.vstack(roi_rows)
 
-    smooth_window = int(response_cfg.get("smooth_window", 5) or 5)
-    if smooth_window > 1:
-        window = _ensure_odd_window(smooth_window)
-        absorb_matrix = savgol_filter(
-            absorb_matrix,
-            window_length=min(
-                window,
-                max(3, absorb_matrix.shape[1] - (absorb_matrix.shape[1] + 1) % 2),
-            ),
-            polyorder=2,
-            axis=1,
-            mode="nearest",
-        )
-        roi_matrix = savgol_filter(
-            roi_matrix,
-            window_length=min(window, max(3, roi_matrix.shape[1] - (roi_matrix.shape[1] + 1) % 2)),
-            polyorder=2,
-            axis=1,
-            mode="nearest",
-        )
+    cp_raw = response_cfg.get("changepoint", {})
+    changepoint_cfg: dict[str, Any] = cp_raw if isinstance(cp_raw, dict) else {}
 
-    baseline_target = int(response_cfg.get("baseline_frames", 12) or 12)
-    baseline_target = max(1, min(baseline_target, absorb_matrix.shape[0]))
-    baseline_indices = list(range(min(baseline_target, len(frames))))
-    baseline_indices = [idx for idx in baseline_indices if 0 <= idx < len(frames)]
-    if not baseline_indices:
-        baseline_indices = [0]
-
-    def _compute_baseline_outputs(
-        indices: list[int],
-    ) -> tuple[
-        np.ndarray,
-        np.ndarray,
-        float,
-        float,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        float,
-        np.ndarray,
-        np.ndarray,
-        float,
-    ]:
-        valid = [idx for idx in indices if 0 <= idx < len(frames)]
-        if not valid:
-            valid = [0]
-        base_matrix = absorb_matrix[valid]
-        base_roi_matrix = roi_matrix[valid]
-        baseline_ref = np.nanmean(base_matrix, axis=0)
-        roi_baseline_ref = np.nanmean(base_roi_matrix, axis=0)
-        baseline_mean_val = float(np.nanmean(mean_absorb[valid]))
-        baseline_std_val = float(np.nanstd(mean_absorb[valid], ddof=1)) if len(valid) > 1 else 0.0
-        baseline_std_val = float(np.nan_to_num(baseline_std_val, nan=0.0))
-        centered = absorb_matrix - baseline_ref
-        delta_mean_local = mean_absorb - baseline_mean_val
-        roi_delta_local = roi_matrix - roi_baseline_ref
-        # Determine whether the ROI extremum is a valley (default) or peak based on baseline reference
-        extremum_mode = "valley"
-        if np.any(np.isfinite(roi_baseline_ref)):
-            roi_finite = roi_baseline_ref[np.isfinite(roi_baseline_ref)]
-            if roi_finite.size:
-                median_val = float(np.nanmedian(roi_finite))
-                min_val = float(np.nanmin(roi_finite))
-                max_val = float(np.nanmax(roi_finite))
-                if (max_val - median_val) > (median_val - min_val):
-                    extremum_mode = "peak"
-        if roi_wavelengths.size:
-            if extremum_mode == "valley":
-                baseline_peak_idx = int(
-                    np.nanargmin(np.where(np.isfinite(roi_baseline_ref), roi_baseline_ref, np.inf))
-                )
-            else:
-                baseline_peak_idx = int(
-                    np.nanargmax(np.where(np.isfinite(roi_baseline_ref), roi_baseline_ref, -np.inf))
-                )
-        else:
-            baseline_peak_idx = 0
-        baseline_peak_idx = int(np.clip(baseline_peak_idx, 0, max(0, roi_wavelengths.size - 1)))
-
-        wl_step = float(np.nanmedian(np.diff(roi_wavelengths))) if roi_wavelengths.size > 1 else 0.2
-        wl_step = wl_step if np.isfinite(wl_step) and wl_step > 0 else 0.2
-        search_radius = int(max(2, math.ceil(1.5 / wl_step)))
-
-        peak_idx = np.full(len(frames), baseline_peak_idx, dtype=int)
-
-        for frame_idx, row in enumerate(roi_matrix):
-            if not np.any(np.isfinite(row)):
-                continue
-            start = max(0, baseline_peak_idx - search_radius)
-            end = min(row.size, baseline_peak_idx + search_radius + 1)
-            window = row[start:end].astype(float)
-            if window.size == 0:
-                continue
-            if extremum_mode == "valley":
-                window[~np.isfinite(window)] = np.inf
-                local_idx = int(np.argmin(window))
-            else:
-                window[~np.isfinite(window)] = -np.inf
-                local_idx = int(np.argmax(window))
-            peak_idx[frame_idx] = start + local_idx
-
-        peak_idx = np.clip(peak_idx, 0, max(0, roi_wavelengths.size - 1))
-
-        # Simple grid-based peak wavelengths (sub-pixel interpolation disabled for performance)
-        peak_wls = (
-            roi_wavelengths[peak_idx]
-            if roi_wavelengths.size
-            else np.full(len(frames), float("nan"))
-        )
-        baseline_peak_val = (
-            float(peak_wls[valid].mean())
-            if len(valid) > 0 and np.any(np.isfinite(peak_wls[valid]))
-            else (
-                float(roi_wavelengths[baseline_peak_idx]) if roi_wavelengths.size else float("nan")
-            )
-        )
-        delta_lambda_local = peak_wls - baseline_peak_val
-        abs_delta_lambda_local = np.abs(delta_lambda_local)
-        baseline_delta_local = delta_lambda_local[valid]
-        lambda_sigma_local = (
-            float(np.nanstd(baseline_delta_local, ddof=1)) if baseline_delta_local.size > 1 else 0.0
-        )
-        lambda_sigma_local = float(np.nan_to_num(lambda_sigma_local, nan=0.0))
-        return (
-            baseline_ref,
-            roi_baseline_ref,
-            baseline_mean_val,
-            baseline_std_val,
-            centered,
-            delta_mean_local,
-            roi_delta_local,
-            peak_wls,
-            baseline_peak_val,
-            delta_lambda_local,
-            abs_delta_lambda_local,
-            lambda_sigma_local,
-        )
-
-    (
-        baseline_reference,
-        roi_baseline_reference,
-        baseline_mean_abs,
-        baseline_std_abs,
-        centered_matrix,
-        delta_mean,
-        roi_delta_matrix,
-        peak_wavelengths,
-        baseline_peak_nm,
-        delta_lambda,
-        abs_delta_lambda,
-        lambda_sigma,
-    ) = _compute_baseline_outputs(baseline_indices)
-
-    activation_delta = float(response_cfg.get("activation_delta", 0.01) or 0.01)
-    sigma_multiplier = float(response_cfg.get("activation_sigma_multiplier", 1.5) or 1.5)
-    noise_floor = float(response_cfg.get("noise_floor", 1e-4) or 1e-4)
-    threshold = activation_delta + sigma_multiplier * max(lambda_sigma, noise_floor)
-
-    slope_sigma_multiplier = float(response_cfg.get("slope_sigma_multiplier", 1.0) or 1.0)
-    min_response_slope = float(response_cfg.get("min_response_slope", 0.0) or 0.0)
-
-    direction = (
-        float(np.sign(np.nanmedian(delta_lambda[np.isfinite(delta_lambda)])))
-        if np.any(np.isfinite(delta_lambda))
-        else 1.0
+    return _rts(
+        absorb_matrix,
+        roi_matrix,
+        mean_absorb,
+        roi_wavelengths,
+        float(min_wl_roi),
+        float(max_wl_roi),
+        len(frames),
+        dataset_label,
+        smooth_window=int(response_cfg.get("smooth_window", 5) or 5),
+        baseline_frames=int(response_cfg.get("baseline_frames", 12) or 12),
+        activation_delta=float(response_cfg.get("activation_delta", 0.01) or 0.01),
+        sigma_multiplier=float(response_cfg.get("activation_sigma_multiplier", 1.5) or 1.5),
+        noise_floor=float(response_cfg.get("noise_floor", 1e-4) or 1e-4),
+        slope_sigma_multiplier=float(response_cfg.get("slope_sigma_multiplier", 1.0) or 1.0),
+        min_response_slope=float(response_cfg.get("min_response_slope", 0.0) or 0.0),
+        min_activation_frames=int(response_cfg.get("min_activation_frames", 6) or 6),
+        min_activation_fraction=float(response_cfg.get("min_activation_fraction", 0.08) or 0.08),
+        fallback_window=int(response_cfg.get("fallback_window", 4) or 4),
+        monotonic_tolerance_nm=float(response_cfg.get("monotonic_tolerance_nm", 0.05) or 0.0),
+        changepoint_cfg=changepoint_cfg,
     )
-    if not np.isfinite(direction) or direction == 0.0:
-        direction = 1.0
-
-    responsive_indices = [
-        idx for idx, val in enumerate(abs_delta_lambda) if np.isfinite(val) and val >= threshold
-    ]
-
-    changepoint_cfg = (
-        response_cfg.get("changepoint", {})
-        if isinstance(response_cfg.get("changepoint", {}), dict)
-        else {}
-    )
-    responsive_segments: list[tuple[int, int]] = []
-
-    if changepoint_cfg.get("enabled", False):
-        cp_signal_mode = str(changepoint_cfg.get("signal", "abs_delta_lambda")).lower()
-        if cp_signal_mode == "delta_lambda":
-            change_signal = np.copy(delta_lambda)
-        elif cp_signal_mode == "delta_mean":
-            change_signal = np.copy(delta_mean)
-        else:
-            change_signal = np.copy(abs_delta_lambda)
-
-        smooth_win = int(changepoint_cfg.get("smooth_window", 3) or 3)
-        if smooth_win > 1:
-            change_signal = _smooth_vector(change_signal, smooth_win)
-
-        cp_method = str(changepoint_cfg.get("method", "pelt")).lower()
-        min_seg_size = int(changepoint_cfg.get("min_segment_size", 8) or 8)
-
-        if cp_method == "pelt":
-            penalty = float(changepoint_cfg.get("penalty", 3.0) or 3.0)
-            cps = _pelt_changepoint_detection(change_signal, penalty=penalty, min_size=min_seg_size)
-
-            # Convert change-points to segments and filter by mean signal level
-            segments = []
-            boundaries = [0] + cps + [len(change_signal)]
-            for i in range(len(boundaries) - 1):
-                start, end = boundaries[i], boundaries[i + 1]
-                if end - start >= min_seg_size:
-                    seg_signal = change_signal[start:end]
-                    seg_mean = float(np.nanmean(seg_signal))
-                    # Keep segments with elevated signal
-                    if seg_mean >= threshold * 0.8:
-                        segments.append((start, end - 1))
-            responsive_segments = segments
-        else:
-            # Fallback to threshold-based detection
-            scale = float(changepoint_cfg.get("threshold_scale", 1.0) or 1.0)
-            release_mult = float(changepoint_cfg.get("release_multiplier", 0.6) or 0.6)
-            min_len = int(changepoint_cfg.get("min_length", 4) or 4)
-            pad = int(changepoint_cfg.get("pad", 1) or 1)
-            cp_high = threshold * scale
-            cp_low = cp_high * release_mult
-            segments = _detect_segments_above_threshold(
-                change_signal, cp_high, cp_low, min_len, pad
-            )
-            responsive_segments = segments
-
-        if responsive_segments:
-            responsive_indices = sorted(
-                {
-                    idx
-                    for start, end in responsive_segments
-                    for idx in range(start, end + 1)
-                    if 0 <= idx < len(frames)
-                }
-            )
-            roi_only_indices = list(responsive_indices)
-
-    # Ensure baseline frames occur before response onset if possible
-    if responsive_indices:
-        first_resp = min(responsive_indices)
-        trimmed = [idx for idx in baseline_indices if idx < first_resp]
-        if len(trimmed) >= max(1, baseline_target // 2):
-            baseline_indices = trimmed
-        elif first_resp > 0:
-            start = max(0, first_resp - baseline_target)
-            baseline_indices = list(range(start, first_resp)) or [max(0, first_resp - 1)]
-
-        (
-            baseline_reference,
-            roi_baseline_reference,
-            baseline_mean_abs,
-            baseline_std_abs,
-            centered_matrix,
-            delta_mean,
-            roi_delta_matrix,
-            peak_wavelengths,
-            baseline_peak_nm,
-            delta_lambda,
-            abs_delta_lambda,
-            lambda_sigma,
-        ) = _compute_baseline_outputs(baseline_indices)
-        direction = (
-            float(np.sign(np.nanmedian(delta_lambda[np.isfinite(delta_lambda)])))
-            if np.any(np.isfinite(delta_lambda))
-            else 1.0
-        )
-        if not np.isfinite(direction) or direction == 0.0:
-            direction = 1.0
-        threshold = activation_delta + sigma_multiplier * max(lambda_sigma, noise_floor)
-        responsive_indices = [
-            idx for idx, val in enumerate(abs_delta_lambda) if np.isfinite(val) and val >= threshold
-        ]
-
-    roi_only_indices = list(responsive_indices)
-
-    min_activation_frames = int(response_cfg.get("min_activation_frames", 6) or 6)
-    min_activation_fraction = float(response_cfg.get("min_activation_fraction", 0.08) or 0.08)
-    required = max(min_activation_frames, int(math.ceil(min_activation_fraction * len(frames))))
-    if responsive_indices and len(responsive_indices) < required:
-        energy = abs_delta_lambda
-        top_idx = np.argsort(energy)[::-1][:required]
-        responsive_indices = sorted(set(list(responsive_indices) + top_idx.tolist()))
-
-    if not responsive_indices and int(response_cfg.get("fallback_window", 4) or 4) > 0:
-        responsive_indices = list(
-            range(min(len(frames), int(response_cfg.get("fallback_window", 4) or 4)))
-        )
-
-    slope_threshold = max(
-        min_response_slope, slope_sigma_multiplier * max(lambda_sigma, noise_floor)
-    )
-    selected_slope = float("nan")
-
-    if responsive_indices:
-        sorted_resp = sorted(responsive_indices)
-        monotonic_indices = list(sorted_resp)
-        monotonic_tol = float(response_cfg.get("monotonic_tolerance_nm", 0.05) or 0.0)
-        if len(sorted_resp) >= 2:
-            signed_trace = delta_lambda[sorted_resp] * direction
-            diffs = np.diff(signed_trace)
-            negative_diffs = np.where(diffs < -monotonic_tol)[0]
-            if negative_diffs.size > 0:
-                cutoff = negative_diffs[0] + 1
-                trimmed = sorted_resp[:cutoff]
-                if trimmed:
-                    monotonic_indices = trimmed
-        min_len_for_slope = max(3, min_activation_frames)
-        candidate_indices = list(monotonic_indices)
-        slope_pass = False
-        while candidate_indices and len(candidate_indices) >= min_len_for_slope:
-            candidate_lambda = delta_lambda[candidate_indices]
-            if len(candidate_indices) >= 2:
-                slope_val = linregress(candidate_indices, candidate_lambda).slope
-            else:
-                slope_val = 0.0
-            if not np.isfinite(slope_val):
-                slope_val = 0.0
-            slope_along_dir = slope_val * direction
-            selected_slope = slope_along_dir
-            if slope_along_dir >= slope_threshold:
-                slope_pass = True
-                break
-            candidate_indices = candidate_indices[1:]
-        if slope_pass:
-            responsive_indices = candidate_indices
-        else:
-            responsive_indices = []
-
-    records = []
-    segment_ids = np.full(len(mean_absorb), -1, dtype=int)
-    if responsive_segments:
-        for seg_id, (seg_start, seg_end) in enumerate(responsive_segments, start=1):
-            seg_start = int(max(0, seg_start))
-            seg_end = int(min(len(mean_absorb) - 1, seg_end))
-            segment_ids[seg_start : seg_end + 1] = seg_id
-
-    for idx, mean_val in enumerate(mean_absorb):
-        records.append(
-            {
-                "frame_index": idx,
-                "mean_signal": float(mean_val),
-                "delta_mean": float(delta_mean[idx]),
-                "delta_lambda_nm": float(delta_lambda[idx])
-                if np.isfinite(delta_lambda[idx])
-                else np.nan,
-                "delta_lambda_abs_nm": float(abs_delta_lambda[idx])
-                if np.isfinite(abs_delta_lambda[idx])
-                else np.nan,
-                "is_responsive": 1 if idx in responsive_indices else 0,
-                "peak_wavelength_nm": float(peak_wavelengths[idx])
-                if np.isfinite(peak_wavelengths[idx])
-                else np.nan,
-                "segment_id": int(segment_ids[idx]) if segment_ids.size else -1,
-            }
-        )
-
-    df_series = pd.DataFrame(records)
-    df_series["dataset_label"] = dataset_label
-    df_series["threshold_nm"] = threshold
-    df_series["baseline_mean"] = baseline_mean_abs
-    df_series["baseline_std"] = baseline_std_abs
-    df_series["baseline_std_abs"] = baseline_std_abs
-    df_series["baseline_std_delta_lambda_nm"] = lambda_sigma
-    df_series["baseline_peak_nm"] = baseline_peak_nm
-    df_series["slope_threshold"] = slope_threshold
-    df_series["responsive_slope"] = selected_slope
-    df_series["baseline_frames"] = len(baseline_indices)
-    df_series["activation_delta_nm"] = activation_delta
-    df_series["roi_min_nm"] = float(min_wl_roi)
-    df_series["roi_max_nm"] = float(max_wl_roi)
-    df_series["response_direction"] = direction
-    df_series["baseline_indices"] = [baseline_indices] * len(df_series)
-    if responsive_segments:
-        df_series["responsive_segments"] = [responsive_segments] * len(df_series)
-    return df_series, responsive_indices, roi_only_indices
 
 
 def _scale_reference_to_baseline(

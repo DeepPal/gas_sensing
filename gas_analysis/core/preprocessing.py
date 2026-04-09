@@ -191,7 +191,7 @@ def normalize_spectrum(intensity: np.ndarray, method: str = "minmax") -> np.ndar
         return (intensity - mean) / std
 
     elif method == "area":
-        area = np.trapz(intensity)
+        area = np.trapezoid(intensity)
         if abs(area) < 1e-10:
             return np.zeros_like(intensity)
         return intensity / area
@@ -337,7 +337,7 @@ def detect_outliers(spectra: list[np.ndarray], threshold: float = 3.0) -> list[b
         "std": np.std(X, axis=1),
         "max": np.max(X, axis=1),
         "min": np.min(X, axis=1),
-        "range": np.ptp(X, axis=1),
+        "range": np.max(X, axis=1) - np.min(X, axis=1),
     }
 
     # Compute Z-scores for each metric

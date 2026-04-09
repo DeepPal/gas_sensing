@@ -1,7 +1,7 @@
 """
 config.config_loader
 ====================
-YAML configuration loader for the Au-MIP LSPR gas sensing platform.
+YAML configuration loader for the the sensor LSPR gas sensing platform.
 
 Key features
 ------------
