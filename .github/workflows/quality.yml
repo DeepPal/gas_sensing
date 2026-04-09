@@ -142,7 +142,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Restore flaky-test history cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: output/test-history
           key: flaky-history-${{ runner.os }}-${{ github.run_id }}
