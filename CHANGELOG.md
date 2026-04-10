@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.github/workflows/quality.yml` — aligned fast-lane coverage enforcement to `--cov-fail-under=75` to match project coverage policy in `pyproject.toml`
 - `scripts/quality_gate.py` — aligned local `--coverage` behavior with CI by using `src` coverage scope and the same 75% threshold
 - `tests/test_quality_gate.py` — added assertions to prevent future drift in coverage threshold/scope
+- `scripts/quality_gate.py` — added optional-dependency preflight for `--coverage` runs with an actionable install command when representative local coverage cannot be trusted due missing extras
 
 ### Fixed — LOD typing robustness and full `src` mypy clean pass (2026-04-10)
 - `src/scientific/lod.py` — hardened WLS field extraction and Breusch-Pagan p-value handling with explicit numeric guards, eliminating optional/`object` typing hazards while preserving scientific behavior

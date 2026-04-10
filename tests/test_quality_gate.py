@@ -94,3 +94,30 @@ def test_build_checks_smoke_appends_smoke_pytest() -> None:
     commands = [command for command, _ in checks]
 
     assert commands[-1] == 'pytest -m smoke -v'
+
+
+def test_coverage_preflight_message_none_without_coverage() -> None:
+    msg = quality_gate._coverage_preflight_message(_args(lane="fast", coverage=False))
+    assert msg is None
+
+
+def test_coverage_preflight_message_none_for_reliability_lane(monkeypatch) -> None:
+    monkeypatch.setattr(
+        quality_gate,
+        "_missing_optional_coverage_dependencies",
+        lambda: ["mlflow"],
+    )
+    msg = quality_gate._coverage_preflight_message(_args(lane="reliability", coverage=True))
+    assert msg is None
+
+
+def test_coverage_preflight_message_lists_missing_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(
+        quality_gate,
+        "_missing_optional_coverage_dependencies",
+        lambda: ["mlflow", "onnxruntime"],
+    )
+    msg = quality_gate._coverage_preflight_message(_args(lane="fast", coverage=True))
+    assert msg is not None
+    assert "mlflow, onnxruntime" in msg
+    assert 'pip install -e ".[dev,ml,tracking,all]"' in msg
