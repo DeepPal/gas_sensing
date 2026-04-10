@@ -79,6 +79,10 @@ jobs:
         run: ruff check .
 
       # Primary version: run with coverage and enforce threshold
+      - name: API contract tests (required)
+        if: matrix.python-version == '3.11'
+        run: pytest -q --tb=short tests/spectraagent/webapp/test_api_contract.py
+
       - name: Pytest fast lane + coverage (primary)
         if: matrix.python-version == '3.11'
         run: |

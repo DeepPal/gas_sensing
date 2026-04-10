@@ -28,6 +28,7 @@ SpectraAgent provides a complete, hardware-agnostic runtime for optical spectros
 - [Testing & Quality](#testing--quality)
 - [Scientific Capabilities](#scientific-capabilities)
 - [Troubleshooting](#troubleshooting)
+- [Industry Readiness](#industry-readiness)
 - [Contributing](#contributing)
 
 ## Canonical Project Tracking
@@ -39,6 +40,19 @@ below as the canonical tracking set and update them together when state changes:
 - `PRODUCTION_READINESS.md` (deployment/operations readiness)
 - `CHANGELOG.md` (auditable change history)
 - `.github/workflows/security.yml` (enforced security gates)
+
+## Industry Readiness
+
+SpectraAgent is maintained with research depth and production-style engineering discipline so external organizations can evaluate and integrate it confidently.
+
+- Industry readiness guide: [docs/guides/INDUSTRY_READINESS.md](docs/guides/INDUSTRY_READINESS.md)
+- Release process: [docs/guides/RELEASE_RUNBOOK.md](docs/guides/RELEASE_RUNBOOK.md)
+
+Key points:
+
+- Public `/api/*` routes are treated as contracts and guarded by explicit API contract tests.
+- Deterministic report fallback keeps workflows usable when optional AI services are unavailable.
+- Qualification and reproducibility artifacts are generated to support external technical review.
 
 ---
 
