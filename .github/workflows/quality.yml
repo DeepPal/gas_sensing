@@ -83,6 +83,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: pytest -q --tb=short tests/spectraagent/webapp/test_api_contract.py
 
+      - name: OpenAPI compatibility check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/check_openapi_compat.py
+
       - name: Pytest fast lane + coverage (primary)
         if: matrix.python-version == '3.11'
         run: |

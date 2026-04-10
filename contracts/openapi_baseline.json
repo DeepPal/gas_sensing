@@ -1,0 +1,1156 @@
+{
+  "components": {
+    "schemas": {
+      "AcquisitionConfig": {
+        "properties": {
+          "gas_label": {
+            "default": "unknown",
+            "title": "Gas Label",
+            "type": "string"
+          },
+          "humidity_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity Pct"
+          },
+          "integration_time_ms": {
+            "default": 50.0,
+            "title": "Integration Time Ms",
+            "type": "number"
+          },
+          "target_concentration": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Concentration"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          }
+        },
+        "title": "AcquisitionConfig",
+        "type": "object"
+      },
+      "AgentSettings": {
+        "properties": {
+          "auto_explain": {
+            "title": "Auto Explain",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_explain"
+        ],
+        "title": "AgentSettings",
+        "type": "object"
+      },
+      "AskRequest": {
+        "properties": {
+          "query": {
+            "maxLength": 2000,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "AskRequest",
+        "type": "object"
+      },
+      "CalibrationPoint": {
+        "properties": {
+          "concentration": {
+            "title": "Concentration",
+            "type": "number"
+          },
+          "delta_lambda": {
+            "title": "Delta Lambda",
+            "type": "number"
+          }
+        },
+        "required": [
+          "concentration",
+          "delta_lambda"
+        ],
+        "title": "CalibrationPoint",
+        "type": "object"
+      },
+      "DriftSettings": {
+        "properties": {
+          "drift_threshold_nm_per_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift Threshold Nm Per Min"
+          },
+          "window_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Frames"
+          }
+        },
+        "title": "DriftSettings",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MixtureInferenceRequest": {
+        "description": "Estimate analyte concentrations from observed peak shifts.",
+        "properties": {
+          "Kd_matrix": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kd Matrix"
+          },
+          "S_matrix": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "S Matrix",
+            "type": "array"
+          },
+          "analytes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Analytes",
+            "type": "array"
+          },
+          "delta_lambda": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Delta Lambda",
+            "type": "array"
+          },
+          "use_nonlinear": {
+            "default": false,
+            "title": "Use Nonlinear",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delta_lambda",
+          "analytes",
+          "S_matrix"
+        ],
+        "title": "MixtureInferenceRequest",
+        "type": "object"
+      },
+      "QualitySettings": {
+        "properties": {
+          "saturation_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saturation Threshold"
+          },
+          "snr_warn_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr Warn Threshold"
+          }
+        },
+        "title": "QualitySettings",
+        "type": "object"
+      },
+      "ReportRequest": {
+        "properties": {
+          "session_id": {
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "ReportRequest",
+        "type": "object"
+      },
+      "SensitivityFitRequest": {
+        "description": "Fit sensitivity matrix from single-analyte calibration data.",
+        "properties": {
+          "analytes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Analytes",
+            "type": "array"
+          },
+          "calibration_data": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Calibration Data",
+            "type": "array"
+          },
+          "n_peaks": {
+            "title": "N Peaks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analytes",
+          "n_peaks",
+          "calibration_data"
+        ],
+        "title": "SensitivityFitRequest",
+        "type": "object"
+      },
+      "SimGenerateRequest": {
+        "description": "Generate a batch of synthetic spectra from the physics simulation.",
+        "properties": {
+          "analyte_name": {
+            "default": "Gas",
+            "title": "Analyte Name",
+            "type": "string"
+          },
+          "concentrations": {
+            "default": [
+              0.1,
+              0.5,
+              1.0,
+              2.0,
+              5.0
+            ],
+            "items": {
+              "type": "number"
+            },
+            "title": "Concentrations",
+            "type": "array"
+          },
+          "fwhm_nm": {
+            "default": 20.0,
+            "title": "Fwhm Nm",
+            "type": "number"
+          },
+          "kd_ppm": {
+            "default": 100.0,
+            "title": "Kd Ppm",
+            "type": "number"
+          },
+          "n_sessions": {
+            "default": 5,
+            "title": "N Sessions",
+            "type": "integer"
+          },
+          "peak_nm": {
+            "default": 700.0,
+            "title": "Peak Nm",
+            "type": "number"
+          },
+          "random_seed": {
+            "default": 42,
+            "title": "Random Seed",
+            "type": "integer"
+          },
+          "sensitivity_nm_per_ppm": {
+            "default": -0.5,
+            "title": "Sensitivity Nm Per Ppm",
+            "type": "number"
+          },
+          "tau_s": {
+            "default": 30.0,
+            "title": "Tau S",
+            "type": "number"
+          },
+          "wl_end": {
+            "default": 900.0,
+            "title": "Wl End",
+            "type": "number"
+          },
+          "wl_start": {
+            "default": 500.0,
+            "title": "Wl Start",
+            "type": "number"
+          }
+        },
+        "title": "SimGenerateRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "SpectraAgent",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "_root_redirect__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": " Root Redirect"
+      }
+    },
+    "/api/acquisition/config": {
+      "post": {
+        "operationId": "acq_config_api_acquisition_config_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcquisitionConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acq Config"
+      }
+    },
+    "/api/acquisition/reference": {
+      "post": {
+        "operationId": "acq_reference_api_acquisition_reference_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Acq Reference"
+      }
+    },
+    "/api/acquisition/start": {
+      "post": {
+        "operationId": "acq_start_api_acquisition_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Acq Start"
+      }
+    },
+    "/api/acquisition/stop": {
+      "post": {
+        "operationId": "acq_stop_api_acquisition_stop_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Acq Stop"
+      }
+    },
+    "/api/agents/ask": {
+      "post": {
+        "description": "Stream a Claude response to a free-text query about the current session.\n\nReturns Server-Sent Events (SSE) with content-type text/event-stream.\nEach chunk: ``data: {\"text\": \"...\", \"done\": false}\\n\\n``\nFinal frame: ``data: {\"done\": true}\\n\\n``",
+        "operationId": "agents_ask_api_agents_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agents Ask"
+      }
+    },
+    "/api/agents/drift-settings": {
+      "get": {
+        "operationId": "agents_drift_settings_get_api_agents_drift_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Agents Drift Settings Get"
+      },
+      "put": {
+        "description": "Update DriftAgent thresholds at runtime.",
+        "operationId": "agents_drift_settings_api_agents_drift_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agents Drift Settings"
+      }
+    },
+    "/api/agents/quality-settings": {
+      "get": {
+        "operationId": "agents_quality_settings_get_api_agents_quality_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Agents Quality Settings Get"
+      },
+      "put": {
+        "description": "Update QualityAgent thresholds at runtime.",
+        "operationId": "agents_quality_settings_api_agents_quality_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualitySettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agents Quality Settings"
+      }
+    },
+    "/api/agents/settings": {
+      "put": {
+        "description": "Toggle auto_explain for AnomalyExplainer and ExperimentNarrator.\n\nGraceful: if agents are not yet created (no API key configured),\nthe request still returns 200 \u2014 there is nothing to toggle.",
+        "operationId": "agents_settings_api_agents_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agents Settings"
+      }
+    },
+    "/api/analytes": {
+      "get": {
+        "description": "List analytes registered in the current sensor configuration.\n\nReturns analyte names, peak count, and S matrix if available from\nthe active physics plugin.",
+        "operationId": "list_analytes_api_analytes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Analytes"
+      }
+    },
+    "/api/artifacts/download": {
+      "get": {
+        "description": "Serve generated qualification/session artifacts from approved output roots.",
+        "operationId": "artifact_download_api_artifacts_download_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Artifact Download"
+      }
+    },
+    "/api/calibration/add-point": {
+      "post": {
+        "description": "Add a calibration data point; CalibrationAgent re-fits all models.",
+        "operationId": "calibration_add_point_api_calibration_add_point_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalibrationPoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Calibration Add Point"
+      }
+    },
+    "/api/calibration/sensitivity-matrix/fit": {
+      "post": {
+        "description": "Fit a sensitivity matrix from single-analyte calibration runs.\n\nReturns the fitted S matrix, condition number, R\u00b2 per entry, and\nLOD estimates in mixture context.",
+        "operationId": "calibration_sensitivity_fit_api_calibration_sensitivity_matrix_fit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensitivityFitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Calibration Sensitivity Fit"
+      }
+    },
+    "/api/calibration/suggest": {
+      "post": {
+        "description": "Return the next recommended concentration from ExperimentPlannerAgent.",
+        "operationId": "calibration_suggest_api_calibration_suggest_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Calibration Suggest"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/inference/mixture": {
+      "post": {
+        "description": "Estimate all analyte concentrations from a peak-shift observation.\n\nUses the linear pseudoinverse (fast) or non-linear Langmuir solver\n(accurate in saturation regime) as requested.",
+        "operationId": "inference_mixture_api_inference_mixture_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MixtureInferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Inference Mixture"
+      }
+    },
+    "/api/qualification/dossier": {
+      "get": {
+        "description": "Return pass/fail qualification dossier for supplier-facing evidence.",
+        "operationId": "qualification_dossier_api_qualification_dossier_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Qualification Dossier"
+      }
+    },
+    "/api/qualification/dossier/export": {
+      "post": {
+        "description": "Export qualification dossier to JSON/HTML with integrity signature metadata.",
+        "operationId": "qualification_dossier_export_api_qualification_dossier_export_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "artifact",
+            "required": false,
+            "schema": {
+              "default": "both",
+              "title": "Artifact",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Qualification Dossier Export"
+      }
+    },
+    "/api/qualification/package": {
+      "post": {
+        "description": "Create a zipped research package containing dossier + session evidence files.",
+        "operationId": "qualification_package_api_qualification_package_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Qualification Package"
+      }
+    },
+    "/api/reports/generate": {
+      "post": {
+        "description": "Generate a scientist-facing session report.\n\nReturns ``{\"report\": \"<text>\", \"session_id\": \"<id>\"}`` on success.\nPrefers ``ReportWriter`` when available, but falls back to a deterministic\nscientific summary so researchers still get a useful report offline.",
+        "operationId": "reports_generate_api_reports_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reports Generate"
+      }
+    },
+    "/api/research-flow": {
+      "get": {
+        "description": "Return guided next steps from lab workflow to commercialization readiness.",
+        "operationId": "research_flow_api_research_flow_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Research Flow"
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "description": "Return all session metadata dicts, newest first.",
+        "operationId": "sessions_list_api_sessions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sessions List"
+      }
+    },
+    "/api/sessions/{session_id}": {
+      "get": {
+        "description": "Return metadata + last 100 agent events for a session, or 404.",
+        "operationId": "sessions_get_api_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sessions Get"
+      }
+    },
+    "/api/simulation/generate": {
+      "post": {
+        "description": "Generate a synthetic calibration dataset from the physics simulation.\n\nReturns a summary of the generated dataset including mean peak shifts\nper concentration level, for use in sensitivity matrix fitting.",
+        "operationId": "simulation_generate_api_simulation_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulation Generate"
+      }
+    }
+  }
+}

@@ -34,6 +34,14 @@ Current approach:
 
 - OpenAPI route presence checks for critical endpoints.
 - Response-shape checks for key health and report endpoints.
+- Baseline compatibility gate (`scripts/check_openapi_compat.py`) against
+	`contracts/openapi_baseline.json`.
+
+Intentional contract updates:
+
+1. Approve change through ADR/review.
+2. Regenerate baseline: `python scripts/update_openapi_baseline.py`.
+3. Include migration notes in release/changelog.
 
 ## Reproducibility and Auditability
 
