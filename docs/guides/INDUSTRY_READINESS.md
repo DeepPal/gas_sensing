@@ -56,6 +56,8 @@ For each session, preserve evidence that supports external review:
 
 - Use pinned Python environments and documented setup commands.
 - Run preflight and integrity checks before qualification runs.
+- Run the quick compatibility check before deeper evaluation:
+	`python scripts/integration_smoke_check.py`.
 - Keep immutable release notes and checksums for shared artifacts.
 - Record environment metadata (temperature/humidity) for every benchmark session.
 

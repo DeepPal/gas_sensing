@@ -84,6 +84,10 @@ jobs:
         run: ruff check .
 
       # Primary version: run with coverage and enforce threshold
+      - name: External integrator smoke check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/integration_smoke_check.py
+
       - name: API contract tests (required)
         if: matrix.python-version == '3.11'
         run: pytest -q --tb=short tests/spectraagent/webapp/test_api_contract.py
