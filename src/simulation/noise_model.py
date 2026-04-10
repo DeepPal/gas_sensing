@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 
@@ -164,7 +165,7 @@ class SpectrometerNoise(NoiseModel):
         )
 
         noisy = s + shot_frac + dark_frac + readout_frac + drift
-        return np.clip(noisy, 0.0, 1.0)
+        return cast(np.ndarray, np.clip(noisy, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------
