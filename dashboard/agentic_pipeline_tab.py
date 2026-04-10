@@ -739,11 +739,15 @@ def render() -> None:
                 _adv_c3.metric("Suggested spacing", _spacing.capitalize())
 
                 _conc_strs = ", ".join(f"{c:.3g}" for c in _suggested)
+                _spacing_note = (
+                    "Use geometric spacing: your range spans >20x "
+                    "(log-spaced points give uniform coverage in log-concentration space)."
+                    if _spacing == "logarithmic"
+                    else "Linear spacing is appropriate for this narrow range."
+                )
                 st.info(
                     f"Suggested concentrations (ppm): **{_conc_strs}**  \n"
-                    f"{'Use geometric spacing — your range spans >20× (log-spaced points give uniform '
-                       'coverage in log-concentration space).' if _spacing == 'logarithmic' else
-                       'Linear spacing is appropriate for this narrow range.'}"
+                    f"{_spacing_note}"
                 )
                 if _lang:
                     st.info(
@@ -1271,7 +1275,7 @@ def render() -> None:
                 help="Typically 30–60 s. Longer → more accurate drift estimate.",
             )
             if st.button("Measure drift (2-point)", key="dc_measure_btn"):
-                with st.spinner(f"Capturing frame 1…"):
+                with st.spinner("Capturing frame 1…"):
                     _dc_wl1, _dc_f1 = _acquire_frames(
                         _dc_int, 5, 100.0, st.empty(),
                         sim_peak_nm=ss.get("ap_sim_peak_nm", 532.0),
@@ -2057,7 +2061,7 @@ def render() -> None:
                             "The WLS slope uses 1/c² weights (proportional error model). "
                             "Report WLS sensitivity and re-derived LOD in the Methods section."
                         )
-                elif _bp_fail := ((residual_diag_dict := _sm.get("residual_diagnostics")) or {}).get("bp_pass") is False:
+                elif _bp_fail := (_sm.get("residual_diagnostics") or {}).get("bp_pass") is False:
                     st.warning(
                         "⚠️ Breusch-Pagan test failed (heteroscedastic residuals). "
                         "WLS could not be applied — check that calibration concentrations are all positive."
@@ -2697,7 +2701,6 @@ def render() -> None:
                         from src.scientific.lod import sensor_performance_summary, mandel_linearity_test
 
                         y_arr = np.array(y_concs, dtype=float)
-                        X_1d = y_arr.reshape(-1, 1)   # feature is concentration itself
                         # For Linear OLS, use the 1-D response vector (y_concs = signal)
                         # and fit against the concentrations in pp
                         responses_1d = np.array([it.get("peak_shift", it.get("peak_wl", 0.0)) for it in pp])
@@ -2760,7 +2763,7 @@ def render() -> None:
                         col1_lin.metric("R²", f"{r2_lin:.4f}")
                         col2_lin.metric("Slope", f"{lin.coef_[0]:.5g}")
                         col3_lin.metric("LOD", f"{(_sm_lin.get('lod_ppm') or 0):.3g} ppm")
-                        st.success(f"Linear OLS fitted and saved.")
+                        st.success("Linear OLS fitted and saved.")
                         trained_ok = True
                     except Exception as ex:
                         st.warning(f"Linear OLS failed ({ex}), falling back to sklearn GPR.")
@@ -3363,7 +3366,7 @@ def render() -> None:
                             key=f"sel_gas_name_{_idx}",
                         )
                         _gslope = _ic2.number_input(
-                            f"Sensitivity (Δλ/ppm)",
+                            "Sensitivity (Δλ/ppm)",
                             value=float(_def_slope),
                             format="%.4f",
                             key=f"sel_gas_slope_{_idx}",
