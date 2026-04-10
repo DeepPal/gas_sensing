@@ -47,12 +47,15 @@ SpectraAgent is maintained with research depth and production-style engineering 
 
 - Industry readiness guide: [docs/guides/INDUSTRY_READINESS.md](docs/guides/INDUSTRY_READINESS.md)
 - Release process: [docs/guides/RELEASE_RUNBOOK.md](docs/guides/RELEASE_RUNBOOK.md)
+- Advanced protocol pack: [docs/guides/ADVANCED_RESEARCH_PROTOCOL_PACK.md](docs/guides/ADVANCED_RESEARCH_PROTOCOL_PACK.md)
+- Operational SLO guide: [docs/guides/OPERATIONAL_RELIABILITY_SLO.md](docs/guides/OPERATIONAL_RELIABILITY_SLO.md)
 
 Key points:
 
 - Public `/api/*` routes are treated as contracts and guarded by explicit API contract tests.
 - Deterministic report fallback keeps workflows usable when optional AI services are unavailable.
 - Qualification and reproducibility artifacts are generated to support external technical review.
+- One-command external bundle is available via `python scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/local --session-id industry-eval`.
 
 ---
 

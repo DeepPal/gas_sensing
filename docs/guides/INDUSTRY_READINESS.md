@@ -57,7 +57,7 @@ For each session, preserve evidence that supports external review:
 - Use pinned Python environments and documented setup commands.
 - Run preflight and integrity checks before qualification runs.
 - Run the quick compatibility check before deeper evaluation:
-	`python scripts/integration_smoke_check.py`.
+  `python scripts/integration_smoke_check.py`.
 - Keep immutable release notes and checksums for shared artifacts.
 - Record environment metadata (temperature/humidity) for every benchmark session.
 
@@ -76,3 +76,10 @@ When sharing with external teams, include:
 2. CI run summary (quality, reliability, security).
 3. Qualification dossier export and package ZIP.
 4. This guide plus the release runbook.
+
+## Companion Guides and Commands
+
+- Advanced protocol guide: `docs/guides/ADVANCED_RESEARCH_PROTOCOL_PACK.md`
+- Operational reliability targets: `docs/guides/OPERATIONAL_RELIABILITY_SLO.md`
+- One-command industry bundle:
+	`python scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/local --session-id industry-eval`

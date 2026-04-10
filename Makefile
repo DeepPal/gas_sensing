@@ -58,6 +58,7 @@ help:
 	@echo "    make verify-release-manifest Verify checksum manifest coverage for dist artifacts"
 	@echo "    make check-artifact-hygiene Validate no forbidden files in release artifacts"
 	@echo "    make evidence-pack    Build research evidence pack (benchmark + blinded + qualification)"
+	@echo "    make industry-eval-bundle Build external industry evaluation bundle"
 	@echo "    make ci-diagnostics   Collect local CI-style diagnostics markdown"
 	@echo "    make detect-flaky-tests Analyze test history for flaky tests"
 	@echo ""
@@ -203,6 +204,10 @@ check-artifact-hygiene:
 .PHONY: evidence-pack
 evidence-pack:
 	$(PYTHON) scripts/build_research_evidence_pack.py --output-dir output/qualification/local --session-id local-manual
+
+.PHONY: industry-eval-bundle
+industry-eval-bundle:
+	$(PYTHON) scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/local --session-id local-industry-eval
 
 .PHONY: ci-diagnostics
 ci-diagnostics:

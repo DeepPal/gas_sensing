@@ -88,6 +88,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: python scripts/integration_smoke_check.py
 
+      - name: Industry evaluation bundle check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/ci --session-id ci-industry-eval
+
       - name: API contract tests (required)
         if: matrix.python-version == '3.11'
         run: pytest -q --tb=short tests/spectraagent/webapp/test_api_contract.py
