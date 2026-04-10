@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — LOD typing robustness and full `src` mypy clean pass (2026-04-10)
+- `src/scientific/lod.py` — hardened WLS field extraction and Breusch-Pagan p-value handling with explicit numeric guards, eliminating optional/`object` typing hazards while preserving scientific behavior
+- Validation: `mypy src --no-site-packages --ignore-missing-imports --disable-error-code import-untyped` now reports clean over 109 source files; `pytest -q tests/test_lod.py` passed
+
 ### Added — Industry evaluation bundle regression tests (2026-04-10)
 - `tests/test_build_industry_evaluation_bundle.py` — added focused tests for `scripts/build_industry_evaluation_bundle.py` covering success and failure paths, manifest status semantics, summary content, and ZIP artifact composition
 

@@ -929,17 +929,30 @@ def sensor_performance_summary(
                 _w = np.where(_pos_mask, 1.0 / np.maximum(c, 1e-12) ** 2, 0.0)
                 _wls_result = _wls(c, r, _w)
                 if _wls_result is not None:
-                    _wls_slope = float(_wls_result["slope"])
-                    _wls_intercept = float(_wls_result["intercept"])
-                    _wls_r2 = float(_wls_result["r2"])
-                    _wls_applied = True
-                    _wls_note = (
-                        f"WLS auto-applied (BP test rejected homoscedasticity, "
-                        f"p={residual_diag_dict.get('bp_p_value', float('nan')):.4g}). "
-                        f"Weights = 1/c² (proportional error model). "
-                        f"OLS slope={slope:.6f}, WLS slope={_wls_slope:.6f}."
-                    )
-                    log.info("WLS auto-correction [%s]: %s", gas_name, _wls_note)
+                    _wls_slope_obj = _wls_result.get("slope")
+                    _wls_intercept_obj = _wls_result.get("intercept")
+                    _wls_r2_obj = _wls_result.get("r2")
+                    if (
+                        isinstance(_wls_slope_obj, (int, float, np.floating))
+                        and isinstance(_wls_intercept_obj, (int, float, np.floating))
+                        and isinstance(_wls_r2_obj, (int, float, np.floating))
+                    ):
+                        _wls_slope = float(_wls_slope_obj)
+                        _wls_intercept = float(_wls_intercept_obj)
+                        _wls_r2 = float(_wls_r2_obj)
+                        _wls_applied = True
+                        _bp_p_value = float("nan")
+                        if residual_diag_dict is not None:
+                            _bp_p_raw = residual_diag_dict.get("bp_p_value")
+                            if isinstance(_bp_p_raw, (int, float, np.floating)):
+                                _bp_p_value = float(_bp_p_raw)
+                        _wls_note = (
+                            f"WLS auto-applied (BP test rejected homoscedasticity, "
+                            f"p={_bp_p_value:.4g}). "
+                            f"Weights = 1/c² (proportional error model). "
+                            f"OLS slope={slope:.6f}, WLS slope={_wls_slope:.6f}."
+                        )
+                        log.info("WLS auto-correction [%s]: %s", gas_name, _wls_note)
         except Exception as _e:
             log.warning("WLS auto-correction failed (%s); retaining OLS.", _e)
 
