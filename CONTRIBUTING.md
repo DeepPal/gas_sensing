@@ -100,12 +100,16 @@ Use `docs/adr/ADR-TEMPLATE.md`.
 ## Status tracking policy
 
 When a PR changes roadmap progress, deployment readiness, or CI security gates,
-update the canonical tracking files in the same PR to prevent status drift:
+update the core tracking set in the same PR to prevent status drift:
 
 - `REMAINING_WORK.md`
 - `PRODUCTION_READINESS.md`
-- `CHANGELOG.md`
 - `.github/workflows/security.yml` (if gate logic changed)
+
+Also update `CHANGELOG.md` in that same PR when the core set above changes.
+Changelog-only edits are allowed for normal release note maintenance.
+
+CI enforces this policy with `scripts/check_scope_compliance.py`.
 
 ## Security reporting
 

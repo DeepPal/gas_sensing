@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -26,6 +28,9 @@ jobs:
 
       - name: Validate canonical status docs are synchronized
         run: python scripts/check_status_sync.py
+
+      - name: Validate scope compliance (canonical tracking set)
+        run: python scripts/check_scope_compliance.py
 
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
