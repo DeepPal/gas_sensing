@@ -202,6 +202,10 @@ def main() -> None:
         )
     )
 
+    # Fail the process for CI gating when any required step fails.
+    if manifest["status"] != "ok":
+        raise SystemExit(1)
+
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Industry evaluation bundle regression tests (2026-04-10)
+- `tests/test_build_industry_evaluation_bundle.py` — added focused tests for `scripts/build_industry_evaluation_bundle.py` covering success and failure paths, manifest status semantics, summary content, and ZIP artifact composition
+
 ### Added — Deterministic scientific reporting fallback (2026-04-09)
 - `src/reporting/scientific_summary.py` — new deterministic session-summary formatter that turns session metadata and computed analysis into a scientist-facing markdown report with publication-readiness checks, audit trail, and recommended next experiments
 - `spectraagent/webapp/server.py` — `/api/reports/generate` now falls back to the deterministic scientific summary when Claude/ReportWriter is unavailable, instead of failing with 503
