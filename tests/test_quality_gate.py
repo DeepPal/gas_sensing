@@ -71,7 +71,8 @@ def test_build_checks_fast_lane_with_coverage_adds_cov_threshold() -> None:
     checks = quality_gate.build_checks(_args(lane="fast", coverage=True))
     commands = [command for command, _ in checks]
 
-    assert any("--cov=src" in command and "--cov-fail-under=60" in command for command in commands)
+    assert any("--cov=src" in command and "--cov-fail-under=75" in command for command in commands)
+    assert not any("--cov=gas_analysis" in command for command in commands)
 
 
 

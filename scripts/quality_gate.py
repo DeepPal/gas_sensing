@@ -26,12 +26,18 @@ MYPY_LEGACY_ADVISORY_CHECK = (
     "--ignore-missing-imports --no-site-packages --disable-error-code import-untyped "
     "--namespace-packages --explicit-package-bases --python-version 3.11"
 )
+FAST_LANE_COVERAGE_THRESHOLD = 75
 
 
 def _pytest_base_command(*, with_coverage: bool, marker: str) -> str:
     parts = ["pytest", "-q", "--tb=short", "-m", f'"{marker}"']
     if with_coverage:
-        parts.extend(["--cov=src", "--cov=gas_analysis", "--cov-fail-under=60"])
+        parts.extend(
+            [
+                "--cov=src",
+                f"--cov-fail-under={FAST_LANE_COVERAGE_THRESHOLD}",
+            ]
+        )
     return " ".join(parts)
 
 
@@ -162,7 +168,10 @@ def main() -> int:
     parser.add_argument(
         "--coverage",
         action="store_true",
-        help="Also require the 60% fast-lane coverage threshold locally (stricter than CI)",
+        help=(
+            "Also require the fast-lane coverage threshold locally "
+            f"({FAST_LANE_COVERAGE_THRESHOLD}%)"
+        ),
     )
     parser.add_argument(
         "--reliability-report",
