@@ -72,7 +72,7 @@ dependencies = [
     "pyserial>=3.5",
     # API & data validation (always required — used by schemas + API)
     "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.29.0",
+    "uvicorn[standard]>=0.44.0",
     "pydantic>=2.0.0",
 ]
 
