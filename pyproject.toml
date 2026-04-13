@@ -80,7 +80,7 @@ dependencies = [
 # Deep-learning inference (1D CNN classifier)
 ml = [
     "torch>=2.0.0",
-    "torchvision>=0.15.0",
+    "torchvision>=0.26.0",
 ]
 # Experiment tracking (MLflow)
 tracking = [
