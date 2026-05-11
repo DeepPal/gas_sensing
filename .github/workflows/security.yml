@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           # Block PRs only when newly introduced vulnerabilities are high/critical.
           # Medium/low findings still appear in the report without failing the gate.
