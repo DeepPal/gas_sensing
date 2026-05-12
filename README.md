@@ -457,6 +457,14 @@ pytest -m "not reliability" -x --tb=short  # fast lane
 make quality-gate           # ruff + mypy + pytest + reliability report
 make check                  # lint + test (quick pre-commit check)
 make lint                   # ruff linting only
+python scripts/quality_gate.py --lane fast --coverage
+```
+
+For representative local coverage parity with CI policy, install optional
+extras used by the fast lane before running `--coverage`:
+
+```bash
+pip install -e ".[dev,ml,tracking,all]" h5py onnx onnxruntime onnxscript
 ```
 
 ### CI

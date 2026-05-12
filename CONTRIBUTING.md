@@ -57,6 +57,14 @@ Run before opening a PR:
 ```bash
 make check                # ruff lint + full test suite
 make quality-gate         # lint + tests (both lanes) + reliability report
+python scripts/quality_gate.py --lane fast --coverage
+```
+
+If `--coverage` fails during preflight due missing optional dependencies,
+install the full local quality extras and rerun:
+
+```bash
+pip install -e ".[dev,ml,tracking,all]" h5py onnx onnxruntime onnxscript
 ```
 
 Individual tools:
