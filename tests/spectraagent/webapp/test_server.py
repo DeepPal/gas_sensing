@@ -350,9 +350,9 @@ def test_broadcaster_fan_out():
 
     async def run():
         ws = _FakeWS()
-        bc.connect(ws)  # type: ignore[arg-type]
+        bc.connect(ws)
         await bc.broadcast("hello")
-        bc.disconnect(ws)  # type: ignore[arg-type]
+        bc.disconnect(ws)
 
     loop.run_until_complete(run())
     loop.close()

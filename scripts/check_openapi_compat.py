@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +22,7 @@ BASELINE_PATH = ROOT / "contracts" / "openapi_baseline.json"
 def _load_json(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(path)
-    return cast(dict, json.loads(path.read_text(encoding="utf-8")))  # type: ignore[no-any-return]
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _current_openapi() -> dict:

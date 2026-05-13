@@ -355,18 +355,7 @@ jobs:
             --output output/pr-comment.md
 
       - name: Post troubleshooting comment on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: marocchino/sticky-pr-comment@v2
         with:
-          script: |
-            const fs = require('fs');
-            const path = 'output/pr-comment.md';
-            if (fs.existsSync(path)) {
-              const comment = fs.readFileSync(path, 'utf8');
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-            }
+          header: ci-troubleshooting
+          path: output/pr-comment.md

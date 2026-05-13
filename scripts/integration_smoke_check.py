@@ -8,7 +8,6 @@ web application and interact with core public endpoints without hardware.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from typing import cast
 
 from spectraagent.webapp.server import create_app
 
@@ -25,7 +24,7 @@ def _assert_status(client: TestClient, path: str, expected: int) -> dict:
     resp = client.get(path)
     if resp.status_code != expected:
         raise SystemExit(f"[integrator-smoke] {path} expected {expected}, got {resp.status_code}")
-    return cast(dict, resp.json())  # type: ignore[no-any-return]
+    return resp.json()
 
 
 def main() -> int:
