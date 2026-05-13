@@ -573,7 +573,22 @@ def start_all(
         raise typer.Exit(1)
 
     # Start Streamlit dashboard
+    import importlib.util
+
     typer.echo("Starting Streamlit dashboard...")
+    if importlib.util.find_spec("streamlit") is None:
+        typer.echo(
+            "Streamlit is not installed in this Python environment.",
+            err=True,
+        )
+        typer.echo(
+            "Install it with: python -m pip install -e .[dashboard]",
+            err=True,
+        )
+        spectraagent_proc.terminate()
+        spectraagent_proc.wait(timeout=5)
+        raise typer.Exit(1)
+
     dashboard_cmd = [sys.executable, "-m", "streamlit", "run", "dashboard/app.py"]
     dashboard_proc = subprocess.Popen(dashboard_cmd)
 

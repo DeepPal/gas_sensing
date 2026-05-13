@@ -95,6 +95,10 @@ hardware = [
 pdf = [
     "playwright>=1.40",
 ]
+# Dashboard runtime
+dashboard = [
+    "streamlit>=1.25.0",
+]
 # Development & CI tools
 dev = [
     "pytest>=7.4.0",
@@ -112,6 +116,7 @@ all = [
     "pyvisa>=1.13.0",
     "pyvisa-py>=0.6.0",
     "playwright>=1.40",
+    "streamlit>=1.25.0",
 ]
 
 [project.scripts]
