@@ -515,6 +515,18 @@ def start(
     uvicorn.run(app, host=bind_host, port=bind_port, log_level="warning")
 
 
+def _http_status_ok(url: str, timeout: float = 2.0) -> bool:
+    """Return True if the URL responds with HTTP 200."""
+    from urllib.request import Request, urlopen
+
+    try:
+        req = Request(url, headers={"User-Agent": "SpectraAgent/1.0"})
+        with urlopen(req, timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
 @cli.command()
 def start_all(
     simulate: bool = typer.Option(False, "--simulate", help="Force simulation mode"),
@@ -522,8 +534,12 @@ def start_all(
     host: str = typer.Option("", "--host", help="Bind host (overrides config)"),
     port: int = typer.Option(0, "--port", help="Port (overrides config)"),
     physics: str = typer.Option("", "--physics", help="Sensor physics plugin name"),
+    dashboard_host: str = typer.Option("localhost", "--dashboard-host", help="Streamlit dashboard bind host"),
+    dashboard_port: int = typer.Option(8501, "--dashboard-port", help="Streamlit dashboard port"),
+    dashboard_timeout: int = typer.Option(30, "--dashboard-timeout", help="Seconds to wait for the dashboard to become ready"),
 ) -> None:
     """Start both SpectraAgent server and Streamlit dashboard."""
+    import os
     import subprocess
     import sys
     import time
@@ -534,37 +550,40 @@ def start_all(
 
     cfg = load_config()
 
-    # Start SpectraAgent in background
-    spectraagent_cmd = [
-        sys.executable, "-m", "spectraagent", "start",
-        "--simulate" if simulate else "",
-        "--no-browser",
-        f"--host={host}" if host else "",
-        f"--port={port}" if port else "",
-        f"--physics={physics}" if physics else "",
-    ]
-    spectraagent_cmd = [arg for arg in spectraagent_cmd if arg]  # Remove empty strings
+    spectraagent_cmd = [sys.executable, "-m", "spectraagent", "start", "--no-browser"]
+    if simulate:
+        spectraagent_cmd.append("--simulate")
+    if host:
+        spectraagent_cmd.extend(["--host", host])
+    if port:
+        spectraagent_cmd.extend(["--port", str(port)])
+    if physics:
+        spectraagent_cmd.extend(["--physics", physics])
 
+    env = os.environ.copy()
     typer.echo("Starting SpectraAgent server...")
     spectraagent_proc = subprocess.Popen(
         spectraagent_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        cwd=str(Path(__file__).resolve().parent.parent),
+        env=env,
     )
 
     # Wait for SpectraAgent to be healthy
     spectraagent_port = port or cfg.server.port
-    health_url = f"http://localhost:{spectraagent_port}/api/health"
+    probe_host = "127.0.0.1" if host in ("", "0.0.0.0", "localhost") else host
+    health_url = f"http://{probe_host}:{spectraagent_port}/api/health"
     typer.echo(f"Waiting for SpectraAgent at {health_url}...")
-    for _ in range(60):  # Wait up to 60 seconds
-        try:
-            import httpx
-            resp = httpx.get(health_url, timeout=2)
-            if resp.status_code == 200:
-                typer.echo("SpectraAgent is ready!")
-                break
-        except Exception:
-            pass
+
+    for _ in range(60):
+        if spectraagent_proc.poll() is not None:
+            typer.echo(
+                f"SpectraAgent process exited unexpectedly with code {spectraagent_proc.returncode}.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if _http_status_ok(health_url):
+            typer.echo("SpectraAgent is ready!")
+            break
         time.sleep(1)
     else:
         typer.echo("SpectraAgent failed to start within timeout.", err=True)
@@ -582,27 +601,50 @@ def start_all(
             err=True,
         )
         typer.echo(
-            "Install it with: python -m pip install -e .[dashboard]",
+            "Install it with: python -m pip install -e \".[dashboard]\"",
             err=True,
         )
         spectraagent_proc.terminate()
         spectraagent_proc.wait(timeout=5)
         raise typer.Exit(1)
 
-    dashboard_cmd = [sys.executable, "-m", "streamlit", "run", "dashboard/app.py"]
-    dashboard_proc = subprocess.Popen(dashboard_cmd)
+    dashboard_cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "dashboard/app.py",
+        "--server.address",
+        dashboard_host,
+        "--server.port",
+        str(dashboard_port),
+        "--server.headless",
+        "true",
+        "--server.enableXsrfProtection",
+        "true",
+    ]
+    dashboard_proc = subprocess.Popen(
+        dashboard_cmd,
+        cwd=str(Path(__file__).resolve().parent.parent),
+        env=env,
+    )
 
-    # Wait for dashboard to be healthy
-    dashboard_url = "http://localhost:8501/_stcore/health"
+    service_probe_host = "127.0.0.1" if dashboard_host in ("", "0.0.0.0", "localhost") else dashboard_host
+    dashboard_url = f"http://{service_probe_host}:{dashboard_port}/_stcore/health"
     typer.echo(f"Waiting for dashboard at {dashboard_url}...")
-    for _ in range(30):  # Wait up to 30 seconds
-        try:
-            resp = httpx.get(dashboard_url, timeout=2)
-            if resp.status_code == 200:
-                typer.echo("Dashboard is ready!")
-                break
-        except Exception:
-            pass
+
+    for _ in range(dashboard_timeout):
+        if dashboard_proc.poll() is not None:
+            typer.echo(
+                f"Streamlit process exited unexpectedly with code {dashboard_proc.returncode}.",
+                err=True,
+            )
+            spectraagent_proc.terminate()
+            spectraagent_proc.wait(timeout=5)
+            raise typer.Exit(1)
+        if _http_status_ok(dashboard_url):
+            typer.echo("Dashboard is ready!")
+            break
         time.sleep(1)
     else:
         typer.echo("Dashboard failed to start within timeout.", err=True)
@@ -614,13 +656,13 @@ def start_all(
 
     # Open browser if requested
     if not no_browser:
-        browser_url = "http://localhost:8501"
+        browser_url = f"http://{service_probe_host}:{dashboard_port}"
         threading.Timer(1.0, lambda: webbrowser.open(browser_url)).start()
         typer.echo(f"Opening browser at {browser_url}")
 
     typer.echo("Both services are running:")
-    typer.echo(f"  - SpectraAgent API: http://localhost:{spectraagent_port}")
-    typer.echo("  - Dashboard: http://localhost:8501")
+    typer.echo(f"  - SpectraAgent API: http://{probe_host}:{spectraagent_port}")
+    typer.echo(f"  - Dashboard: http://{service_probe_host}:{dashboard_port}")
     typer.echo("Press Ctrl+C to stop both services.")
 
     try:

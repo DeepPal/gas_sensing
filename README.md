@@ -196,6 +196,12 @@ spectraagent --version
 spectraagent plugins list      # shows discovered hardware + physics plugins
 ```
 
+If the `spectraagent` command is not available, use:
+
+```bash
+python -m spectraagent --help
+```
+
 ---
 
 ## Quick Start
@@ -209,6 +215,12 @@ spectraagent start --simulate
 # → FastAPI server at http://localhost:8765
 # → React frontend at http://localhost:8765/app
 # → API docs at http://localhost:8765/docs
+```
+
+Start both the live runtime and Streamlit dashboard together:
+
+```bash
+spectraagent start-all --simulate
 ```
 
 Start with real hardware:
@@ -252,6 +264,12 @@ python -m streamlit run dashboard/app.py
 
 # Or via helper script (Windows, includes authentication)
 run_dashboard_secure.bat
+```
+
+If `streamlit` is not installed, enable the dashboard extras first:
+
+```bash
+python -m pip install -e ".[dashboard]"
 ```
 
 Open `http://localhost:8501`.
