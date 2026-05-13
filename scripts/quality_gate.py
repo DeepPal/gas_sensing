@@ -204,8 +204,8 @@ def main() -> int:
         "--coverage",
         action="store_true",
         help=(
-            "Also require the fast-lane coverage threshold locally "
-            f"({FAST_LANE_COVERAGE_THRESHOLD}%)"
+            f"Also require the fast-lane coverage threshold locally "
+            f"({FAST_LANE_COVERAGE_THRESHOLD}%%)"
         ),
     )
     parser.add_argument(
