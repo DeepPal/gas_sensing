@@ -22,7 +22,7 @@ import math
 import os
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, cast
 import zipfile
 
 from fastapi import (
@@ -602,7 +602,7 @@ def _build_qualification_dossier(
         "Calibration points",
         n_points,
         f">= {min_pts}",
-        _is_finite_number(n_points) and int(float(n_points)) >= min_pts,
+        _is_finite_number(n_points) and int(float(cast(float, n_points))) >= min_pts,  # type: ignore[arg-type]
         True,
         "Acquire additional calibration concentrations across low/mid/high range.",
     )
@@ -611,7 +611,7 @@ def _build_qualification_dossier(
         "Calibration R²",
         r2,
         f">= {thresholds['min_r2']:.2f}",
-        _is_finite_number(r2) and float(r2) >= thresholds["min_r2"],
+        _is_finite_number(r2) and float(cast(float, r2)) >= thresholds["min_r2"],  # type: ignore[arg-type]
         True,
         "Improve baseline correction and repeat calibration with stable reference capture.",
     )
@@ -620,7 +620,7 @@ def _build_qualification_dossier(
         "Mean SNR",
         snr,
         f">= {thresholds['min_snr']:.1f}",
-        _is_finite_number(snr) and float(snr) >= thresholds["min_snr"],
+        _is_finite_number(snr) and float(cast(float, snr)) >= thresholds["min_snr"],  # type: ignore[arg-type]
         True,
         "Increase integration time, improve optical alignment, or reduce mechanical noise.",
     )
@@ -647,7 +647,7 @@ def _build_qualification_dossier(
         "Absolute drift rate (nm/frame)",
         drift,
         f"<= {thresholds['max_abs_drift_nm_per_frame']:.6f}",
-        _is_finite_number(drift) and abs(float(drift)) <= thresholds["max_abs_drift_nm_per_frame"],
+        _is_finite_number(drift) and abs(float(cast(float, drift))) <= thresholds["max_abs_drift_nm_per_frame"],  # type: ignore[arg-type]
         False,
         "Stabilize temperature/humidity and allow longer warm-up before measurement.",
     )
@@ -665,7 +665,7 @@ def _build_qualification_dossier(
         "Kinetics fit quality (R²)",
         kinetics_fit_r2,
         ">= 0.90 (when kinetics available)",
-        (not _is_finite_number(kinetics_fit_r2)) or float(kinetics_fit_r2) >= 0.90,
+        (not _is_finite_number(kinetics_fit_r2)) or (float(cast(float, kinetics_fit_r2)) >= 0.90),  # type: ignore[arg-type]
         False,
         "Capture a cleaner step response and re-run kinetics fitting to support mechanism claims.",
     )
@@ -674,7 +674,7 @@ def _build_qualification_dossier(
         "Response time constant τ63 (s)",
         tau_63_s,
         "finite (when kinetics available)",
-        (not _is_finite_number(tau_63_s)) or float(tau_63_s) > 0,
+        (not _is_finite_number(tau_63_s)) or (float(cast(float, tau_63_s)) > 0),  # type: ignore[arg-type]
         False,
         "Run a full association transient to characterize sensor response dynamics.",
     )
@@ -683,7 +683,7 @@ def _build_qualification_dossier(
         "Predictive interval coverage",
         interval_coverage,
         ">= 0.90 (if ground truth available)",
-        (not _is_finite_number(interval_coverage)) or float(interval_coverage) >= 0.90,
+        (not _is_finite_number(interval_coverage)) or (float(cast(float, interval_coverage)) >= 0.90),  # type: ignore[arg-type]
         False,
         "Evaluate predicted intervals against labeled concentrations to validate uncertainty calibration.",
     )
@@ -1448,7 +1448,7 @@ def create_app(simulate: bool = False) -> FastAPI:
         import numpy as _np
 
         from src.features.lspr_features import detect_all_peaks, fit_lorentzian_peak
-        wl_np = _np.asarray(latest_spectrum.get("wl", []))
+        wl_np = _np.asarray(cast(dict[str, Any], latest_spectrum).get("wl", []) if latest_spectrum is not None else [])  # type: ignore[union-attr]
         int_np = _np.asarray(intensities)
         plugin = getattr(app.state, "plugin", None)
 

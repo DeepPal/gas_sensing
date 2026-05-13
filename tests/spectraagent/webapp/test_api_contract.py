@@ -59,7 +59,8 @@ def test_health_contract_has_required_fields() -> None:
 
 def test_reports_generate_contract_exposes_source_and_notice() -> None:
     with _client() as client:
-        client.app.state.last_session_analysis = SimpleNamespace(
+        # Use type ignore for state attribute assignment in test context
+        client.app.state.last_session_analysis = SimpleNamespace(  # type: ignore[attr-defined]
             calibration_n_points=8,
             calibration_r2=0.985,
             mean_snr=4.2,
@@ -69,7 +70,7 @@ def test_reports_generate_contract_exposes_source_and_notice() -> None:
             summary_text="Contract test session.",
             audit={"checks": []},
         )
-        client.app.state.last_session_id = "contract-session"
+        client.app.state.last_session_id = "contract-session"  # type: ignore[attr-defined]
 
         resp = client.post(
             "/api/reports/generate",

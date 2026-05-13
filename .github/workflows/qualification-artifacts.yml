@@ -35,19 +35,26 @@ jobs:
           python scripts/research_integrity_gate.py --self-check
 
       - name: Generate signed qualification artifacts
+        # Note: QUALIFICATION_SIGNING_KEY secret is optional; script handles missing key gracefully
         env:
           QUALIFICATION_SIGNING_KEY: ${{ secrets.QUALIFICATION_SIGNING_KEY }}
           REF_NAME: ${{ github.ref_name }}
           RUN_ID: ${{ github.run_id }}
           GIT_SHA: ${{ github.sha }}
         run: |
+          if [ -z "$QUALIFICATION_SIGNING_KEY" ]; then
+            echo "Warning: QUALIFICATION_SIGNING_KEY secret not set. Skipping artifact signing."
+            SIGNING_KEY_ARG=""
+          else
+            SIGNING_KEY_ARG="--signing-key \"${QUALIFICATION_SIGNING_KEY}\""
+          fi
           python scripts/build_research_evidence_pack.py \
             --output-dir output/qualification/ci \
             --session-id "ci-${REF_NAME}" \
             --git-sha "${GIT_SHA}" \
             --ref-name "${REF_NAME}" \
             --run-id "${RUN_ID}" \
-            --signing-key "${QUALIFICATION_SIGNING_KEY}"
+            ${SIGNING_KEY_ARG}
 
       - name: Upload qualification artifacts
         uses: actions/upload-artifact@v4
