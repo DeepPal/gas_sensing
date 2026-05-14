@@ -820,21 +820,13 @@ class RealTimePipeline:
             snr_threshold=3.0,
         )
         if not validation.valid:
-            # Create error result
             error_msg = f"Spectrum validation failed: {'; '.join(validation.errors)}"
-            logging.error(f"❌ {error_msg}")
+            logging.error("❌ %s", error_msg)
             return PipelineResult(
                 success=False,
-                sample_id=spectrum.sample_id,
-                timestamp=spectrum.timestamp,
-                processed_spectrum=None,
-                calibration_data=None,
-                extracted_features=None,
-                predictions=None,
-                quality_metrics={},
-                stage_results={},
-                error_message=error_msg,
-                elapsed_time_ms=0,
+                spectrum=spectrum,
+                processing_time_ms=0.0,
+                errors=[error_msg],
             )
 
         stage_results = {}

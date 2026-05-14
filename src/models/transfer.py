@@ -89,7 +89,7 @@ class _GradReversal(torch.autograd.Function):
     @staticmethod
     def backward(ctx: torch.autograd.function.FunctionCtx,
                  grad_output: torch.Tensor):
-        (lam,) = ctx.saved_tensors
+        (lam,) = ctx.saved_tensors  # type: ignore[attr-defined]
         return -lam * grad_output, None
 
 
@@ -296,19 +296,23 @@ class DomainAdaptModel(nn.Module):
             task_loss = task_loss + F.mse_loss(
                 src_out["concentration"], src_conc)
 
-        # Domain adversarial loss
+        # Domain adversarial loss — domain_logits is always populated by forward()
         domain_loss: torch.Tensor = features_src.mean() * 0.0
         B_s = src_x.shape[0]
         src_domain = torch.zeros(B_s, 1, device=src_x.device)  # source = 0
+        src_domain_logits = src_out["domain_logits"]
+        assert src_domain_logits is not None
         domain_loss = domain_loss + F.binary_cross_entropy_with_logits(
-            src_out["domain_logits"], src_domain)
+            src_domain_logits, src_domain)
 
         if tgt_x is not None:
             tgt_out = self.forward(tgt_x, lam)
             B_t = tgt_x.shape[0]
             tgt_domain = torch.ones(B_t, 1, device=tgt_x.device)  # target = 1
+            tgt_domain_logits = tgt_out["domain_logits"]
+            assert tgt_domain_logits is not None
             domain_loss = domain_loss + F.binary_cross_entropy_with_logits(
-                tgt_out["domain_logits"], tgt_domain)
+                tgt_domain_logits, tgt_domain)
             domain_loss = domain_loss / 2.0
 
         total = task_weight * task_loss + domain_weight * domain_loss
