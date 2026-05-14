@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -59,7 +60,9 @@ def test_health_contract_has_required_fields() -> None:
 
 def test_reports_generate_contract_exposes_source_and_notice() -> None:
     with _client() as client:
-        client.app.state.last_session_analysis = SimpleNamespace(
+        # FastAPI TestClient app attribute typing is complex; casting needed for state access
+        app = cast(Any, client.app)
+        app.state.last_session_analysis = SimpleNamespace(
             calibration_n_points=8,
             calibration_r2=0.985,
             mean_snr=4.2,
@@ -69,7 +72,7 @@ def test_reports_generate_contract_exposes_source_and_notice() -> None:
             summary_text="Contract test session.",
             audit={"checks": []},
         )
-        client.app.state.last_session_id = "contract-session"
+        app.state.last_session_id = "contract-session"
 
         resp = client.post(
             "/api/reports/generate",

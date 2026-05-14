@@ -926,8 +926,8 @@ def sensor_performance_summary(
             # reliable per unit concentration. Exclude any c ≤ 0 to avoid div-by-zero.
             _pos_mask = c > 0
             if _pos_mask.sum() >= 3:
-                _w = np.where(_pos_mask, 1.0 / np.maximum(c, 1e-12) ** 2, 0.0)
-                _wls_result = _wls(c, r, _w)
+                _weights = np.where(_pos_mask, 1.0 / np.maximum(c, 1e-12) ** 2, 0.0)  # type: ignore[assignment]
+                _wls_result = _wls(c, r, _weights)  # type: ignore[arg-type]
                 if _wls_result is not None:
                     _wls_slope_obj = _wls_result.get("slope")
                     _wls_intercept_obj = _wls_result.get("intercept")

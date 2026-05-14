@@ -35,19 +35,15 @@ jobs:
           python scripts/research_integrity_gate.py --self-check
 
       - name: Generate signed qualification artifacts
-        env:
-          QUALIFICATION_SIGNING_KEY: ${{ secrets.QUALIFICATION_SIGNING_KEY }}
-          REF_NAME: ${{ github.ref_name }}
-          RUN_ID: ${{ github.run_id }}
-          GIT_SHA: ${{ github.sha }}
+        # Note: QUALIFICATION_SIGNING_KEY is optional; if not set, artifacts will be unsigned
         run: |
           python scripts/build_research_evidence_pack.py \
             --output-dir output/qualification/ci \
-            --session-id "ci-${REF_NAME}" \
-            --git-sha "${GIT_SHA}" \
-            --ref-name "${REF_NAME}" \
-            --run-id "${RUN_ID}" \
-            --signing-key "${QUALIFICATION_SIGNING_KEY}"
+            --session-id "ci-${{ github.ref_name }}" \
+            --git-sha "${{ github.sha }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --run-id "${{ github.run_id }}" \
+            --signing-key "${{ secrets.QUALIFICATION_SIGNING_KEY || '' }}"
 
       - name: Upload qualification artifacts
         uses: actions/upload-artifact@v4

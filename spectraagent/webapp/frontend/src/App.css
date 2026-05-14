@@ -802,6 +802,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   border-radius: 3px;
   background: var(--accent, #38bdf8);
   transition: width 0.4s ease;
+  width: var(--progress-width, 0%);
 }
 /* Spin animation for Loader icon */
 @keyframes spin {

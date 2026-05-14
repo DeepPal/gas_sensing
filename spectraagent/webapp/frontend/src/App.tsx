@@ -1176,9 +1176,10 @@ export default function App() {
                 )}
                 {currentIdx >= 0 && !allDone && (
                   <div className="workflow-progress-bar">
+                    {/* eslint-disable-next-line react/forbid-component-props */}
                     <div
                       className="workflow-progress-fill"
-                      style={{ width: `${Math.round((currentIdx / workflowSteps.length) * 100)}%` }}
+                      style={{ "--progress-width": `${Math.round((currentIdx / workflowSteps.length) * 100)}%` } as React.CSSProperties}
                     />
                   </div>
                 )}
