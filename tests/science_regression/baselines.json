@@ -1,0 +1,9 @@
+{
+  "lod_ppm": 0.02412162,
+  "sensitivity_nm_per_ppm": -1.49243695,
+  "gpr_std_at_neg1nm": 0.01059107,
+  "gpr_mean_at_neg1nm": 0.41126168,
+  "delta_lambda_at_1ppm_true": -2.31481481,
+  "kernel": "Matern-5/2",
+  "generated_date": "2026-05-14"
+}
