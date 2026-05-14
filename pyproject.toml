@@ -163,8 +163,6 @@ exclude = [
     ".venv",
     "__pycache__",
     "PDMS_Ring_Rectum Sensor",   # separate project — not part of this package
-    "spectrometer_webapp",        # standalone webapp — linted independently
-    "n8n",
 ]
 
 [tool.ruff.lint]
