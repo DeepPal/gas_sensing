@@ -10,7 +10,7 @@ uncertainty — essential for LOD calculations and quality flagging.
 Physics note
 ------------
 LSPR calibration is monotone and approximately linear in the 0–5 ppm range,
-but the GPR handles mild nonlinearity gracefully via its RBF kernel.  The
+but the GPR handles mild nonlinearity gracefully via its Matérn ν=5/2 kernel.  The
 WhiteKernel term models aleatoric noise (shot noise + read noise).
 
 Public API
