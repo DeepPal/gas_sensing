@@ -50,43 +50,23 @@ try:
 except Exception:
     _HW_AVAILABLE = False
 
-# ── signal processing ─────────────────────────────────────────────────────────
-try:
-    from src.preprocessing.baseline import als_baseline
-    from src.preprocessing.baseline import correct_baseline as baseline_correction
-    from src.preprocessing.denoising import smooth_spectrum
-    from src.preprocessing.normalization import normalize_spectrum
-    from src.preprocessing.quality import compute_snr, estimate_noise_metrics
+# ── signal processing (src/ is the canonical location) ───────────────────────
+from src.preprocessing.baseline import als_baseline
+from src.preprocessing.baseline import correct_baseline as baseline_correction
+from src.preprocessing.denoising import smooth_spectrum
+from src.preprocessing.normalization import normalize_spectrum
+from src.preprocessing.quality import (
+    compute_snr,
+    detect_outliers,
+    estimate_noise_metrics,
+)
 
-    # detect_outliers not yet in src.preprocessing — try legacy location
-    try:
-        from gas_analysis.core.signal_proc import detect_outliers
-    except Exception:
-
-        def detect_outliers(x, threshold=3.0):  # type: ignore[misc]
-            return x
-
-    _SP_AVAILABLE = True
-except Exception:
-    try:
-        from gas_analysis.core.preprocessing import (  # type: ignore[assignment]
-            baseline_correction,
-            normalize_spectrum,
-        )
-        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
-            als_baseline,
-            smooth_spectrum,
-        )
-        from src.preprocessing.quality import compute_snr, estimate_noise_metrics
-
-        _SP_AVAILABLE = True
-    except Exception:
-        _SP_AVAILABLE = False
+_SP_AVAILABLE = True
 
 # ── ML models ─────────────────────────────────────────────────────────────────
 try:
-    from gas_analysis.core.intelligence.classifier import CNNGasClassifier
-    from gas_analysis.core.intelligence.gpr import GPRCalibration
+    from src.calibration.gpr import GPRCalibration
+    from src.models.cnn import CNNGasClassifier
 
     _ML_AVAILABLE = True
 except Exception:
@@ -111,17 +91,8 @@ try:
 
     _LOD_AVAILABLE = True
 except Exception:
-    try:
-        from gas_analysis.core.scientific.lod import (  # type: ignore[assignment]
-            calculate_lod_3sigma,
-            calculate_loq_10sigma,
-            calculate_sensitivity,
-        )
-        compute_comprehensive_sensor_characterization = None  # type: ignore[assignment]
-        _LOD_AVAILABLE = True
-    except Exception:
-        compute_comprehensive_sensor_characterization = None  # type: ignore[assignment]
-        _LOD_AVAILABLE = False
+    compute_comprehensive_sensor_characterization = None  # type: ignore[assignment]
+    _LOD_AVAILABLE = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
