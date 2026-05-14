@@ -47,11 +47,18 @@ def test_lod_within_2pct(cal_fixture, baselines):
     )
 
 
-def test_delta_lambda_at_1ppm(cal_fixture, baselines):
-    """True Δλ at 1.0 ppm must match Langmuir model within ±0.01 nm."""
-    dl_true_at_1ppm = float(cal_fixture["delta_lambda_true"][2])  # index 2 = 1.0 ppm
-    baseline = baselines["delta_lambda_at_1ppm_true"]
+def test_delta_lambda_predicted_at_1ppm(cal_fixture, baselines):
+    """Sensitivity-derived prediction at 1.0 ppm must match Langmuir ground truth within ±0.3 nm."""
+    dl = cal_fixture["delta_lambda_measured"]
+    conc = cal_fixture["concentrations"]
 
-    assert abs(dl_true_at_1ppm - baseline) < 0.01, (
-        f"Δλ at 1.0 ppm changed: got {dl_true_at_1ppm:.4f} nm, expected {baseline:.4f} nm."
+    slope, intercept, r2, _ = calculate_sensitivity(conc, dl)
+    # Use the linear fit to predict Δλ at 1.0 ppm
+    predicted_dl_at_1ppm = slope * 1.0 + intercept
+    langmuir_dl_at_1ppm = baselines["delta_lambda_at_1ppm_true"]
+
+    assert abs(predicted_dl_at_1ppm - langmuir_dl_at_1ppm) < 0.3, (
+        f"Predicted Δλ at 1.0 ppm ({predicted_dl_at_1ppm:.4f} nm) deviates more than 0.3 nm "
+        f"from Langmuir ground truth ({langmuir_dl_at_1ppm:.4f} nm). "
+        "Check calculate_sensitivity or sign convention (ADR-003)."
     )

@@ -11,6 +11,7 @@ import pytest
 from src.calibration.gpr import GPRCalibration
 
 
+@pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_gpr_posterior_std_bounded(cal_fixture, baselines):
     """GPR posterior std at -1.0 nm shift must be within 5% of baseline."""
     dl = cal_fixture["delta_lambda_measured"].reshape(-1, 1)
@@ -30,6 +31,7 @@ def test_gpr_posterior_std_bounded(cal_fixture, baselines):
     )
 
 
+@pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_gpr_mean_monotone(cal_fixture):
     """GPR predictions must be monotone over the calibration domain."""
     dl = cal_fixture["delta_lambda_measured"].reshape(-1, 1)
@@ -62,5 +64,10 @@ def test_gpr_n_restarts():
     """GPR must use 10 optimizer restarts for robust hyperparameter search (ADR-002)."""
     gpr = GPRCalibration()
     assert gpr.n_restarts_optimizer == 10, (
-        f"Expected 10 restarts, got {gpr.n_restarts_optimizer}. See ADR-002."
+        f"GPRCalibration.n_restarts_optimizer is {gpr.n_restarts_optimizer}, expected 10. See ADR-002."
+    )
+    # Also verify the sklearn model received the value
+    assert gpr.model.n_restarts_optimizer == 10, (
+        f"GaussianProcessRegressor.n_restarts_optimizer is {gpr.model.n_restarts_optimizer}, expected 10. "
+        "The wrapper attribute and the sklearn model are out of sync."
     )

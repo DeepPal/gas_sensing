@@ -14,12 +14,20 @@ BASELINES_PATH = ROOT / "tests" / "science_regression" / "baselines.json"
 
 @pytest.fixture(scope="session")
 def cal_fixture() -> dict:
-    assert FIXTURE_PATH.exists(), f"Missing fixture. Run: python tests/fixtures/generate_fixture.py"
+    if not FIXTURE_PATH.exists():
+        pytest.fail(
+            "Science regression fixture missing. "
+            "Run: python tests/fixtures/generate_fixture.py"
+        )
     data = np.load(FIXTURE_PATH)
     return {k: data[k] for k in data.files}
 
 
 @pytest.fixture(scope="session")
 def baselines() -> dict:
-    assert BASELINES_PATH.exists(), f"Missing baselines. Run: python tests/fixtures/generate_fixture.py"
+    if not BASELINES_PATH.exists():
+        pytest.fail(
+            "Science regression fixture missing. "
+            "Run: python tests/fixtures/generate_fixture.py"
+        )
     return json.loads(BASELINES_PATH.read_text())
