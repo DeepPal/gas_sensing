@@ -55,6 +55,7 @@ docs/
 site/
 mkdocs.yml
 *.md
+!README.md
 
 # --- CI / GitHub  ------------------------------------------------------------
 .github/
