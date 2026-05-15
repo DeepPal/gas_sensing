@@ -67,7 +67,7 @@ LIVE_PLATFORM_URL = os.environ.get("SPECTRAAGENT_BASE_URL", "http://localhost:87
 _import_errors: dict[str, str] = {}
 
 try:
-    from dashboard.agentic_pipeline_tab import render as _render_agentic  # type: ignore[import]
+    from dashboard.agentic import render as _render_agentic  # type: ignore[import]
 
     AGENTIC_AVAILABLE = True
 except Exception as _exc:
