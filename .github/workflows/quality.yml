@@ -32,6 +32,19 @@ jobs:
       - name: Validate scope compliance (canonical tracking set)
         run: python scripts/check_scope_compliance.py
 
+      - name: No gas_analysis.core imports outside gas_analysis/
+        run: |
+          if grep -rn "from gas_analysis\.core\|import gas_analysis\.core" \
+               --include="*.py" \
+               dashboard/ src/ spectraagent/ tests/ \
+               --exclude-dir=tests/migration_parity 2>/dev/null; then
+            echo ""
+            echo "FAIL: gas_analysis.core import found outside gas_analysis/"
+            echo "All business logic must be imported from src/"
+            exit 1
+          fi
+          echo "OK: no gas_analysis.core imports outside gas_analysis/"
+
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
         with:

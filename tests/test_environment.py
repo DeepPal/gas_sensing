@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from gas_analysis.core import pipeline as pl
 from src.reporting.environment import (
     compute_environment_coefficients,
     compute_environment_summary,
@@ -22,16 +21,6 @@ def _make_df(wl, signal, T=None, H=None):
 
 
 def test_compute_environment_coefficients_estimates_ct_ch_close():
-    # Configure reference values
-    pl.CONFIG["environment"] = {
-        "enabled": True,
-        "apply_to_frames": False,
-        "apply_to_transmittance": True,
-        "reference": {"temperature": 25.0, "humidity": 50.0},
-        "coefficients": {"temperature": 0.0, "humidity": 0.0},
-        "override": {"temperature": None, "humidity": None},
-    }
-
     rng = np.random.default_rng(0)
     # Synthetic design: concentrations and environment values per concentration
     concs = np.array([0.5, 1.0, 2.0, 3.0, 4.0], dtype=float)
@@ -70,7 +59,7 @@ def test_compute_environment_coefficients_estimates_ct_ch_close():
         "peak_wavelengths": y.tolist(),
     }
 
-    res = pl.compute_environment_coefficients(stable_by_conc, calib)
+    res = compute_environment_coefficients(stable_by_conc, calib)
     assert isinstance(res, dict) and res, "Expected non-empty coefficients result"
     est = res.get("estimated_coefficients", {})
     cT_est = est.get("temperature", None)
@@ -86,13 +75,6 @@ def test_compute_environment_coefficients_estimates_ct_ch_close():
 
 def test_compute_environment_coefficients_handles_missing_env():
     # No env columns available -> expect empty output
-    pl.CONFIG["environment"] = {
-        "enabled": True,
-        "reference": {"temperature": 25.0, "humidity": 50.0},
-        "coefficients": {},
-        "override": {},
-    }
-
     concs = np.array([0.5, 1.0, 2.0], dtype=float)
     wl = np.linspace(500.0, 900.0, 50)
     stable_by_conc = {}
@@ -107,7 +89,7 @@ def test_compute_environment_coefficients_handles_missing_env():
         "peak_wavelengths": (520.0 + 1.0 * concs).tolist(),
     }
 
-    res = pl.compute_environment_coefficients(stable_by_conc, calib)
+    res = compute_environment_coefficients(stable_by_conc, calib)
     assert isinstance(res, dict)
     assert res == {} or (
         res.get("estimated_coefficients", {}) == {} and res.get("offset_count", 0) == 0
