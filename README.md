@@ -1,61 +1,35 @@
 # SpectraAgent
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Ruff](https://img.shields.io/badge/linter-ruff-orange)](https://docs.astral.sh/ruff/)
 [![mypy](https://img.shields.io/badge/type--checked-mypy-blue)](https://mypy.readthedocs.io/)
 
-**Universal agentic spectroscopy platform — from raw photons to calibrated results with AI-native analysis.**
+**Hardware-agnostic optical spectroscopy platform.**
+Raw photons → calibrated, uncertainty-quantified concentration measurements with AI-native analysis.
 
-SpectraAgent provides a complete, hardware-agnostic runtime for optical spectroscopy research: real-time acquisition from any spectrometer, physics-informed signal processing, conformal prediction calibration, and autonomous AI agents that explain anomalies, narrate experiments, and plan the next measurement. A plugin architecture makes it straightforward to add new hardware drivers and sensor physics models.
+> Reference deployment: LSPR sensing with ThorLabs CCS200. Works with any spectrometer producing wavelength–intensity arrays.
 
-> **Reference deployment**: Localized Surface Plasmon Resonance (LSPR) sensing with ThorLabs CCS200, but the platform supports any spectrometer producing wavelength–intensity arrays.
+## Start in 60 seconds
 
----
+```bash
+git clone https://github.com/DeepPal/spectraagent
+cd spectraagent
+docker compose up
+```
 
-## Table of Contents
+Then open:
+- **http://localhost:8765/app** — live acquisition (SpectraAgent: React + WebSocket)
+- **http://localhost:8501** — scientific analysis (Streamlit dashboard)
 
-- [Key Features](#key-features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-  - [SpectraAgent (primary runtime)](#spectraagent-primary-runtime)
-  - [Streamlit Dashboard (scientific analysis)](#streamlit-dashboard-scientific-analysis)
-- [Plugin System](#plugin-system)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Testing & Quality](#testing--quality)
-- [Scientific Capabilities](#scientific-capabilities)
-- [Troubleshooting](#troubleshooting)
-- [Industry Readiness](#industry-readiness)
-- [Contributing](#contributing)
+## Guides by audience
 
-## Canonical Project Tracking
-
-To keep status consistent across contributors and AI agents, treat the files
-below as the canonical tracking set and update them together when state changes:
-
-- `REMAINING_WORK.md` (backlog and open gaps)
-- `PRODUCTION_READINESS.md` (deployment/operations readiness)
-- `CHANGELOG.md` (auditable change history)
-- `.github/workflows/security.yml` (enforced security gates)
-
-## Industry Readiness
-
-SpectraAgent is maintained with research depth and production-style engineering discipline so external organizations can evaluate and integrate it confidently.
-
-- Industry readiness guide: [docs/guides/INDUSTRY_READINESS.md](docs/guides/INDUSTRY_READINESS.md)
-- Release process: [docs/guides/RELEASE_RUNBOOK.md](docs/guides/RELEASE_RUNBOOK.md)
-- Advanced protocol pack: [docs/guides/ADVANCED_RESEARCH_PROTOCOL_PACK.md](docs/guides/ADVANCED_RESEARCH_PROTOCOL_PACK.md)
-- Operational SLO guide: [docs/guides/OPERATIONAL_RELIABILITY_SLO.md](docs/guides/OPERATIONAL_RELIABILITY_SLO.md)
-
-Key points:
-
-- Public `/api/*` routes are treated as contracts and guarded by explicit API contract tests.
-- Deterministic report fallback keeps workflows usable when optional AI services are unavailable.
-- Qualification and reproducibility artifacts are generated to support external technical review.
-- One-command external bundle is available via `python scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/local --session-id industry-eval`.
+| I am a... | Start here |
+|-----------|------------|
+| **Research scientist** — calibration sessions, reproducible results | [docs/quickstart/research.md](docs/quickstart/research.md) |
+| **Industrial integrator** — REST API, hardware plugin, Docker in production | [docs/quickstart/integration.md](docs/quickstart/integration.md) |
+| **Open-source contributor** — architecture overview, adding hardware drivers | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---
 
