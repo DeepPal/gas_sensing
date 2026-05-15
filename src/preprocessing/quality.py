@@ -262,3 +262,74 @@ def is_valid_spectrum(
             messages.append(f"Low SNR warning: {snr:.1f} < {min_snr} (soft warning, not a block).")
 
     return valid, messages
+
+
+def _mad_zscores(values: np.ndarray) -> np.ndarray:
+    """Compute robust Z-scores using the median absolute deviation.
+
+    Uses the same constant (0.6745) as the legacy implementation in
+    gas_analysis.core.signal_proc.basic to ensure parity.
+    """
+    values = np.asarray(values, dtype=float)
+    median = np.median(values)
+    mad = np.median(np.abs(values - median))
+    if mad < 1e-9:
+        return np.zeros_like(values, dtype=float)
+    return 0.6745 * (values - median) / mad
+
+
+def detect_outliers(
+    spectra: list[np.ndarray],
+    threshold: float = 3.0,
+) -> list[bool]:
+    """Flag spectra whose aggregate statistics deviate by more than *threshold* Z-scores.
+
+    Uses five metrics (mean, std, max, min, range) with classical Z-scores,
+    falling back to MAD-based Z-scores when variance is near zero.
+
+    Parameters
+    ----------
+    spectra:
+        List of 1-D intensity arrays (must all be the same length).
+    threshold:
+        Z-score threshold above which a spectrum is flagged as an outlier.
+
+    Returns
+    -------
+    list[bool]
+        One boolean per spectrum; ``True`` means the spectrum is an outlier.
+    """
+    from scipy import stats as _stats
+
+    if len(spectra) < 2:
+        return [False] * len(spectra)
+
+    X = np.vstack(spectra)
+    metrics: dict[str, np.ndarray] = {
+        "mean": np.mean(X, axis=1),
+        "std": np.std(X, axis=1),
+        "max": np.max(X, axis=1),
+        "min": np.min(X, axis=1),
+        "range": np.max(X, axis=1) - np.min(X, axis=1),
+    }
+
+    outliers = np.zeros(len(spectra), dtype=bool)
+    for values in metrics.values():
+        values = np.asarray(values, dtype=float)
+        if values.size == 0:
+            continue
+
+        # Primary: classical Z-score
+        z_scores = np.abs(_stats.zscore(values, nan_policy="omit"))
+
+        # Fall back to MAD-based Z-scores when variance is ~0
+        if np.isnan(z_scores).all() or np.allclose(values, values[0]):
+            z_scores = np.abs(_mad_zscores(values))
+        else:
+            nan_mask = np.isnan(z_scores)
+            if np.any(nan_mask):
+                z_scores[nan_mask] = np.abs(_mad_zscores(values))[nan_mask]
+
+        outliers |= z_scores > threshold
+
+    return outliers.tolist()

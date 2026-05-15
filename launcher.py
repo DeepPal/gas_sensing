@@ -16,8 +16,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-ROOT = Path(__file__).parent
-PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
+ROOT = Path(__file__).resolve().parent
+PYTHON = Path(sys.executable)
 SPECTRAAGENT_PORT = 8765
 DASHBOARD_PORT = 8501
 SPECTRAAGENT_URL = f"http://localhost:{SPECTRAAGENT_PORT}/app"

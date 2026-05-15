@@ -8,10 +8,9 @@ Checks:
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 import subprocess
 import sys
-from pathlib import PurePosixPath
-
 
 BAD_PREFIXES = (
     "UsersdeeppDesktopChula_WorkPRojectsMain_Research_Chula",

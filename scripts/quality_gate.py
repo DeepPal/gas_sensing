@@ -7,6 +7,7 @@ This script provides a single command to run the same baseline checks used in CI
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 from pathlib import Path
 import shlex
@@ -26,12 +27,52 @@ MYPY_LEGACY_ADVISORY_CHECK = (
     "--ignore-missing-imports --no-site-packages --disable-error-code import-untyped "
     "--namespace-packages --explicit-package-bases --python-version 3.11"
 )
+FAST_LANE_COVERAGE_THRESHOLD = 75
+OPTIONAL_COVERAGE_IMPORTS = (
+    "mlflow",
+    "h5py",
+    "plotly",
+    "onnx",
+    "onnxruntime",
+    "onnxscript",
+    "torch",
+)
+
+
+def _missing_optional_coverage_dependencies() -> list[str]:
+    missing: list[str] = []
+    for module_name in OPTIONAL_COVERAGE_IMPORTS:
+        if importlib.util.find_spec(module_name) is None:
+            missing.append(module_name)
+    return missing
+
+
+def _coverage_preflight_message(args: argparse.Namespace) -> str | None:
+    if not args.coverage or args.lane == "reliability":
+        return None
+
+    missing = _missing_optional_coverage_dependencies()
+    if not missing:
+        return None
+
+    missing_str = ", ".join(missing)
+    return (
+        "[quality] Coverage preflight failed: optional dependencies missing "
+        f"for representative fast-lane coverage ({missing_str}).\n"
+        "[quality] Install and retry:\n"
+        '  pip install -e ".[dev,ml,tracking,all]" h5py onnx onnxruntime onnxscript'
+    )
 
 
 def _pytest_base_command(*, with_coverage: bool, marker: str) -> str:
     parts = ["pytest", "-q", "--tb=short", "-m", f'"{marker}"']
     if with_coverage:
-        parts.extend(["--cov=src", "--cov=gas_analysis", "--cov-fail-under=60"])
+        parts.extend(
+            [
+                "--cov=src",
+                f"--cov-fail-under={FAST_LANE_COVERAGE_THRESHOLD}",
+            ]
+        )
     return " ".join(parts)
 
 
@@ -162,7 +203,10 @@ def main() -> int:
     parser.add_argument(
         "--coverage",
         action="store_true",
-        help="Also require the 60% fast-lane coverage threshold locally (stricter than CI)",
+        help=(
+            f"Also require the fast-lane coverage threshold locally "
+            f"({FAST_LANE_COVERAGE_THRESHOLD}%%)"
+        ),
     )
     parser.add_argument(
         "--reliability-report",
@@ -189,6 +233,11 @@ def main() -> int:
     parser.add_argument("--no-coverage", dest="coverage", action="store_false", help=argparse.SUPPRESS)
     parser.set_defaults(coverage=False)
     args = parser.parse_args()
+
+    coverage_preflight = _coverage_preflight_message(args)
+    if coverage_preflight is not None:
+        print(coverage_preflight)
+        return 2
 
     checks = build_checks(args)
 

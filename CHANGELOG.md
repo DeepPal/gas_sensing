@@ -7,6 +7,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Coverage gate policy alignment (2026-04-10)
+- `.github/workflows/quality.yml` — aligned fast-lane coverage enforcement to `--cov-fail-under=75` to match project coverage policy in `pyproject.toml`
+- `scripts/quality_gate.py` — aligned local `--coverage` behavior with CI by using `src` coverage scope and the same 75% threshold
+- `tests/test_quality_gate.py` — added assertions to prevent future drift in coverage threshold/scope
+- `scripts/quality_gate.py` — added optional-dependency preflight for `--coverage` runs with an actionable install command when representative local coverage cannot be trusted due missing extras
+- `README.md`, `CONTRIBUTING.md` — documented the local `--coverage` preflight path and explicit dependency install command for parity runs
+
+### Fixed — LOD typing robustness and full `src` mypy clean pass (2026-04-10)
+- `src/scientific/lod.py` — hardened WLS field extraction and Breusch-Pagan p-value handling with explicit numeric guards, eliminating optional/`object` typing hazards while preserving scientific behavior
+- Validation: `mypy src --no-site-packages --ignore-missing-imports --disable-error-code import-untyped` now reports clean over 109 source files; `pytest -q tests/test_lod.py` passed
+
+### Added — Industry evaluation bundle regression tests (2026-04-10)
+- `tests/test_build_industry_evaluation_bundle.py` — added focused tests for `scripts/build_industry_evaluation_bundle.py` covering success and failure paths, manifest status semantics, summary content, and ZIP artifact composition
+
+### Added — Deterministic scientific reporting fallback (2026-04-09)
+- `src/reporting/scientific_summary.py` — new deterministic session-summary formatter that turns session metadata and computed analysis into a scientist-facing markdown report with publication-readiness checks, audit trail, and recommended next experiments
+- `spectraagent/webapp/server.py` — `/api/reports/generate` now falls back to the deterministic scientific summary when Claude/ReportWriter is unavailable, instead of failing with 503
+- `spectraagent/webapp/server.py` — completed sessions now automatically write `{session_id}_scientific_summary.md` and `{session_id}_scientific_summary.json` beside the reproducibility manifest, and research package ZIP exports now include them
+- `tests/test_scientific_summary.py` and `tests/spectraagent/webapp/test_server.py` — added coverage for deterministic report content and fallback behavior
+
+### Added — Research evidence pack orchestration (2026-04-09)
+- `scripts/build_research_evidence_pack.py` — new single-command builder that orchestrates benchmark evidence, blinded replication manifest, and qualification dossier generation, then emits a checksummed evidence index (`research_evidence_index_*.json/.md`)
+- `.github/workflows/qualification-artifacts.yml` — switched artifact generation to the unified evidence-pack command for reproducible CI behavior
+- `Makefile` — added `make evidence-pack` for local lab workflows
+- `docs/guides/RELEASE_RUNBOOK.md` — added local evidence-pack preflight step before tagging releases
+
 ### Added — Dependency automation and release runbook (2026-04-09)
 - `.github/dependabot.yml` — enabled weekly Dependabot updates for `pip`, GitHub Actions, and frontend `npm` dependencies
 - `docs/guides/RELEASE_RUNBOOK.md` — added a practical release checklist aligned with tag-based release workflow and artifact verification requirements

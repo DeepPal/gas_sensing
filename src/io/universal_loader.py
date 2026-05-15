@@ -51,7 +51,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Literal
+from typing import Literal, cast
 import warnings
 
 import numpy as np
@@ -594,7 +594,7 @@ def _normalise(
 ) -> np.ndarray:
     """Apply normalisation to a (N_samples, N_wl) matrix."""
     if method == "none":
-        return spectra.copy()
+        return cast(np.ndarray, spectra.copy())
 
     X = spectra.astype(np.float64).copy()
 
@@ -607,13 +607,13 @@ def _normalise(
     if method == "area":
         areas = np.trapezoid(X, wavelengths, axis=1)[:, np.newaxis]
         areas = np.where(np.abs(areas) < 1e-12, 1.0, areas)
-        return X / areas
+        return cast(np.ndarray, X / areas)
 
     if method == "minmax":
         mn = X.min(axis=1, keepdims=True)
         mx = X.max(axis=1, keepdims=True)
         rng = np.where(mx - mn < 1e-12, 1.0, mx - mn)
-        return (X - mn) / rng
+        return cast(np.ndarray, (X - mn) / rng)
 
     raise ValueError(f"Unknown normalisation method: {method!r}. "
                      "Choose from 'snv', 'msc', 'area', 'minmax', 'none'.")
@@ -624,7 +624,7 @@ def _snv(X: np.ndarray) -> np.ndarray:
     mean = X.mean(axis=1, keepdims=True)
     std = X.std(axis=1, keepdims=True)
     std = np.where(std < 1e-12, 1.0, std)
-    return (X - mean) / std
+    return cast(np.ndarray, (X - mean) / std)
 
 
 def _msc(X: np.ndarray) -> np.ndarray:

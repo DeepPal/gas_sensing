@@ -1793,7 +1793,6 @@ measurements used for Allan deviation noise analysis (gives a more rigorous LOD)
             if rdiag:
                 # Reconstruct ResidualDiagnostics dataclass for formatting
                 from src.scientific.residual_diagnostics import ResidualDiagnostics
-                c_arr = np.array([])  # residuals are embedded in dict
                 rdiag_obj = ResidualDiagnostics(
                     n=int(rdiag.get("n", 0)),
                     residuals=np.zeros(int(rdiag.get("n", 1))),

@@ -281,6 +281,8 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
     (session_dir / "agent_events.jsonl").write_text('{"type": "session_complete"}\n', encoding="utf-8")
     (session_dir / "pipeline_results.csv").write_text('frame,timestamp\n1,now\n', encoding="utf-8")
     (session_dir / "unknown_manifest.json").write_text('{"session_id": "unknown"}', encoding="utf-8")
+    (session_dir / "unknown_scientific_summary.md").write_text('# Summary\n', encoding="utf-8")
+    (session_dir / "unknown_scientific_summary.json").write_text('{"status": "ok"}', encoding="utf-8")
     client.app.state.last_session_analysis = SimpleNamespace(
         calibration_n_points=7,
         calibration_r2=0.97,
@@ -305,6 +307,8 @@ def test_qualification_package_creates_zip(client, tmp_path, monkeypatch):
         assert any(name.startswith("qualification/") and name.endswith(".html") for name in names)
         assert any(name.startswith("qualification/") and name.endswith(".sig.json") for name in names)
         assert "session/unknown_manifest.json" in names
+        assert "session/unknown_scientific_summary.md" in names
+        assert "session/unknown_scientific_summary.json" in names
         readme = zf.read("README_STATUS.txt").decode("utf-8")
         assert "Shipment Label: QUALIFIED FOR EXTERNAL REVIEW" in readme
 
@@ -346,9 +350,9 @@ def test_broadcaster_fan_out():
 
     async def run():
         ws = _FakeWS()
-        bc.connect(ws)
+        bc.connect(ws)  # type: ignore[arg-type,no-untyped-call]
         await bc.broadcast("hello")
-        bc.disconnect(ws)
+        bc.disconnect(ws)  # type: ignore[arg-type,no-untyped-call]
 
     loop.run_until_complete(run())
     loop.close()
@@ -552,7 +556,11 @@ def test_acquisition_start_stop_creates_session(client, tmp_path):
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["stopped_at"] is not None
     manifest_path = tmp_path / "sessions" / session_id / f"{session_id}_manifest.json"
+    summary_md_path = tmp_path / "sessions" / session_id / f"{session_id}_scientific_summary.md"
+    summary_json_path = tmp_path / "sessions" / session_id / f"{session_id}_scientific_summary.json"
     assert manifest_path.exists()
+    assert summary_md_path.exists()
+    assert summary_json_path.exists()
 
 
 def test_lifespan_startup_callback_runs():
@@ -600,16 +608,18 @@ def test_reports_generate_requires_session_id(client):
     assert resp.status_code == 422
 
 
-def test_reports_generate_no_writer_returns_503(client):
-    """POST /api/reports/generate returns 503 when ReportWriter is not on app.state."""
+def test_reports_generate_no_writer_returns_deterministic_report(client):
+    """POST /api/reports/generate falls back to deterministic report when writer is absent."""
     client.app.state.report_writer = None  # explicitly clear
     resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
-    assert resp.status_code == 503
-    assert "ReportWriter" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["report_source"] == "deterministic"
+    assert "Deterministic Scientific Summary" in data["report"]
 
 
-def test_reports_generate_claude_unavailable_returns_503(client):
-    """POST /api/reports/generate returns 503 when writer.write() returns None."""
+def test_reports_generate_claude_unavailable_returns_deterministic_report(client):
+    """POST /api/reports/generate falls back to deterministic report when Claude is unavailable."""
     from unittest.mock import AsyncMock, MagicMock
 
     mock_writer = MagicMock()
@@ -617,8 +627,11 @@ def test_reports_generate_claude_unavailable_returns_503(client):
     client.app.state.report_writer = mock_writer
 
     resp = client.post("/api/reports/generate", json={"session_id": "20260327_120000"})
-    assert resp.status_code == 503
-    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["report_source"] == "deterministic"
+    assert "report_notice" in data
+    assert "Claude unavailable" in data["report_notice"]
 
     # Clean up
     client.app.state.report_writer = None
@@ -638,6 +651,7 @@ def test_reports_generate_success_returns_200(client):
     assert data["session_id"] == "20260327_120000"
     assert "report" in data
     assert isinstance(data["report"], str)
+    assert data["report_source"] == "claude"
 
     # Clean up
     client.app.state.report_writer = None

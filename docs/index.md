@@ -114,6 +114,15 @@ python -m spectraagent start [--simulate] [--no-browser] [--port 8765]
 - **What it does**: Real-time spectrum streaming, per-frame ML inference,
   AI agent event feed, session recording, calibration wizard
 
+### Both runtimes together
+
+```bash
+python -m spectraagent start-all --simulate
+```
+
+- **Audience**: lab operator + analyst
+- **Interface**: Live React runtime + Streamlit analysis dashboard
+
 ### Research Dashboard (Streamlit — scientific analysis)
 
 ```bash

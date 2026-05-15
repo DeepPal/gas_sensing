@@ -77,6 +77,7 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [wsReconnecting, setWsReconnecting] = useState(false)
+  const [dashboardAvailable, setDashboardAvailable] = useState(false)
   const [spectrum, setSpectrum] = useState<{ wl: number[]; i: number[] } | null>(null)
   const [frameNum, setFrameNum] = useState(0)
   const [latestResult, setLatestResult] = useState<Partial<SpectrumFrame>>({})
@@ -210,6 +211,21 @@ export default function App() {
     }
     poll()
     const t = setInterval(poll, 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ── Dashboard availability check ─────────────────────────────────────────
+  useEffect(() => {
+    const checkDashboard = async () => {
+      try {
+        const resp = await fetch(`${location.protocol}//${location.hostname}:8501/_stcore/health`)
+        setDashboardAvailable(resp.ok)
+      } catch {
+        setDashboardAvailable(false)
+      }
+    }
+    checkDashboard()
+    const t = setInterval(checkDashboard, 10000) // Check every 10 seconds
     return () => clearInterval(t)
   }, [])
 
@@ -591,14 +607,18 @@ export default function App() {
             </span>
           )}
           <a
-            href={`${location.protocol}//${location.hostname}:8501`}
+            href={dashboardAvailable ? `${location.protocol}//${location.hostname}:8501` : undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className="workbench-link"
-            title="Open Analysis Workbench — GPR/PLS training, LOD/LOQ, publication figures"
+            className={`workbench-link ${dashboardAvailable ? '' : 'disabled'}`}
+            title={dashboardAvailable
+              ? "Open Analysis Workbench — GPR/PLS training, LOD/LOQ, publication figures"
+              : "Analysis Workbench not available — start with 'spectraagent start-all --simulate'"
+            }
+            onClick={!dashboardAvailable ? (e) => { e.preventDefault(); alert('Analysis Workbench is not running. Start it with: spectraagent start-all --simulate'); } : undefined}
           >
             <FlaskConical size={13} />
-            Analysis Workbench
+            Analysis Workbench {!dashboardAvailable && '(Offline)'}
           </a>
           <span className={`ws-badge ${wsConnected ? 'on' : wsReconnecting ? 'reconnecting' : 'off'}`}>
             {wsConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
@@ -1156,9 +1176,10 @@ export default function App() {
                 )}
                 {currentIdx >= 0 && !allDone && (
                   <div className="workflow-progress-bar">
+                    {/* eslint-disable-next-line react/forbid-component-props */}
                     <div
                       className="workflow-progress-fill"
-                      style={{ width: `${Math.round((currentIdx / workflowSteps.length) * 100)}%` }}
+                      style={{ "--progress-width": `${Math.round((currentIdx / workflowSteps.length) * 100)}%` } as React.CSSProperties}
                     />
                   </div>
                 )}

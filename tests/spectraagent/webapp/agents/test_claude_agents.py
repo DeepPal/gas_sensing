@@ -425,6 +425,28 @@ def test_runner_dispatches_drift_warn_to_anomaly_explainer():
     loop.close()
 
 
+def test_runner_stops_cleanly_on_cross_loop_queue_error():
+    """ClaudeAgentRunner should stop dispatch loop on queue loop-mismatch errors."""
+    bus, loop = _make_bus()
+
+    anomaly = AnomalyExplainer(bus, auto_explain=True, cooldown_s=0.0)
+    narrator = ExperimentNarrator(bus, auto_explain=True)
+    diagnostics = DiagnosticsAgent(bus, cooldown_s=0.0)
+    runner = ClaudeAgentRunner(bus, anomaly, narrator, diagnostics)
+
+    class _BrokenQueue:
+        async def get(self):
+            raise RuntimeError("<Queue ...> is bound to a different event loop")
+
+    runner._q = _BrokenQueue()  # type: ignore[assignment]
+
+    with patch("spectraagent.webapp.agents.claude_agents.log.warning") as mock_warning:
+        loop.run_until_complete(asyncio.wait_for(runner._run(), timeout=0.2))
+
+    mock_warning.assert_not_called()
+    loop.close()
+
+
 # ---------------------------------------------------------------------------
 # Test 11: ReportWriter.write() returns text from Claude
 # ---------------------------------------------------------------------------

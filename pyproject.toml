@@ -95,6 +95,10 @@ hardware = [
 pdf = [
     "playwright>=1.40",
 ]
+# Dashboard runtime
+dashboard = [
+    "streamlit>=1.25.0",
+]
 # Development & CI tools
 dev = [
     "pytest>=7.4.0",
@@ -112,6 +116,7 @@ all = [
     "pyvisa>=1.13.0",
     "pyvisa-py>=0.6.0",
     "playwright>=1.40",
+    "streamlit>=1.25.0",
 ]
 
 [project.scripts]
@@ -158,8 +163,6 @@ exclude = [
     ".venv",
     "__pycache__",
     "PDMS_Ring_Rectum Sensor",   # separate project — not part of this package
-    "spectrometer_webapp",        # standalone webapp — linted independently
-    "n8n",
 ]
 
 [tool.ruff.lint]
@@ -243,8 +246,15 @@ module = [
     "src.preprocessing.*",
     "src.calibration.isotherms",
     "src.features.lspr_features",
+    "src.features.cross_peak_features",
+    "src.features.compensation",
     "src.batch.aggregation",
     "src.models.onnx_export",
+    "src.models.temporal_encoder",
+    "src.models.spectral_autoencoder",
+    "src.models.multi_task",
+    "src.models.contrastive",
+    "src.models.transfer",
     "src.training.ablation",
     "src.training.mlflow_tracker",
     "src.signal.transforms",
@@ -253,12 +263,17 @@ module = [
     "src.calibration.transforms",
     "src.calibration.multi_roi",
     "src.calibration.roi_scan",
+    "src.calibration.sensitivity_matrix",
     "src.reporting.metrics",
     "src.reporting.environment",
     "src.reporting.io",
     "src.reporting.plots",
     "src.batch.preprocessing",
     "src.batch.response",
+    "src.scientific.allan_deviation",
+    "src.analysis.embedding_viz",
+    "src.analysis.cross_dataset_eval",
+    "src.analysis.feature_importance",
 ]
 warn_return_any = false
 

@@ -38,7 +38,7 @@ Dissociation phase (after exposure ends):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 
@@ -193,7 +193,7 @@ class SensorConfig:
         if np.any(np.abs(diag) < 1e-9):
             return None
         K = S[:, 0:1] / diag[:, None]
-        return K
+        return cast(np.ndarray, K)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ def _lorentzian(wl: np.ndarray, center: float, fwhm: float, amplitude: float) ->
 
 def _gaussian(wl: np.ndarray, center: float, fwhm: float, amplitude: float) -> np.ndarray:
     sigma = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-    return amplitude * np.exp(-0.5 * ((wl - center) / sigma) ** 2)
+    return cast(np.ndarray, amplitude * np.exp(-0.5 * ((wl - center) / sigma) ** 2))
 
 
 def _fano(wl: np.ndarray, center: float, fwhm: float, amplitude: float, q: float) -> np.ndarray:
