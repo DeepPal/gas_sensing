@@ -21,6 +21,7 @@ Error codes
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -28,16 +29,16 @@ from src.api.dependencies import get_pipeline, get_version_store
 from src.schemas.spectrum import PredictionResult, SpectrumReading
 
 
-def _resolve_model_version(pipeline: object, version_store: object | None) -> str:
+def _resolve_model_version(pipeline: object, version_store: Any | None) -> str:
     """Return the promoted model version ID, falling back to the pipeline's static version."""
     if version_store is not None:
         try:
-            vid = version_store.active_version("pipeline")
+            vid: str | None = version_store.active_version("pipeline")
             if vid:
                 return vid
         except Exception:
             pass
-    return getattr(pipeline, "_VERSION", "3.0.0")
+    return str(getattr(pipeline, "_VERSION", "3.0.0"))
 
 router = APIRouter(tags=["inference"])
 

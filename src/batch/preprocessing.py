@@ -56,10 +56,8 @@ def sort_frame_paths(paths: Sequence[str]) -> list[str]:
         except OSError:
             log.warning("sort_frame_paths: cannot stat %r — placing at end of sort order.", p)
             mtime = float("inf")
-        return (
-            int(idx if math.isfinite(idx) else math.inf),
-            float(idx if math.isfinite(idx) else math.inf),
-            mtime,
-        )
+        int_idx = int(idx) if math.isfinite(idx) else 2**31 - 1
+        float_idx = float(idx) if math.isfinite(idx) else float("inf")
+        return (int_idx, float_idx, mtime)
 
     return sorted(paths, key=_key)

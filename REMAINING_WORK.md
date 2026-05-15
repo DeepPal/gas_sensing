@@ -1,7 +1,7 @@
 # Remaining Work
 
-**Status (2026-04-01):** All Part A + Part B items complete. Phase 5C (data-driven science layer) complete.
-Active focus: practical research workflow gaps identified during end-to-end review.
+**Status (2026-05-15):** All Part A + Part B items complete. Phase 5C (data-driven science layer) complete. C1-C9 data integrity fixes merged. CI hygiene clean.
+Active focus: coverage threshold maintenance (≥75%) and mypy cleanliness.
 
 ## Canonical Tracking Files (update together)
 
