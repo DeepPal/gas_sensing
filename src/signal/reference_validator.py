@@ -178,7 +178,7 @@ def validate_reference_spectrum(
 
     return ReferenceValidationResult(
         valid=valid,
-        rsd_pct=rsd_pct,
+        rsd_pct=float(rsd_pct),
         low_signal=bool(is_low_signal),
         saturated=bool(is_saturated),
         has_nans=not np.isfinite(ref).all(),

@@ -274,6 +274,10 @@ module = [
     "src.analysis.embedding_viz",
     "src.analysis.cross_dataset_eval",
     "src.analysis.feature_importance",
+    "src.spectrometer.simulated",
+    "src.spectrometer.base",
+    "src.simulation.gas_response",
+    "src.simulation.dataset_generator",
 ]
 warn_return_any = false
 

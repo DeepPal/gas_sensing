@@ -216,7 +216,7 @@ def lod_bootstrap_ci(
                     "lod_bootstrap_ci: screened %d residual outlier(s) before bootstrap",
                     n_removed,
                 )
-            c, r = c[_mask], r[_mask]
+            c, r = c[_mask], r[_mask]  # type: ignore[assignment]
             n = len(c)
 
     slope_full, intercept_full, _, _ = calculate_sensitivity(c, r)
@@ -649,7 +649,7 @@ def sensor_performance_summary(
     ):
         _delta_T = float(temperature_c) - float(reference_temperature_c)
         _correction_nm = float(temperature_coeff_nm_per_c) * _delta_T
-        r = r - _correction_nm
+        r = r - _correction_nm  # type: ignore[assignment]
         _temp_correction = {
             "applied": True,
             "session_temp_c": round(float(temperature_c), 3),
