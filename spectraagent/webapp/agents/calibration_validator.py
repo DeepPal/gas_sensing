@@ -135,21 +135,20 @@ class CalibrationValidationOrchestrator(_BaseClaude):
         next_test = tracker.get_next_test()
         status_text = tracker.format_status_for_prompt()
 
-        # Build gap descriptions for the event payload
+        # Build gap descriptions for the event payload.
+        # get_gaps() returns ValidationRequirement objects directly — no lookup needed.
         gap_descriptions = []
-        for req_id in gaps:
-            req = ICH_Q2_PROTOCOL.get(req_id)
-            if req:
-                gap_descriptions.append({
-                    "id": req_id,
-                    "section": req.ich_section,
-                    "name": req.display_name,
-                    "description": req.description,
-                    "min_levels": req.min_concentration_levels,
-                    "min_replicates": req.min_replicates_per_level,
-                    "acceptance_criteria": req.acceptance_criteria,
-                    "depends_on": req.depends_on,
-                })
+        for req in gaps:
+            gap_descriptions.append({
+                "id": req.id,
+                "section": req.ich_section,
+                "name": req.display_name,
+                "description": req.description,
+                "min_levels": req.min_concentration_levels,
+                "min_replicates": req.min_replicates_per_level,
+                "acceptance_criteria": req.acceptance_criteria,
+                "depends_on": req.depends_on,
+            })
 
         next_test_info: dict[str, Any] = {}
         if next_test:
