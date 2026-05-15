@@ -60,8 +60,10 @@ python -m pytest tests/ -q
 # Format
 .venv\Scripts\python.exe -m ruff format .
 
-# Type check (advisory — not blocking CI, but keep clean)
-.venv\Scripts\python.exe -m mypy src/ --ignore-missing-imports
+# Type check src/ (matches CI quality-fast gate)
+.venv\Scripts\python.exe -m mypy src --no-site-packages --ignore-missing-imports --disable-error-code import-untyped
+# Type check legacy modules (also run in CI)
+.venv\Scripts\python.exe -m mypy run.py gas_analysis config dashboard tests --ignore-missing-imports
 
 # Run Streamlit dashboard
 .venv\Scripts\python.exe -m streamlit run dashboard/app.py
@@ -71,6 +73,7 @@ python -m pytest tests/ -q
 
 # Docker (both runtimes)
 docker compose up
+# NOTE: .dockerignore has *.md — add !<name>.md if Dockerfile COPYs a new .md file
 ```
 
 ---
@@ -204,6 +207,12 @@ To update baselines after a deliberate scientific change:
 | GPR posterior std | ±5% |
 | Δλ predicted at 1 ppm | ±0.3 nm |
 
+### Test subdirectory rule
+
+Every `tests/` subdirectory must have an `__init__.py` (even if empty). Without it, mypy
+raises "Duplicate module named" errors when the same filename appears in multiple subdirs.
+Add one whenever you create a new test subdirectory.
+
 ### pytest markers
 - `smoke` — fast end-to-end pipeline tests
 - `integration` — cross-component or subprocess tests
@@ -219,6 +228,7 @@ To update baselines after a deliberate scientific change:
 - **Type annotations:** Required for all new `src/` code. mypy is advisory but keep it clean.
 - **No bare `except:`** — use `except Exception:` or a specific exception type.
 - **No `print()` in library code** — use `logging.getLogger(__name__)`.
+- **Python 3.10/3.11 numpy stub divergence:** CI runs both. `np.clip()` returns `Any` in 3.10 stubs but `ndarray` in 3.11; boolean index assignments on `ndarray` may need `# type: ignore[assignment]` for 3.10 compat. Run `mypy src --no-site-packages` under 3.10 when adding numpy-heavy code to `src/`.
 
 ---
 
@@ -241,6 +251,13 @@ secret-scan.yml          — trufflehog secret detection
 ### The grep gate rule
 Any file **outside `gas_analysis/`** that imports `gas_analysis.core` will block CI.
 This prevents regression to the deleted monolith. The check runs in `workflow-hygiene`.
+
+### Scope compliance rule
+`workflow-hygiene` runs `scripts/check_scope_compliance.py`. Modifying
+`.github/workflows/security.yml` requires `CHANGELOG.md`, `PRODUCTION_READINESS.md`,
+and `REMAINING_WORK.md` to be updated in the same commit — all four must change together
+or CI fails. The inverse also applies (changing those docs without touching security.yml
+is fine).
 
 ---
 
