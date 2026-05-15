@@ -52,16 +52,7 @@ try:
 
     _SP_AVAILABLE = True
 except Exception:
-    try:
-        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
-            als_baseline,
-            smooth_spectrum,
-        )
-        from src.preprocessing.quality import compute_snr, estimate_noise_metrics
-
-        _SP_AVAILABLE = True
-    except Exception:
-        _SP_AVAILABLE = False
+    _SP_AVAILABLE = False
 
 # ── sub-pixel peak detection (Lorentzian fit) ─────────────────────────────────
 try:
@@ -268,10 +259,12 @@ def _analyse(cfg: dict, ref: dict, smp: dict) -> dict:
     s = smp["intensities"].copy().astype(float)
 
     # ── baseline correction (ALS) ─────────────────────────────────────────
+    # src.preprocessing.baseline.als_baseline returns the corrected signal
+    # (intensities − baseline), so we call it directly without subtracting again.
     if _SP_AVAILABLE:
         try:
-            r_bc = r - als_baseline(r, lam=1e5, p=0.01)
-            s_bc = s - als_baseline(s, lam=1e5, p=0.01)
+            r_bc = als_baseline(r, lam=1e5, p=0.01)
+            s_bc = als_baseline(s, lam=1e5, p=0.01)
         except Exception:
             r_bc, s_bc = r, s
     else:

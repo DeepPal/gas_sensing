@@ -112,7 +112,7 @@ except Exception as _exc:
     _import_errors["project_store"] = str(_exc)
     log.warning("ProjectStore unavailable: %s", _exc)
 
-# Core signal-processing imports — prefer src.preprocessing (new canonical location)
+# Core signal-processing imports — canonical src/ location
 try:
     from src.features.lspr_features import detect_lspr_peak as _detect_peak_app
     from src.preprocessing.baseline import airpls_baseline, als_baseline
@@ -121,20 +121,9 @@ try:
 
     SIGNAL_PROC_AVAILABLE = True
 except Exception as _exc:
-    # Fallback to legacy location during transition
-    try:
-        from gas_analysis.core.signal_proc import (  # type: ignore[assignment]
-            als_baseline,
-            baseline_correction,
-            smooth_spectrum,
-            wavelet_denoise,
-        )
-
-        SIGNAL_PROC_AVAILABLE = True
-    except Exception as _exc2:
-        SIGNAL_PROC_AVAILABLE = False
-        _import_errors["signal_proc"] = str(_exc2)
-        log.error("signal_proc unavailable: %s", _exc2)
+    SIGNAL_PROC_AVAILABLE = False
+    _import_errors["signal_proc"] = str(_exc)
+    log.error("signal_proc unavailable: %s", _exc)
 
 # ---------------------------------------------------------------------------
 # Authentication & Health Check (must happen before page config)
