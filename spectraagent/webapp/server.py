@@ -1154,6 +1154,12 @@ def create_app(simulate: bool = False) -> FastAPI:
                     zf.write(manifest_path, arcname=arc)
                     included.append(arc)
 
+            for summary_path in sorted(session_root.glob("*_scientific_summary.*")):
+                if summary_path.is_file():
+                    arc = f"session/{summary_path.name}"
+                    zf.write(summary_path, arcname=arc)
+                    included.append(arc)
+
         return JSONResponse(
             {
                 "status": "packaged",
@@ -1374,6 +1380,35 @@ def create_app(simulate: bool = False) -> FastAPI:
                         ))
             except Exception as exc:
                 log.warning("SensorMemory record failed: %s", exc)
+
+            try:
+                from src.reporting.scientific_summary import save_deterministic_scientific_summary
+                sw_ref = getattr(app.state, "session_writer", None)
+                session_base = getattr(sw_ref, "_dir", None)
+                if session_base is not None:
+                    summary_context: dict = {
+                        "session_id": session_id,
+                        "gas_label": gas_label,
+                        "hardware": getattr(getattr(app.state, "driver", None), "name", "unknown"),
+                    }
+                    if analysis is not None:
+                        summary_context["analysis"] = {
+                            "calibration_n_points": getattr(analysis, "calibration_n_points", 0),
+                            "calibration_r2": getattr(analysis, "calibration_r2", None),
+                            "lod_ppm": getattr(analysis, "lod_ppm", None),
+                            "loq_ppm": getattr(analysis, "loq_ppm", None),
+                            "mean_snr": getattr(analysis, "mean_snr", None),
+                            "drift_rate_nm_per_frame": getattr(analysis, "drift_rate_nm_per_frame", None),
+                            "tau_63_s": getattr(analysis, "tau_63_s", None),
+                            "kinetics_fit_r2": getattr(analysis, "kinetics_fit_r2", None),
+                        }
+                    save_deterministic_scientific_summary(
+                        session_dir=session_base / session_id,
+                        session_id=session_id,
+                        context=summary_context,
+                    )
+            except Exception as exc:
+                log.warning("Scientific summary write failed: %s", exc)
 
         background_tasks.add_task(_post_session_work)
 
@@ -1666,12 +1701,13 @@ def create_app(simulate: bool = False) -> FastAPI:
     ) -> JSONResponse:
         """Call ReportWriter to generate a Methods+Results prose report.
 
-        Returns ``{"report": "<text>", "session_id": "<id>"}`` on success.
-        Returns 503 when ReportWriter is not available or Claude is unreachable.
+        Falls back to a deterministic scientific summary when Claude/ReportWriter
+        is unavailable, so researchers always get a usable report.
+
+        Returns ``{"report": "<text>", "report_source": "claude"|"deterministic",
+        "session_id": "<id>"}`` on success.
         """
-        writer = getattr(app.state, "report_writer", None)
-        if writer is None:
-            raise HTTPException(status_code=503, detail="ReportWriter not available")
+        from src.reporting.scientific_summary import build_deterministic_scientific_report
 
         # Build context from session data if available
         sw = getattr(app.state, "session_writer", None)
@@ -1681,16 +1717,32 @@ def create_app(simulate: bool = False) -> FastAPI:
             if session_data is not None:
                 context.update(session_data)
 
-        text = await writer.write(context)
-        if text is None:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Claude unavailable — check ANTHROPIC_API_KEY is set and valid, "
-                    "or see agent events for the specific error."
-                ),
+        writer = getattr(app.state, "report_writer", None)
+        if writer is not None:
+            text = await writer.write(context)
+        else:
+            text = None
+
+        if text is not None:
+            return JSONResponse({
+                "report": text,
+                "report_source": "claude",
+                "session_id": request.session_id,
+            })
+
+        # Deterministic fallback — always available, no API key required
+        deterministic = build_deterministic_scientific_report(context)
+        response: dict[str, Any] = {
+            "report": deterministic,
+            "report_source": "deterministic",
+            "session_id": request.session_id,
+        }
+        if writer is not None:
+            response["report_notice"] = (
+                "Claude unavailable — check ANTHROPIC_API_KEY is set and valid, "
+                "or see agent events for the specific error."
             )
-        return JSONResponse({"report": text, "session_id": request.session_id})
+        return JSONResponse(response)
 
     # ------------------------------------------------------------------
     # Agent settings — runtime toggle for auto-explain
