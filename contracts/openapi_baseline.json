@@ -435,7 +435,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Acq Config"
+        "summary": "Acq Config",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/acquisition/reference": {
@@ -451,7 +454,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Acq Reference"
+        "summary": "Acq Reference",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/acquisition/start": {
@@ -467,7 +473,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Acq Start"
+        "summary": "Acq Start",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/acquisition/stop": {
@@ -483,7 +492,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Acq Stop"
+        "summary": "Acq Stop",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/agents/ask": {
@@ -520,7 +532,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Agents Ask"
+        "summary": "Agents Ask",
+        "tags": [
+          "agents"
+        ]
       }
     },
     "/api/agents/drift-settings": {
@@ -536,7 +551,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Agents Drift Settings Get"
+        "summary": "Agents Drift Settings Get",
+        "tags": [
+          "agents"
+        ]
       },
       "put": {
         "description": "Update DriftAgent thresholds at runtime.",
@@ -571,7 +589,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Agents Drift Settings"
+        "summary": "Agents Drift Settings",
+        "tags": [
+          "agents"
+        ]
       }
     },
     "/api/agents/quality-settings": {
@@ -587,7 +608,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Agents Quality Settings Get"
+        "summary": "Agents Quality Settings Get",
+        "tags": [
+          "agents"
+        ]
       },
       "put": {
         "description": "Update QualityAgent thresholds at runtime.",
@@ -622,7 +646,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Agents Quality Settings"
+        "summary": "Agents Quality Settings",
+        "tags": [
+          "agents"
+        ]
       }
     },
     "/api/agents/settings": {
@@ -659,12 +686,15 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Agents Settings"
+        "summary": "Agents Settings",
+        "tags": [
+          "agents"
+        ]
       }
     },
     "/api/analytes": {
       "get": {
-        "description": "List analytes registered in the current sensor configuration.\n\nReturns analyte names, peak count, and S matrix if available from\nthe active physics plugin.",
+        "description": "List analytes registered in the current sensor configuration.",
         "operationId": "list_analytes_api_analytes_get",
         "responses": {
           "200": {
@@ -676,7 +706,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Analytes"
+        "summary": "List Analytes",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/artifacts/download": {
@@ -719,7 +752,6 @@
     },
     "/api/calibration/add-point": {
       "post": {
-        "description": "Add a calibration data point; CalibrationAgent re-fits all models.",
         "operationId": "calibration_add_point_api_calibration_add_point_post",
         "requestBody": {
           "content": {
@@ -751,12 +783,15 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Calibration Add Point"
+        "summary": "Calibration Add Point",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/calibration/sensitivity-matrix/fit": {
       "post": {
-        "description": "Fit a sensitivity matrix from single-analyte calibration runs.\n\nReturns the fitted S matrix, condition number, R\u00b2 per entry, and\nLOD estimates in mixture context.",
+        "description": "Fit a sensitivity matrix from single-analyte calibration runs.",
         "operationId": "calibration_sensitivity_fit_api_calibration_sensitivity_matrix_fit_post",
         "requestBody": {
           "content": {
@@ -788,12 +823,14 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Calibration Sensitivity Fit"
+        "summary": "Calibration Sensitivity Fit",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/calibration/suggest": {
       "post": {
-        "description": "Return the next recommended concentration from ExperimentPlannerAgent.",
         "operationId": "calibration_suggest_api_calibration_suggest_post",
         "responses": {
           "200": {
@@ -805,7 +842,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Calibration Suggest"
+        "summary": "Calibration Suggest",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/health": {
@@ -826,7 +866,7 @@
     },
     "/api/inference/mixture": {
       "post": {
-        "description": "Estimate all analyte concentrations from a peak-shift observation.\n\nUses the linear pseudoinverse (fast) or non-linear Langmuir solver\n(accurate in saturation regime) as requested.",
+        "description": "Estimate all analyte concentrations from a peak-shift observation.",
         "operationId": "inference_mixture_api_inference_mixture_post",
         "requestBody": {
           "content": {
@@ -858,7 +898,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Inference Mixture"
+        "summary": "Inference Mixture",
+        "tags": [
+          "acquisition"
+        ]
       }
     },
     "/api/qualification/dossier": {
@@ -1040,7 +1083,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Reports Generate"
+        "summary": "Reports Generate",
+        "tags": [
+          "reports"
+        ]
       }
     },
     "/api/research-flow": {
@@ -1074,7 +1120,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Sessions List"
+        "summary": "Sessions List",
+        "tags": [
+          "sessions"
+        ]
       }
     },
     "/api/sessions/{session_id}": {
@@ -1112,12 +1161,15 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Sessions Get"
+        "summary": "Sessions Get",
+        "tags": [
+          "sessions"
+        ]
       }
     },
     "/api/simulation/generate": {
       "post": {
-        "description": "Generate a synthetic calibration dataset from the physics simulation.\n\nReturns a summary of the generated dataset including mean peak shifts\nper concentration level, for use in sensitivity matrix fitting.",
+        "description": "Generate a synthetic calibration dataset from the physics simulation.",
         "operationId": "simulation_generate_api_simulation_generate_post",
         "requestBody": {
           "content": {
@@ -1149,7 +1201,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Simulation Generate"
+        "summary": "Simulation Generate",
+        "tags": [
+          "acquisition"
+        ]
       }
     }
   }
