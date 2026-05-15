@@ -112,14 +112,8 @@ def _compute_response(
     debug : dict
         Intermediate values for display (peak_nm, shift_nm, snr, etc.).
     """
-    try:
-        from src.signal.peak import find_peak_wavelength
-        from src.preprocessing.baseline import correct_baseline
-    except ImportError:
-        from gas_analysis.core.signal_proc import baseline_correction as correct_baseline
-
-        def find_peak_wavelength(wl, inten, **kw):
-            return wl[np.argmax(inten)]
+    from src.signal.peak import find_peak_wavelength
+    from src.preprocessing.baseline import correct_baseline
 
     method = preprocessing_config.get("baseline_method", "als")
     try:

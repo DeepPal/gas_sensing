@@ -96,14 +96,20 @@ def test_model_yaml_loads(full_config_path: Path) -> None:
 
 @pytest.mark.smoke
 def test_preprocessing_produces_clean_spectrum() -> None:
-    """ALS baseline + S-G smoothing runs without error and returns same shape."""
-    from gas_analysis.core.preprocessing import preprocess_spectrum
+    """S-G smoothing + polynomial baseline runs without error and returns same shape."""
+    from src.signal.transforms import smooth
 
     wl, raw = _make_lspr_spectrum()
-    result = preprocess_spectrum(wl, raw)
+    smoothed = smooth(raw, window=31, poly=3)
+    # Simple polynomial baseline correction using spectrum edges
+    n_pts = max(1, len(wl) // 10)
+    edges_wl = np.concatenate([wl[:n_pts], wl[-n_pts:]])
+    edges_int = np.concatenate([smoothed[:n_pts], smoothed[-n_pts:]])
+    coef = np.polyfit(edges_wl, edges_int, 3)
+    baseline = np.polyval(coef, wl)
+    clean = smoothed - baseline
 
-    assert result is not None, "preprocess_spectrum returned None"
-    wl_out, clean = result if isinstance(result, tuple) else (wl, result)
+    assert clean is not None, "preprocessing returned None"
     assert clean.shape == raw.shape, "Output shape changed after preprocessing"
     assert not np.any(np.isnan(clean)), "NaN values in preprocessed spectrum"
     assert not np.any(np.isinf(clean)), "Inf values in preprocessed spectrum"

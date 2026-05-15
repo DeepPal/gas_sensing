@@ -72,6 +72,11 @@ from src.reporting.publication import (
     save_pls_diagnostics_figure,
     save_spectral_overlay_figure,
 )
+from src.reporting.scientific_summary import (
+    build_deterministic_scientific_report,
+    save_deterministic_scientific_summary,
+    session_analysis_to_dict,
+)
 
 __all__ = [
     # metrics
@@ -117,4 +122,7 @@ __all__ = [
     "save_calibration_figure",
     "save_spectral_overlay_figure",
     "save_pls_diagnostics_figure",
+    "build_deterministic_scientific_report",
+    "save_deterministic_scientific_summary",
+    "session_analysis_to_dict",
 ]

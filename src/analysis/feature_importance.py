@@ -152,6 +152,7 @@ def gradient_attribution(
                 score = output.sum()
 
         score.backward()
+        assert x.grad is not None, "backward() did not populate x.grad"
         grad = x.grad.detach().cpu().numpy()  # (B, n_wl)
         attr = grad * chunk  # element-wise
         if absolute_value:
@@ -236,6 +237,7 @@ def integrated_gradients(
                 score = output.sum()
 
             score.backward()
+            assert x_t.grad is not None, "backward() did not populate x_t.grad"
             grads.append(x_t.grad.detach().cpu().numpy())
 
         grads_arr = np.concatenate(grads, axis=0)  # (n_steps+1, n_wl)

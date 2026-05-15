@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -26,6 +28,22 @@ jobs:
 
       - name: Validate canonical status docs are synchronized
         run: python scripts/check_status_sync.py
+
+      - name: Validate scope compliance (canonical tracking set)
+        run: python scripts/check_scope_compliance.py
+
+      - name: No gas_analysis.core imports outside gas_analysis/
+        run: |
+          if grep -rn "from gas_analysis\.core\|import gas_analysis\.core" \
+               --include="*.py" \
+               dashboard/ src/ spectraagent/ tests/ \
+               --exclude-dir=tests/migration_parity 2>/dev/null; then
+            echo ""
+            echo "FAIL: gas_analysis.core import found outside gas_analysis/"
+            echo "All business logic must be imported from src/"
+            exit 1
+          fi
+          echo "OK: no gas_analysis.core imports outside gas_analysis/"
 
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
@@ -79,6 +97,22 @@ jobs:
         run: ruff check .
 
       # Primary version: run with coverage and enforce threshold
+      - name: External integrator smoke check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/integration_smoke_check.py
+
+      - name: Industry evaluation bundle check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/ci --session-id ci-industry-eval
+
+      - name: API contract tests (required)
+        if: matrix.python-version == '3.11'
+        run: pytest -q --tb=short tests/spectraagent/webapp/test_api_contract.py
+
+      - name: OpenAPI compatibility check (required)
+        if: matrix.python-version == '3.11'
+        run: python scripts/check_openapi_compat.py
+
       - name: Pytest fast lane + coverage (primary)
         if: matrix.python-version == '3.11'
         run: |
@@ -86,7 +120,7 @@ jobs:
             --cov=src --cov-report=term-missing \
             --cov-report=html:output/coverage \
             --cov-report=xml:output/coverage.xml \
-            --cov-fail-under=70
+            --cov-fail-under=75
 
       # Other versions: compatibility smoke check — no coverage overhead
       - name: Pytest fast lane (compat)
@@ -121,9 +155,43 @@ jobs:
           path: output/test-results/ci-diagnostics-quality.md
           if-no-files-found: warn
 
-  reliability:
+  science-regression:
     runs-on: ubuntu-latest
     needs: [quality-fast, workflow-hygiene]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ml]"
+
+      - name: Run science regression suite
+        run: |
+          mkdir -p output/test-results
+          pytest tests/science_regression/ -v \
+            --tb=short \
+            --junitxml=output/test-results/science-regression-junit.xml
+
+      - name: Upload science regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: science-regression-results
+          path: output/test-results/science-regression-junit.xml
+          if-no-files-found: warn
+
+  reliability:
+    runs-on: ubuntu-latest
+    needs: [quality-fast, workflow-hygiene, science-regression]
     timeout-minutes: 30
 
     steps:
@@ -334,7 +402,18 @@ jobs:
             --output output/pr-comment.md
 
       - name: Post troubleshooting comment on PR
-        uses: marocchino/sticky-pr-comment@v2
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
         with:
-          header: ci-troubleshooting
-          path: output/pr-comment.md
+          script: |
+            const fs = require('fs');
+            const path = 'output/pr-comment.md';
+            if (fs.existsSync(path)) {
+              const body = fs.readFileSync(path, 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }

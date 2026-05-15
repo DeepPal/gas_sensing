@@ -309,7 +309,6 @@ def allan_deviation(
     valid = np.isfinite(adevs_out)
     taus_out = taus_out[valid]
     adevs_out = adevs_out[valid]
-    m_valid = m_array[valid]
 
     if len(adevs_out) == 0:
         return AllanDeviationResult(
@@ -380,9 +379,9 @@ def _compute_slopes(taus: np.ndarray, adevs: np.ndarray) -> np.ndarray:
 
 def _classify_noise(
     slopes: np.ndarray,
-    taus: np.ndarray,
-    adevs: np.ndarray,
-    min_idx: int,
+    _taus: np.ndarray,
+    _adevs: np.ndarray,
+    _min_idx: int,
 ) -> NoiseType:
     """Classify dominant noise type from slope near the ADEV minimum."""
     if len(slopes) < _MIN_TAU_POINTS:
@@ -395,9 +394,6 @@ def _classify_noise(
     # Use the last third (long-τ drift region)
     n_long = max(1, len(slopes) // 3)
     long_slope = float(np.median(slopes[-n_long:]))
-
-    # Slope at the minimum
-    min_slope = float(slopes[min_idx]) if min_idx < len(slopes) else 0.0
 
     # Classify: near the minimum, slope crosses zero
     # Short-tau behaviour dominates noise type nomenclature
@@ -434,7 +430,7 @@ def _fit_white_noise_coeff(
 
 
 def _fit_flicker_floor(
-    taus: np.ndarray,
+    _taus: np.ndarray,
     adevs: np.ndarray,
     slopes: np.ndarray,
 ) -> float | None:

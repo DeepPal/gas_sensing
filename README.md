@@ -1,44 +1,35 @@
 # SpectraAgent
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Ruff](https://img.shields.io/badge/linter-ruff-orange)](https://docs.astral.sh/ruff/)
 [![mypy](https://img.shields.io/badge/type--checked-mypy-blue)](https://mypy.readthedocs.io/)
 
-**Universal agentic spectroscopy platform — from raw photons to calibrated results with AI-native analysis.**
+**Hardware-agnostic optical spectroscopy platform.**
+Raw photons → calibrated, uncertainty-quantified concentration measurements with AI-native analysis.
 
-SpectraAgent provides a complete, hardware-agnostic runtime for optical spectroscopy research: real-time acquisition from any spectrometer, physics-informed signal processing, conformal prediction calibration, and autonomous AI agents that explain anomalies, narrate experiments, and plan the next measurement. A plugin architecture makes it straightforward to add new hardware drivers and sensor physics models.
+> Reference deployment: LSPR sensing with ThorLabs CCS200. Works with any spectrometer producing wavelength–intensity arrays.
 
-> **Reference deployment**: Localized Surface Plasmon Resonance (LSPR) sensing with ThorLabs CCS200, but the platform supports any spectrometer producing wavelength–intensity arrays.
+## Start in 60 seconds
 
----
+```bash
+git clone https://github.com/DeepPal/spectraagent
+cd spectraagent
+docker compose up
+```
 
-## Table of Contents
+Then open:
+- **http://localhost:8765/app** — live acquisition (SpectraAgent: React + WebSocket)
+- **http://localhost:8501** — scientific analysis (Streamlit dashboard)
 
-- [Key Features](#key-features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-  - [SpectraAgent (primary runtime)](#spectraagent-primary-runtime)
-  - [Streamlit Dashboard (scientific analysis)](#streamlit-dashboard-scientific-analysis)
-- [Plugin System](#plugin-system)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Testing & Quality](#testing--quality)
-- [Scientific Capabilities](#scientific-capabilities)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
+## Guides by audience
 
-## Canonical Project Tracking
-
-To keep status consistent across contributors and AI agents, treat the files
-below as the canonical tracking set and update them together when state changes:
-
-- `REMAINING_WORK.md` (backlog and open gaps)
-- `PRODUCTION_READINESS.md` (deployment/operations readiness)
-- `CHANGELOG.md` (auditable change history)
-- `.github/workflows/security.yml` (enforced security gates)
+| I am a... | Start here |
+|-----------|------------|
+| **Research scientist** — calibration sessions, reproducible results | [docs/quickstart/research.md](docs/quickstart/research.md) |
+| **Industrial integrator** — REST API, hardware plugin, Docker in production | [docs/quickstart/integration.md](docs/quickstart/integration.md) |
+| **Open-source contributor** — architecture overview, adding hardware drivers | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---
 
@@ -179,6 +170,12 @@ spectraagent --version
 spectraagent plugins list      # shows discovered hardware + physics plugins
 ```
 
+If the `spectraagent` command is not available, use:
+
+```bash
+python -m spectraagent --help
+```
+
 ---
 
 ## Quick Start
@@ -192,6 +189,12 @@ spectraagent start --simulate
 # → FastAPI server at http://localhost:8765
 # → React frontend at http://localhost:8765/app
 # → API docs at http://localhost:8765/docs
+```
+
+Start both the live runtime and Streamlit dashboard together:
+
+```bash
+spectraagent start-all --simulate
 ```
 
 Start with real hardware:
@@ -235,6 +238,12 @@ python -m streamlit run dashboard/app.py
 
 # Or via helper script (Windows, includes authentication)
 run_dashboard_secure.bat
+```
+
+If `streamlit` is not installed, enable the dashboard extras first:
+
+```bash
+python -m pip install -e ".[dashboard]"
 ```
 
 Open `http://localhost:8501`.
@@ -440,6 +449,14 @@ pytest -m "not reliability" -x --tb=short  # fast lane
 make quality-gate           # ruff + mypy + pytest + reliability report
 make check                  # lint + test (quick pre-commit check)
 make lint                   # ruff linting only
+python scripts/quality_gate.py --lane fast --coverage
+```
+
+For representative local coverage parity with CI policy, install optional
+extras used by the fast lane before running `--coverage`:
+
+```bash
+pip install -e ".[dev,ml,tracking,all]" h5py onnx onnxruntime onnxscript
 ```
 
 ### CI

@@ -713,4 +713,9 @@ class ClaudeAgentRunner:
                 log.info("ClaudeAgentRunner: dispatch loop cancelled")
                 break
             except Exception as exc:
+                if isinstance(exc, RuntimeError) and "bound to a different event loop" in str(exc):
+                    # During teardown across mixed loops (common in tests), the queue can
+                    # become invalid for this loop; exit cleanly instead of log-spamming.
+                    log.info("ClaudeAgentRunner: stopping dispatch loop after loop-mismatch queue error")
+                    break
                 log.warning("ClaudeAgentRunner: unexpected dispatch error: %s", exc)

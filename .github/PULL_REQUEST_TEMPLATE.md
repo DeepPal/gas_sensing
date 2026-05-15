@@ -28,6 +28,8 @@ List exactly what you ran locally and the result.
 - [ ] No secrets, credentials, or tokens committed
 - [ ] No breaking changes to public APIs, CLI flags, or config schema (or they are documented below)
 - [ ] Migration notes included (if required)
+- [ ] Canonical status files are synchronized when release/readiness scope changed (`REMAINING_WORK.md`, `PRODUCTION_READINESS.md`, `CHANGELOG.md`, `.github/workflows/security.yml`)
+- [ ] If API contract changed intentionally: `python scripts/update_openapi_baseline.py` was run and `contracts/openapi_baseline.json` was reviewed in this PR
 
 ## Documentation and Release Notes
 

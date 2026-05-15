@@ -96,8 +96,8 @@ def validate_spectrum(
     ValidationResult
         Contains valid bool, error list, warning list
     """
-    errors = []
-    warnings = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # ────────────────────────────────────────────────────────────────
     # Type & Shape Checks
@@ -169,7 +169,6 @@ def validate_spectrum(
     # ────────────────────────────────────────────────────────────────
     signal_max = np.max(intensities)
     signal_min = np.min(intensities)
-    signal_rms = np.sqrt(np.mean(intensities**2))
 
     # Estimate noise from dark region (low intensity points)
     dark_idx = intensities < np.percentile(intensities, 10)
@@ -190,18 +189,22 @@ def validate_spectrum(
     # ────────────────────────────────────────────────────────────────
     # Consistency Checks
     # ────────────────────────────────────────────────────────────────
-    # Spectrum should have recognizable structure (not flat line)
-    spectrum_std = np.std(intensities)
+    # Spectrum should have recognizable structure (not a flat line).
+    # Use range-ratio (max-min)/mean rather than CV (std/mean): a spectrum
+    # with a high baseline and a small absorption peak has a low CV even
+    # though it clearly has shape.  Range-ratio handles this correctly.
     spectrum_mean = np.mean(intensities)
-    cv = spectrum_std / (spectrum_mean + 1e-9)
-    if cv < 0.01:
+    finite_range = signal_max - signal_min
+    range_ratio = float(finite_range / (spectrum_mean + 1e-9)) if np.isfinite(finite_range) else 1.0
+    if range_ratio < 0.005:
         errors.append(
-            f"Spectrum appears flat (CV={cv:.4f}, expected >0.01). "
+            f"Spectrum appears flat (range/mean={range_ratio:.4f}, expected >0.005). "
             f"Shape is not resolved."
         )
 
     # Most of the energy should be in one region (peak)
-    peak_concentration = np.max(intensities) / (np.sum(intensities) + 1e-9)
+    total = float(np.sum(intensities))
+    peak_concentration = float(signal_max) / (total + 1e-9) if np.isfinite(total) else 1.0
     if peak_concentration < 0.001:
         warnings.append(f"Peak is diffuse (max/sum={peak_concentration:.4f})")
 
