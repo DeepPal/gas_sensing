@@ -303,9 +303,9 @@ gas_analysis/
 |-----|-------|--------|
 | [S001](docs/adr/science/001-lod-definition.md) | LOD — IUPAC 2011 (3σ blank) | Accepted |
 | [S002](docs/adr/science/002-gpr-kernel.md) | GPR kernel — Matérn ν=5/2 | Accepted |
-| [S003](docs/adr/science/003-primary-signal.md) | Primary signal — Δλ (not ΔI) | Accepted |
-| [S004](docs/adr/science/004-conformal-prediction.md) | Prediction intervals — split-CP 95% | Accepted |
-| [S005](docs/adr/science/005-conformal-prediction.md) | FOM — \|S\|/FWHM (Willets & Van Duyne) | Accepted |
+| [S003](docs/adr/science/003-lspr-signal-convention.md) | Primary signal — Δλ (not ΔI) | Accepted |
+| [S004](docs/adr/science/004-fom-definition.md) | FOM — \|S\|/FWHM (Willets & Van Duyne) | Accepted |
+| [S005](docs/adr/science/005-conformal-prediction.md) | Prediction intervals — split-CP 95% | Accepted |
 
 Next ADR number: **S006**
 
