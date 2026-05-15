@@ -140,6 +140,7 @@ def lod_bootstrap_ci(
     random_state: int = 42,
     blank_measurements: np.ndarray | None = None,
     fix_noise_std: bool = False,
+    screen_outliers: bool = True,
 ) -> tuple[float, float, float]:
     """Bootstrap confidence interval for the LOD (ICH Q2(R1) compliant).
 
@@ -181,6 +182,13 @@ def lod_bootstrap_ci(
         independent experiment (e.g., Allan deviation σ_min computed from a
         separate baseline time series).  Has no effect when
         ``blank_measurements`` is also provided (blank σ always takes precedence).
+    screen_outliers:
+        When ``True`` (default), apply IQR-fence outlier screening to the
+        response array before resampling.  Outliers inflate the bootstrap LOD
+        CI by 3–5× because each outlier appears in ~63% of resamples on
+        average (1 − 1/e).  Requires ≥ 6 points; screening is skipped when
+        fewer remain after removal.  Set to ``False`` to reproduce legacy
+        behaviour or when data has already been cleaned.
 
     Returns
     -------
@@ -190,6 +198,26 @@ def lod_bootstrap_ci(
     c = np.asarray(concentrations, dtype=float).ravel()
     r = np.asarray(responses, dtype=float).ravel()
     n = len(c)
+
+    # ── C9: Optional IQR outlier screening before bootstrap ───────────────
+    # Outliers inflate LOD CI by 3-5× (appear in ~63% of resamples on avg).
+    # Screen on residuals from a preliminary OLS fit so concentration spacing
+    # doesn't skew the fence (i.e. screen on model error, not raw response).
+    if screen_outliers and n >= 6:
+        _slope_pre, _int_pre, _, _ = calculate_sensitivity(c, r)
+        _resid = r - (_slope_pre * c + _int_pre)
+        _q1, _q3 = float(np.percentile(_resid, 25)), float(np.percentile(_resid, 75))
+        _iqr = _q3 - _q1
+        _mask = (_resid >= _q1 - 1.5 * _iqr) & (_resid <= _q3 + 1.5 * _iqr)
+        if int(_mask.sum()) >= 4:
+            n_removed = int((~_mask).sum())
+            if n_removed:
+                log.info(
+                    "lod_bootstrap_ci: screened %d residual outlier(s) before bootstrap",
+                    n_removed,
+                )
+            c, r = c[_mask], r[_mask]
+            n = len(c)
 
     slope_full, intercept_full, _, _ = calculate_sensitivity(c, r)
 

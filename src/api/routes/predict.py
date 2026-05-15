@@ -24,8 +24,20 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.dependencies import get_pipeline
+from src.api.dependencies import get_pipeline, get_version_store
 from src.schemas.spectrum import PredictionResult, SpectrumReading
+
+
+def _resolve_model_version(pipeline: object, version_store: object | None) -> str:
+    """Return the promoted model version ID, falling back to the pipeline's static version."""
+    if version_store is not None:
+        try:
+            vid = version_store.active_version("pipeline")
+            if vid:
+                return vid
+        except Exception:
+            pass
+    return getattr(pipeline, "_VERSION", "3.0.0")
 
 router = APIRouter(tags=["inference"])
 
@@ -38,6 +50,7 @@ router = APIRouter(tags=["inference"])
 async def predict(
     reading: SpectrumReading,
     pipeline=Depends(get_pipeline),
+    version_store=Depends(get_version_store),
 ) -> PredictionResult:
     """Process one spectrum through the 4-stage pipeline and return predictions.
 
@@ -76,7 +89,7 @@ async def predict(
         quality_score=sp.quality_score,
         success=result.success,
         processing_time_ms=elapsed_ms,
-        model_version=getattr(pipeline, "_VERSION", "3.0.0"),
+        model_version=_resolve_model_version(pipeline, version_store),
         error_message="; ".join(result.errors) if result.errors else None,
     )
 
@@ -88,6 +101,7 @@ async def predict(
 async def predict_batch(
     readings: list[SpectrumReading],
     pipeline=Depends(get_pipeline),
+    version_store=Depends(get_version_store),
 ) -> list[PredictionResult]:
     """Process a list of spectra.  Useful for batch re-scoring.
 
@@ -118,7 +132,7 @@ async def predict_batch(
                 quality_score=sp.quality_score,
                 success=result.success,
                 processing_time_ms=result.processing_time_ms,
-                model_version=getattr(pipeline, "_VERSION", "3.0.0"),
+                model_version=_resolve_model_version(pipeline, version_store),
                 error_message="; ".join(result.errors) if result.errors else None,
             )
         )

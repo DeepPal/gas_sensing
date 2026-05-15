@@ -187,13 +187,27 @@ class ArchiveWriter:
         self._frame_count = 0
         self._result_rows: list[dict[str, Any]] = []
 
-        # Root attributes
+        # Root attributes — measurement identity
         self._file.attrs["schema_version"] = _SCHEMA_VERSION
         self._file.attrs["created_utc"] = _utc_now_iso()
         self._file.attrs["gas_name"] = gas_name
         self._file.attrs["instrument_model"] = instrument_model
         self._file.attrs["instrument_serial"] = instrument_serial
         self._file.attrs["pipeline_version"] = pipeline_version
+
+        # C8: Environment metadata — required to reproduce any numerical result
+        import sys
+        import platform as _platform
+        from importlib.metadata import version as _pkg_version
+        self._file.attrs["python_version"] = (
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        )
+        self._file.attrs["os_platform"] = _platform.platform()
+        for _pkg in ("numpy", "scipy", "scikit-learn", "torch", "anthropic"):
+            try:
+                self._file.attrs[f"pkg_{_pkg.replace('-', '_')}"] = _pkg_version(_pkg)
+            except Exception:
+                self._file.attrs[f"pkg_{_pkg.replace('-', '_')}"] = "not_installed"
 
         # Create group skeleton
         self._acq = self._file.require_group("acquisition")

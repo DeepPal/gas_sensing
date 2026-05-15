@@ -19,10 +19,32 @@ import csv
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from pathlib import Path
+import tempfile
 from typing import IO, Optional
 
 log = logging.getLogger(__name__)
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    """Write *data* as JSON to *path* using a temp-file-then-rename pattern.
+
+    The rename is atomic on NTFS and POSIX: callers always see either the
+    old file or the complete new file, never a half-written one.
+    """
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    Path(tmp).replace(path)
+
 
 _FRAME_RESULT_COLUMNS = [
     "frame", "timestamp", "peak_wavelength", "wavelength_shift",
@@ -71,9 +93,7 @@ class SessionWriter:
             "started_at": datetime.now(timezone.utc).isoformat(),
             "stopped_at": None,
         }
-        (session_dir / "session_meta.json").write_text(
-            json.dumps(full_meta, indent=2), encoding="utf-8"
-        )
+        _write_json_atomic(session_dir / "session_meta.json", full_meta)
 
         self._events_file = open(  # noqa: SIM115
             session_dir / "agent_events.jsonl", "a", encoding="utf-8"
@@ -137,7 +157,7 @@ class SessionWriter:
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 meta["stopped_at"] = datetime.now(timezone.utc).isoformat()
                 meta["frame_count"] = frame_count
-                meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+                _write_json_atomic(meta_path, meta)
             except Exception as exc:
                 log.warning("SessionWriter.stop_session: failed to update meta: %s", exc)
 

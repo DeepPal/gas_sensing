@@ -272,3 +272,52 @@ def test_git_short_hash_returns_string():
     h = _git_short_hash()
     assert isinstance(h, str)
     assert len(h) > 0
+
+
+# ---------------------------------------------------------------------------
+# C2: active_version — promoted version retrieval
+# ---------------------------------------------------------------------------
+
+class TestActiveVersion:
+    def test_returns_none_when_store_is_empty(self, store):
+        """No versions saved → active_version returns None."""
+        assert store.active_version("model_x") is None
+
+    def test_returns_none_before_any_promotion(self, store, simple_model):
+        """Saved but not promoted → active_version returns None."""
+        store.save(simple_model, "gpr")
+        assert store.active_version("gpr") is None
+
+    def test_returns_promoted_version_id(self, store, simple_model):
+        """Promoted version ID is returned by active_version."""
+        vid = store.save(simple_model, "pipeline", promote=True)
+        assert store.active_version("pipeline") == vid
+
+    def test_returns_latest_promoted_after_rollback(self, store, simple_model):
+        """After promoting v2 over v1, active_version returns v2."""
+        v1 = store.save(simple_model, "pipeline", promote=True)
+        v2 = store.save(simple_model, "pipeline", promote=True)
+        assert store.active_version("pipeline") == v2
+        assert store.active_version("pipeline") != v1
+
+    def test_marker_file_is_created(self, store, simple_model):
+        """Promoting a version writes the _latest marker file."""
+        vid = store.save(simple_model, "gpr", promote=True)
+        marker = store._root / f"gpr{store._LATEST_MARKER}"
+        assert marker.exists()
+        assert marker.read_text(encoding="utf-8").strip() == vid
+
+    def test_active_version_survives_store_reinstantiation(self, tmp_path, simple_model):
+        """active_version reads from disk — a new store instance sees the same result."""
+        store1 = ModelVersionStore(tmp_path / "mv")
+        vid = store1.save(simple_model, "pipeline", promote=True)
+
+        store2 = ModelVersionStore(tmp_path / "mv")
+        assert store2.active_version("pipeline") == vid
+
+    def test_different_names_independent(self, store, simple_model):
+        """active_version for model A does not bleed into model B."""
+        v_gpr = store.save(simple_model, "gpr", promote=True)
+        store.save(simple_model, "cnn")  # not promoted
+        assert store.active_version("gpr") == v_gpr
+        assert store.active_version("cnn") is None

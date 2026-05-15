@@ -1390,13 +1390,34 @@ def create_app(simulate: bool = False) -> FastAPI:
                 {"error": "No spectrum available yet — wait for first frame"},
                 status_code=400,
             )
-        app.state.reference = intensities
 
         import numpy as _np
 
         from src.features.lspr_features import detect_all_peaks, fit_lorentzian_peak
         wl_np = _np.asarray(latest_spectrum.get("wl", []))
         int_np = _np.asarray(intensities)
+
+        # ── C3: Validate reference before accepting it ─────────────────────
+        # A saturated, noisy, or featureless reference poisons every Δλ measurement.
+        try:
+            from src.signal.reference_validator import validate_reference_spectrum
+            ref_val = validate_reference_spectrum(int_np)
+            if not ref_val.valid:
+                log.warning("Reference spectrum rejected: %s", ref_val.recommendations)
+                return JSONResponse(
+                    {
+                        "error": "Reference spectrum failed quality checks",
+                        "recommendations": ref_val.recommendations,
+                        "saturated": ref_val.saturated,
+                        "low_signal": ref_val.low_signal,
+                        "has_nans": ref_val.has_nans,
+                    },
+                    status_code=422,
+                )
+        except Exception as exc:
+            log.warning("Reference validation raised unexpectedly: %s", exc)
+
+        app.state.reference = intensities
         plugin = getattr(app.state, "plugin", None)
 
         # ── Detect ALL spectral peaks (multi-peak sensor support) ──────────

@@ -138,3 +138,66 @@ def test_get_session_returns_meta_and_events(writer):
 def test_get_session_nonexistent_returns_none(writer):
     """get_session returns None for an unknown session_id."""
     assert writer.get_session("nonexistent_session") is None
+
+
+# ---------------------------------------------------------------------------
+# C4: Atomic JSON writes — meta file is always valid JSON
+# ---------------------------------------------------------------------------
+
+
+def test_start_session_meta_is_valid_json(writer, tmp_path):
+    """C4: session_meta.json written by start_session is always valid JSON."""
+    writer.start_session("atomic_test_start", {"gas_label": "Ethanol"})
+    meta_path = tmp_path / "sessions" / "atomic_test_start" / "session_meta.json"
+    data = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert data["session_id"] == "atomic_test_start"
+
+
+def test_stop_session_meta_is_valid_json(writer, tmp_path):
+    """C4: session_meta.json updated by stop_session is always valid JSON."""
+    writer.start_session("atomic_test_stop", {"gas_label": "CO2"})
+    writer.stop_session(frame_count=100)
+    meta_path = tmp_path / "sessions" / "atomic_test_stop" / "session_meta.json"
+    data = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert data["frame_count"] == 100
+    assert data["stopped_at"] is not None
+
+
+def test_no_tmp_file_left_after_start(writer, tmp_path):
+    """C4: no .tmp_ files remain after start_session."""
+    writer.start_session("atomic_test_tmp", {})
+    session_dir = tmp_path / "sessions" / "atomic_test_tmp"
+    tmp_files = list(session_dir.glob(".tmp_*"))
+    assert tmp_files == []
+
+
+def test_no_tmp_file_left_after_stop(writer, tmp_path):
+    """C4: no .tmp_ files remain after stop_session."""
+    writer.start_session("atomic_test_tmp2", {})
+    writer.stop_session(frame_count=7)
+    session_dir = tmp_path / "sessions" / "atomic_test_tmp2"
+    tmp_files = list(session_dir.glob(".tmp_*"))
+    assert tmp_files == []
+
+
+def test_append_frame_result_writes_csv_row(writer, tmp_path):
+    """append_frame_result writes a parseable CSV row."""
+    import csv
+    writer.start_session("csv_test_session", {})
+    writer.append_frame_result({
+        "frame": 1,
+        "timestamp": "2026-01-01T00:00:00Z",
+        "peak_wavelength": 717.5,
+        "wavelength_shift": -0.3,
+        "concentration_ppm": 12.4,
+        "ci_low": 10.1,
+        "ci_high": 14.7,
+        "snr": 25.6,
+        "gas_type": "Ethanol",
+        "confidence_score": 0.97,
+    })
+    csv_path = tmp_path / "sessions" / "csv_test_session" / "pipeline_results.csv"
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert float(rows[0]["concentration_ppm"]) == pytest.approx(12.4)
