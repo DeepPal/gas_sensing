@@ -61,6 +61,9 @@ output/test-history/
 output/test-results/*.md
 output/test-results/*.xml
 output/memory/*.json
+# Keep directory skeletons for Docker bind-mount compatibility (fresh clones)
+!output/.gitkeep
+!output/test-reports/.gitkeep
 
 # Guardrail: block accidental flattened absolute-path artifacts
 UsersdeeppDesktopChula_WorkPRojectsMain_Research_Chula*
