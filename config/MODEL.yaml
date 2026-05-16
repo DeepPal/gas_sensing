@@ -1,0 +1,86 @@
+# MODEL.yaml — ML Model Hyperparameters & Registry Paths
+# =========================================================
+# All model parameters are versioned here so MLflow runs reference this file
+# by hash.  Change a parameter → bump model_version.
+
+model_version: "v3.0.0"
+
+# ---------------------------------------------------------------------------
+# 1D CNN Gas Classifier
+# ---------------------------------------------------------------------------
+cnn:
+  # Architecture
+  input_channels: 1
+  input_length: 3648        # CCS200 points; change for other sensors
+  conv_layers:
+    - filters: 32
+      kernel_size: 7
+      stride: 1
+      padding: 3
+    - filters: 64
+      kernel_size: 5
+      stride: 1
+      padding: 2
+    - filters: 128
+      kernel_size: 3
+      stride: 1
+      padding: 1
+  global_pool: average      # average | max
+  fc_layers: [256, 128]
+  dropout: 0.3
+
+  # Training
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine         # cosine | step | none
+  early_stopping_patience: 15
+  class_balance: oversample # oversample | loss_weight | none
+
+  # Paths
+  checkpoint_path: "models/registry/cnn_classifier.pt"
+  export_onnx: false        # set true to export ONNX for edge deployment
+
+# ---------------------------------------------------------------------------
+# Gaussian Process Regression (per-gas calibration)
+# ---------------------------------------------------------------------------
+gpr:
+  # Kernel: RBF + white noise; fitted per gas type
+  kernel: "RBF + WhiteKernel"
+  n_restarts_optimizer: 10
+  normalize_y: true
+  alpha: 1.0e-6             # numerical stability
+
+  # Uncertainty output
+  return_std: true          # True → model returns (mean, std) for uncertainty
+
+  # Paths (one file per gas type)
+  checkpoint_dir: "models/registry"
+  filename_template: "gpr_calibration_{gas_type}.joblib"
+
+# ---------------------------------------------------------------------------
+# Multi-task CNN (future: joint classification + regression)
+# ---------------------------------------------------------------------------
+multitask_cnn:
+  enabled: false            # set true when switching to multi-task training
+  # Same backbone as cnn above; add dual output heads:
+  regression_head: [64, 1]
+  classification_head: [64, 5]    # 5 = number of gas classes
+  task_weights:
+    regression: 1.0
+    classification: 0.5
+
+# ---------------------------------------------------------------------------
+# Model Registry
+# ---------------------------------------------------------------------------
+registry:
+  # Which models are considered "production" (loaded at API startup)
+  production:
+    cnn: "models/registry/cnn_classifier.pt"
+    gpr:
+      Ethanol: "models/registry/gpr_calibration_Ethanol.joblib"
+      IPA: "models/registry/gpr_calibration_IPA.joblib"
+      Methanol: "models/registry/gpr_calibration_Methanol.joblib"
+      MixVOC: "models/registry/gpr_calibration_MixVOC.joblib"
+    calibration_params: "models/registry/calibration_params.json"

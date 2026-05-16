@@ -1,0 +1,3 @@
+# Plots
+
+::: src.reporting.plots

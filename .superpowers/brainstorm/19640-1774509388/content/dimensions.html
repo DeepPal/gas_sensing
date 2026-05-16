@@ -1,0 +1,56 @@
+<h2>What does "professional grade" mean for this tool?</h2>
+<p class="subtitle">Select every dimension that matters to you — I'll prioritize based on your picks</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="ui" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Instrument-Grade UI</h3>
+      <p>Dashboard looks and feels like commercial lab software — polished live charts, professional layout, dark theme, real-time metrics panel. The kind of UI you'd show in a conference demo.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="reliability" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Production Reliability</h3>
+      <p>Graceful error recovery, hardware reconnect logic, watchdog threads, structured logging to files, startup health checks. The tool doesn't crash after 4 hours of continuous acquisition.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="science" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Publication-Ready Science</h3>
+      <p>Auto-generated PDF/HTML reports with uncertainty bounds, calibration traceability, LOD/LOQ with confidence intervals, exportable figures at journal DPI. Results you can submit directly.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="deploy" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Deployable as a Product</h3>
+      <p>One-command installer, proper packaging (wheel/exe), config UI instead of YAML files, user management, session history browser, update mechanism. Lab members who don't code can use it.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="perf" onclick="toggleSelect(this)">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>Real-Time Performance</h3>
+      <p>Sub-5 ms pipeline latency, lock-free live chart at 20 Hz, numba-accelerated Lorentzian fitting, profiled hot paths. Matches the throughput of MATLAB or LabVIEW data acquisition.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="collab" onclick="toggleSelect(this)">
+    <div class="letter">F</div>
+    <div class="content">
+      <h3>Multi-User / Lab Collaboration</h3>
+      <p>Experiment database, shared session history, role-based access (operator vs. analyst), automated nightly reports, Slack/email alerts on drift or anomaly. Built for a whole lab group.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:18px">Select all that apply — you can pick multiple</p>

@@ -2,14 +2,14 @@ import argparse
 import json
 import math
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path) as f:
         return json.load(f)
 
 
@@ -27,7 +27,7 @@ def _safe_float(x: Any) -> Optional[float]:
     return v
 
 
-def _compute_lod_from_candidate(candidate: Dict[str, Any]) -> Optional[float]:
+def _compute_lod_from_candidate(candidate: dict[str, Any]) -> Optional[float]:
     """Estimate LOD (ppm) from residual std and slope for a discovery candidate.
 
     LOD ≈ 3 * sigma_residual / |slope|.
@@ -53,8 +53,10 @@ def _compute_lod_from_candidate(candidate: Dict[str, Any]) -> Optional[float]:
     return float(lod) if math.isfinite(lod) else None
 
 
-def build_multi_roi_rows(calib: Dict[str, Any], discovery: Dict[str, Any], top_k: int = 4) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def build_multi_roi_rows(
+    calib: dict[str, Any], discovery: dict[str, Any], top_k: int = 4
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
 
     canonical = calib.get("canonical_model") or {}
     roi_center = calib.get("roi_center")
@@ -64,26 +66,28 @@ def build_multi_roi_rows(calib: Dict[str, Any], discovery: Dict[str, Any], top_k
             roi_center = peaks[0]
 
     # Canonical calibration row
-    rows.append({
-        "label": "canonical",
-        "center_nm": _safe_float(roi_center),
-        "slope_nm_per_ppm": _safe_float(canonical.get("slope_nm_per_ppm")),
-        "r2": _safe_float(canonical.get("r2")),
-        "rmse_nm": _safe_float(canonical.get("rmse_nm")),
-        "lod_ppm": _safe_float(canonical.get("lod_ppm")),
-        "snr": None,
-        "consistency": None,
-        "quality_ok": True,
-        "source": "canonical",
-    })
+    rows.append(
+        {
+            "label": "canonical",
+            "center_nm": _safe_float(roi_center),
+            "slope_nm_per_ppm": _safe_float(canonical.get("slope_nm_per_ppm")),
+            "r2": _safe_float(canonical.get("r2")),
+            "rmse_nm": _safe_float(canonical.get("rmse_nm")),
+            "lod_ppm": _safe_float(canonical.get("lod_ppm")),
+            "snr": None,
+            "consistency": None,
+            "quality_ok": True,
+            "source": "canonical",
+        }
+    )
 
     candidates = discovery.get("candidates", []) or []
 
     # Always include the discovery "selected" candidate first (if present)
     selected = discovery.get("selected") or {}
-    seen_centers: List[float] = []
+    seen_centers: list[float] = []
 
-    def _append_candidate_row(cand: Dict[str, Any], label_prefix: str = "roi") -> None:
+    def _append_candidate_row(cand: dict[str, Any], label_prefix: str = "roi") -> None:
         center = _safe_float(cand.get("center_nm"))
         if center is None:
             return
@@ -101,24 +105,26 @@ def build_multi_roi_rows(calib: Dict[str, Any], discovery: Dict[str, Any], top_k
         quality_ok = bool(cand.get("quality_ok", False))
         lod_est = _compute_lod_from_candidate(cand)
 
-        rows.append({
-            "label": f"{label_prefix}_{center:.2f}nm",
-            "center_nm": center,
-            "slope_nm_per_ppm": slope,
-            "r2": r2,
-            "rmse_nm": rmse_nm,
-            "lod_ppm": lod_est,
-            "snr": snr,
-            "consistency": consistency,
-            "quality_ok": quality_ok,
-            "source": "roi",
-        })
+        rows.append(
+            {
+                "label": f"{label_prefix}_{center:.2f}nm",
+                "center_nm": center,
+                "slope_nm_per_ppm": slope,
+                "r2": r2,
+                "rmse_nm": rmse_nm,
+                "lod_ppm": lod_est,
+                "snr": snr,
+                "consistency": consistency,
+                "quality_ok": quality_ok,
+                "source": "roi",
+            }
+        )
 
     if isinstance(selected, dict) and selected:
         _append_candidate_row(selected, label_prefix="selected")
 
     # Sort remaining candidates by score and take top_k
-    remaining: List[Dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
     for cand in candidates:
         if not isinstance(cand, dict):
             continue
@@ -133,7 +139,9 @@ def build_multi_roi_rows(calib: Dict[str, Any], discovery: Dict[str, Any], top_k
 
     remaining_sorted = sorted(
         remaining,
-        key=lambda c: _safe_float(c.get("score")) if _safe_float(c.get("score")) is not None else float("-inf"),
+        key=lambda c: _safe_float(c.get("score"))
+        if _safe_float(c.get("score")) is not None
+        else float("-inf"),
         reverse=True,
     )
 
@@ -146,7 +154,7 @@ def build_multi_roi_rows(calib: Dict[str, Any], discovery: Dict[str, Any], top_k
     return rows
 
 
-def write_multi_roi_table(rows: List[Dict[str, Any]], out_path: str) -> None:
+def write_multi_roi_table(rows: list[dict[str, Any]], out_path: str) -> None:
     import csv
 
     if not rows:
@@ -172,10 +180,14 @@ def write_multi_roi_table(rows: List[Dict[str, Any]], out_path: str) -> None:
             writer.writerow({k: row.get(k) for k in fieldnames})
 
 
-def plot_multi_roi(calib: Dict[str, Any], discovery: Dict[str, Any], rows: List[Dict[str, Any]], plots_dir: str) -> Optional[str]:
+def plot_multi_roi(
+    calib: dict[str, Any], discovery: dict[str, Any], rows: list[dict[str, Any]], plots_dir: str
+) -> Optional[str]:
     abs_shift = calib.get("absolute_shift") or {}
     concs_c = abs_shift.get("concentrations") or []
-    deltas_c = abs_shift.get("absolute_delta_wavelengths") or abs_shift.get("delta_wavelengths") or []
+    deltas_c = (
+        abs_shift.get("absolute_delta_wavelengths") or abs_shift.get("delta_wavelengths") or []
+    )
 
     concs_c = np.asarray(concs_c, dtype=float)
     deltas_c = np.asarray(deltas_c, dtype=float)
@@ -197,7 +209,7 @@ def plot_multi_roi(calib: Dict[str, Any], discovery: Dict[str, Any], rows: List[
         ax.plot(concs_c, deltas_c, "o-", label=label)
 
     # Build a lookup from center_nm to candidate for plotting
-    cand_map: Dict[float, Dict[str, Any]] = {}
+    cand_map: dict[float, dict[str, Any]] = {}
     for cand in discovery.get("candidates", []) or []:
         center = _safe_float(cand.get("center_nm"))
         if center is None:

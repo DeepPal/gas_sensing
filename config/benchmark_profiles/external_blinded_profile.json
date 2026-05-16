@@ -1,0 +1,22 @@
+{
+  "profile_id": "external_blinded_v1",
+  "description": "External partner benchmark profile with blinded holdout protocol.",
+  "task": "regression",
+  "external_dataset": {
+    "dataset_id": "external_partner_dataset_v1",
+    "expected_path": "data/external/partner_dataset_v1",
+    "required_min_trials": 20
+  },
+  "metrics": {
+    "min_r2": 0.9,
+    "max_rmse_ppm": 1.5,
+    "max_lod_rsd_pct": 20.0,
+    "max_loq_rsd_pct": 20.0
+  },
+  "blinding": {
+    "seed": 42,
+    "holdout_fraction": 0.2,
+    "blind_labels": true,
+    "report_level": "summary"
+  }
+}

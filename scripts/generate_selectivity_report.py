@@ -2,7 +2,7 @@ import argparse
 import csv
 import datetime as dt
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 def _safe_float(value: Optional[str]) -> Optional[float]:
@@ -14,7 +14,7 @@ def _safe_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def _load_rows(csv_path: Path) -> List[Dict[str, str]]:
+def _load_rows(csv_path: Path) -> list[dict[str, str]]:
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return [row for row in reader]
@@ -27,14 +27,14 @@ def _format_float(value: Optional[float], precision: int = 3, suffix: str = "") 
 
 
 def _build_markdown(
-    rows: List[Dict[str, str]],
+    rows: list[dict[str, str]],
     csv_path: Path,
     output_path: Path,
     reference_gas: str,
 ) -> str:
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    ok_rows = [row for row in rows if (row.get("status") or "ok").split(';')[0] == "ok"]
+    ok_rows = [row for row in rows if (row.get("status") or "ok").split(";")[0] == "ok"]
     best_candidates = []
     for row in ok_rows:
         slope = _safe_float(row.get("best_roi_slope_nm_per_ppm"))
@@ -67,7 +67,9 @@ def _build_markdown(
                     f"Selectivity ratio (|slope|_{reference_gas} / next best) = {ratio:.2f}."
                 )
         elif reference_slope is not None:
-            selectivity_line = f"Selectivity ratio relative to other gases unavailable (only one valid entry)."
+            selectivity_line = (
+                "Selectivity ratio relative to other gases unavailable (only one valid entry)."
+            )
 
     response_lines = []
     for row in rows:
@@ -155,7 +157,9 @@ def main() -> None:
     if not rows:
         raise RuntimeError(f"No rows found in {csv_path}")
 
-    output_path = Path(args.output).resolve() if args.output else csv_path.parent / "selectivity_report.md"
+    output_path = (
+        Path(args.output).resolve() if args.output else csv_path.parent / "selectivity_report.md"
+    )
     markdown = _build_markdown(rows, csv_path, output_path, args.reference_gas)
     output_path.write_text(markdown, encoding="utf-8")
     print(f"[REPORT] Wrote selectivity summary: {output_path}")

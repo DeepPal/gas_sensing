@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/DeepPal/gas_sensing/blob/main/SECURITY.md
+    about: Report security issues privately using the policy in SECURITY.md.
+  - name: Research and usage questions
+    url: https://github.com/DeepPal/gas_sensing/discussions
+    about: Ask questions and discuss usage in Discussions.

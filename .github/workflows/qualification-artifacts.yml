@@ -1,0 +1,53 @@
+name: Qualification Artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-qualification-artifacts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run qualification prerequisite checks
+        run: |
+          python scripts/validate_workflows.py
+          python -m ruff check . --select E9,F63,F7,F82
+          python scripts/research_preflight.py --self-check
+          python scripts/research_integrity_gate.py --self-check
+
+      - name: Generate signed qualification artifacts
+        # Note: QUALIFICATION_SIGNING_KEY is optional; if not set, artifacts will be unsigned
+        run: |
+          python scripts/build_research_evidence_pack.py \
+            --output-dir output/qualification/ci \
+            --session-id "ci-${{ github.ref_name }}" \
+            --git-sha "${{ github.sha }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --run-id "${{ github.run_id }}" \
+            --signing-key "${{ secrets.QUALIFICATION_SIGNING_KEY || '' }}"
+
+      - name: Upload qualification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-artifacts-${{ github.run_id }}
+          path: output/qualification/ci/
+          if-no-files-found: error

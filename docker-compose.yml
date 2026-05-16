@@ -1,20 +1,118 @@
-version: '3.8'
+# =============================================================================
+# SpectraAgent — Spectrometer-Based Sensing Platform — Docker Compose
+# =============================================================================
+#
+# Services
+# --------
+#   spectraagent  Live acquisition platform → http://localhost:8765
+#   dashboard     Streamlit analytics UI    → http://localhost:8501
+#   tests         CI test runner (profile: test)
+#
+# Quick start
+# -----------
+#   docker compose up                        # start spectraagent + dashboard
+#   docker compose up --build                # rebuild images first
+#   docker compose --profile test run tests  # run CI test suite
+#   docker compose down                      # stop & remove containers
+#
+# Environment variables (.env file or shell exports)
+#   LOG_LEVEL=info      application log level (debug | info | warning)
+#   CONFIG_PATH=config/config.yaml   override config file path
+#   SPECTRAAGENT_BASE_URL=http://localhost:8765  dashboard link target
+
+# ---------------------------------------------------------------------------
+# Shared build context (both api + dashboard use the same source image)
+# ---------------------------------------------------------------------------
+x-build: &default-build
+  context: .
+  dockerfile: Dockerfile
+
+x-common-env: &common-env
+  PYTHONUNBUFFERED: "1"
+  CONFIG_PATH: /app/config/config.yaml
+  LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:
-  gas-sensing:
-    build: .
+  # ==========================================================================
+  # SpectraAgent live platform — FastAPI + WebSocket + acquisition loop
+  # ==========================================================================
+  spectraagent:
+    build:
+      <<: *default-build
+      target: spectraagent
+    container_name: spectraagent-live
+    image: spectraagent-live:latest
+    ports:
+      - "8765:8765"
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data:ro
       - ./output:/app/output
+      - ./config:/app/config:ro
+      - ./output/models:/app/output/models
     environment:
-      - PYTHONPATH=/app
+      <<: *common-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - gas-net
+
+  # ==========================================================================
+  # Analytics Dashboard — Streamlit
+  # ==========================================================================
+  dashboard:
+    build:
+      <<: *default-build
+      target: dashboard
+    container_name: gas-dashboard
+    image: gas-dashboard:latest
     ports:
-      - "8888:8888"
-    
-  jupyter:
-    build: .
-    ports:
-      - "8888:8888"
+      - "8501:8501"
     volumes:
-      - ./:/app
-    command: ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser"]
+      - ./data:/app/data:ro
+      - ./output:/app/output
+      - ./config:/app/config:ro
+      - ./.streamlit:/app/.streamlit:ro
+    environment:
+      <<: *common-env
+      SPECTRAAGENT_BASE_URL: ${SPECTRAAGENT_BASE_URL:-http://localhost:8765}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      spectraagent:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gas-net
+
+  # ==========================================================================
+  # CI Test Runner  (docker compose --profile test run tests)
+  # ==========================================================================
+  tests:
+    build:
+      <<: *default-build
+      target: test
+    container_name: gas-tests
+    image: gas-test:latest
+    profiles:
+      - test
+    volumes:
+      - ./output/test-reports:/app/test-reports
+    environment:
+      <<: *common-env
+      PYTEST_ADDOPTS: "--tb=short -q"
+    networks:
+      - gas-net
+
+networks:
+  gas-net:
+    driver: bridge

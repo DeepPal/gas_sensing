@@ -1,0 +1,64 @@
+<h2>Design Section 1 — Overall Architecture</h2>
+<p class="subtitle">How the pieces fit together. Does this structure look right before we go deeper?</p>
+
+<div class="mockup">
+  <div class="mockup-header">System Architecture — Professional Grade LSPR Tool</div>
+  <div class="mockup-body" style="font-family:monospace;font-size:.78rem;line-height:1.7;color:#c8d8f8">
+
+<pre style="background:transparent;color:inherit;margin:0">
+┌─────────────────────────────────────────────────────────────────────┐
+│  USER'S BROWSER  (localhost:8000)                                   │
+│                                                                     │
+│  React SPA — 4 tabs                                                 │
+│  ┌──────────────┬──────────────┬──────────────┬──────────────┐     │
+│  │  Live Sensor │  Experiment  │ Batch Analysis│   Agentic    │     │
+│  │  uPlot 20Hz  │  Acq Config  │ File/Folder  │   Pipeline   │     │
+│  │  WebSocket   │  + Results   │ + Reports    │   Steps 1-4  │     │
+│  └──────────────┴──────────────┴──────────────┴──────────────┘     │
+└────────────────────────┬──────────────────────────────────────────┘
+                         │ HTTP REST + WebSocket
+┌────────────────────────▼──────────────────────────────────────────┐
+│  FastAPI Backend  (webapp/server.py)                               │
+│                                                                    │
+│  /api/acquisition/*    /api/pipeline/*    /api/sessions/*         │
+│  /api/calibration/*    /api/reports/*     /api/health             │
+│  /ws/spectrum          /ws/trend                                  │
+│                                                                    │
+│  ┌────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │ SensorOrchest. │  │  ReportBuilder   │  │  SessionRegistry │  │
+│  │ (existing)     │  │  (new)           │  │  (new)           │  │
+│  └────────┬───────┘  └──────────────────┘  └──────────────────┘  │
+│           │                                                        │
+│  ┌────────▼───────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │ RealTimePipeline│  │  WatchdogThread  │  │  StructuredLog   │  │
+│  │ + LSPRReference│  │  (new)           │  │  to files (new)  │  │
+│  │ (existing+fixed)│  └──────────────────┘  └──────────────────┘  │
+│  └────────┬───────┘                                               │
+└───────────┼───────────────────────────────────────────────────────┘
+            │ DLL / VISA / Serial
+┌───────────▼───────────┐      ┌─────────────────────────────────┐
+│  CCS200 Spectrometer  │      │  output/                        │
+│  (or simulation)      │      │  ├── sessions/YYYYMMDD_HHMMSS/ │
+└───────────────────────┘      │  │   ├── pipeline_results.csv  │
+                               │  │   ├── raw_spectra.parquet   │
+                               │  │   └── report.html / .pdf    │
+                               │  └── logs/app.log              │
+                               └─────────────────────────────────┘</pre>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top:18px">
+  <h3>Key structural decisions in this design</h3>
+  <ul style="line-height:2;font-size:.88rem">
+    <li><strong>webapp/</strong> replaces <strong>dashboard/</strong> — same Python process, one port (8000), browser auto-opens on start</li>
+    <li><strong>React frontend</strong> is built with Vite → static files served by FastAPI under <code>/</code> (no separate dev server in production)</li>
+    <li><strong>All existing src/ code is kept</strong> — FastAPI routes call into the same <code>SensorOrchestrator</code>, <code>RealTimePipeline</code>, <code>src/reporting/</code> modules</li>
+    <li><strong>WebSocket endpoints</strong> are the existing <code>live_server.py</code> endpoints, moved into the unified FastAPI app</li>
+    <li><strong>One command to start:</strong> <code>lspr-tool start</code> → uvicorn + opens browser + watchdog running</li>
+  </ul>
+</div>
+
+<div style="margin-top:20px;padding:12px;background:#1a2a1a;border-radius:6px;border:1px solid #2a4a2a">
+  <p style="margin:0;font-size:.85rem;color:#6ee06e"><strong>Does this structure look right?</strong> Reply in terminal: yes to continue to Section 2 (frontend tab design), or tell me what to change.</p>
+</div>

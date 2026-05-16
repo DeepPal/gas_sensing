@@ -3,13 +3,12 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-
-GAS_OUTPUT_DIRS: Dict[str, str] = {
+GAS_OUTPUT_DIRS: dict[str, str] = {
     "Acetone": "acetone_topavg",
     "Ethanol": "ethanol_topavg",
     "Isopropanol": "isopropanol_topavg",
@@ -20,7 +19,7 @@ GAS_OUTPUT_DIRS: Dict[str, str] = {
 }
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     with path.open("r") as f:
         return json.load(f)
 
@@ -35,7 +34,7 @@ def _safe_float(x: Any) -> Optional[float]:
     return v
 
 
-def _compute_lod_from_candidate(candidate: Dict[str, Any]) -> Optional[float]:
+def _compute_lod_from_candidate(candidate: dict[str, Any]) -> Optional[float]:
     """Estimate LOD (ppm) from residual std and slope for a discovery candidate.
 
     LOD ≈ 3 * sigma_residual / |slope|.
@@ -61,9 +60,9 @@ def _compute_lod_from_candidate(candidate: Dict[str, Any]) -> Optional[float]:
     return float(lod) if math.isfinite(lod) else None
 
 
-def _find_best_roi_candidate(discovery: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _find_best_roi_candidate(discovery: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Return the ROI candidate with maximum |slope| among quality_ok=True entries."""
-    best: Optional[Dict[str, Any]] = None
+    best: Optional[dict[str, Any]] = None
     best_abs_slope: float = -1.0
 
     for cand in discovery.get("candidates", []) or []:
@@ -82,10 +81,12 @@ def _find_best_roi_candidate(discovery: Dict[str, Any]) -> Optional[Dict[str, An
     return best
 
 
-def _find_roi_at_center(discovery: Dict[str, Any], center_nm: float, tol_nm: float = 0.5) -> Optional[Dict[str, Any]]:
+def _find_roi_at_center(
+    discovery: dict[str, Any], center_nm: float, tol_nm: float = 0.5
+) -> Optional[dict[str, Any]]:
     """Find candidate whose center is within tol_nm of center_nm (closest if multiple)."""
     candidates = discovery.get("candidates", []) or []
-    best: Optional[Dict[str, Any]] = None
+    best: Optional[dict[str, Any]] = None
     best_dist: float = float("inf")
 
     for cand in candidates:
@@ -102,7 +103,7 @@ def _find_roi_at_center(discovery: Dict[str, Any], center_nm: float, tol_nm: flo
     return best
 
 
-def _base_row(gas: str) -> Dict[str, Any]:
+def _base_row(gas: str) -> dict[str, Any]:
     return {
         "gas": gas,
         "status": None,
@@ -128,9 +129,9 @@ def _summarize_gas(
     out_root: Path,
     acetone_roi_center: Optional[float],
     roi_match_tol: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     row = _base_row(gas)
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     metrics_dir = out_root / "metrics"
     calib_path = metrics_dir / "calibration_metrics.json"
@@ -210,7 +211,7 @@ def _summarize_gas(
     return row
 
 
-def _write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
+def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     import csv
 
     if not rows:
@@ -242,7 +243,7 @@ def _write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
             writer.writerow({k: row.get(k) for k in fieldnames})
 
 
-def _plot_best_roi_slopes(rows: List[Dict[str, Any]], out_dir: Path) -> None:
+def _plot_best_roi_slopes(rows: list[dict[str, Any]], out_dir: Path) -> None:
     gases = []
     slopes = []
     lods = []
@@ -272,7 +273,7 @@ def _plot_best_roi_slopes(rows: List[Dict[str, Any]], out_dir: Path) -> None:
     plt.close(fig)
 
 
-def _plot_acetone_roi_slopes(rows: List[Dict[str, Any]], out_dir: Path) -> None:
+def _plot_acetone_roi_slopes(rows: list[dict[str, Any]], out_dir: Path) -> None:
     gases = []
     slopes = []
 
@@ -300,22 +301,22 @@ def _plot_acetone_roi_slopes(rows: List[Dict[str, Any]], out_dir: Path) -> None:
     plt.close(fig)
 
 
-def _parse_list_argument(entries: Optional[List[str]]) -> List[str]:
-    tokens: List[str] = []
+def _parse_list_argument(entries: Optional[list[str]]) -> list[str]:
+    tokens: list[str] = []
     if not entries:
         return tokens
     for entry in entries:
-        for token in entry.split(','):
+        for token in entry.split(","):
             token = token.strip()
             if token:
                 tokens.append(token)
     return tokens
 
 
-def _resolve_gases(include: List[str], exclude: List[str]) -> List[str]:
+def _resolve_gases(include: list[str], exclude: list[str]) -> list[str]:
     available = list(GAS_OUTPUT_DIRS.keys())
     if include:
-        selected: List[str] = []
+        selected: list[str] = []
         for name in include:
             if name not in GAS_OUTPUT_DIRS:
                 raise ValueError(f"Unknown gas '{name}'. Valid options: {', '.join(available)}")
@@ -389,7 +390,11 @@ def main() -> None:
         print(f"[CROSS-GAS] {exc}")
         return
 
-    project_root = Path(args.project_root).resolve() if args.project_root else Path(__file__).resolve().parent.parent
+    project_root = (
+        Path(args.project_root).resolve()
+        if args.project_root
+        else Path(__file__).resolve().parent.parent
+    )
     output_root = Path(args.output_root).resolve() if args.output_root else project_root / "output"
 
     acetone_roi_center: Optional[float] = args.acetone_roi
@@ -401,9 +406,11 @@ def main() -> None:
             selected = acetone_discovery.get("selected") or {}
             acetone_roi_center = _safe_float(selected.get("center_nm"))
         else:
-            print("[CROSS-GAS] Warning: Acetone ROI discovery file not found; acetone ROI reference unavailable.")
+            print(
+                "[CROSS-GAS] Warning: Acetone ROI discovery file not found; acetone ROI reference unavailable."
+            )
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for gas in selected_gases:
         rel_dir = GAS_OUTPUT_DIRS[gas]
         out_root = output_root / rel_dir

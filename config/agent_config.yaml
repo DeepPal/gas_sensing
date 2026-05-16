@@ -1,0 +1,285 @@
+# =============================================================================
+# Autonomous Characterization Agent Configuration
+# =============================================================================
+#
+# This configuration file controls the behavior of the autonomous gas sensor
+# characterization agent. It defines quality control thresholds, pipeline
+# profiles for adaptive retry logic, and per-gas default paths.
+#
+# Version: 1.0.0
+# Compatible with: gas_analysis.agent >= 1.0.0
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Quality Control Thresholds
+# -----------------------------------------------------------------------------
+# These thresholds define the acceptance criteria for automated QC gates.
+# The agent will retry with different profiles if these thresholds are not met.
+#
+# Reference standards:
+#   - ICH Q2(R1) Validation of Analytical Procedures
+#   - IUPAC recommendations for LOD/LOQ calculation
+#   - ISO 11843-2 Capability of detection
+
+qc_thresholds:
+  # Calibration quality
+  min_r2: 0.90              # Minimum acceptable R² (coefficient of determination)
+  target_r2: 0.95           # Target R² for publication-quality results
+  min_slope: 0.05           # Minimum sensitivity in nm/ppm
+  
+  # Detection limits
+  max_lod: 6.0              # Maximum acceptable LOD in ppm (3σ method)
+  max_lod_alert: 4.0        # LOD threshold for warnings (non-blocking)
+  
+  # Data quality
+  min_responsive_fraction: 0.50  # Minimum fraction of frames showing response
+  max_bad_trials: 2              # Maximum trials with no detectable response
+  
+  # Agent behavior
+  max_retries: 3            # Maximum retry attempts before giving up
+
+# -----------------------------------------------------------------------------
+# Profile Execution Order
+# -----------------------------------------------------------------------------
+# Profiles are tried in this order during adaptive retry.
+# Start with strict settings, progressively relax if QC fails.
+
+profiles_order:
+  - strict
+  - relaxed_pelt
+  - exploratory
+
+# -----------------------------------------------------------------------------
+# Pipeline Profiles
+# -----------------------------------------------------------------------------
+# Each profile defines a set of pipeline parameters optimized for different
+# signal quality scenarios. The agent automatically selects profiles based
+# on QC results.
+
+profiles:
+  # --------------------------------------------------------------------------
+  # STRICT: Default high-quality settings
+  # --------------------------------------------------------------------------
+  # Use for: Good signal quality, well-characterized sensors
+  # Expected: High R², low LOD, fast convergence
+  strict:
+    description: >
+      Default pipeline settings optimized for high-quality signals.
+      Matches config/config.yaml defaults. Use when sensor response
+      is strong and stable.
+    config_path: null         # Use default config/config.yaml
+    diff_threshold: null      # Use default stability threshold
+    avg_top_n: 6              # Average top 6 frames per concentration
+    scan_full: true           # Enable full spectrum ROI scan
+    top_k: 6                  # Retain top 6 ROI candidates
+
+  # --------------------------------------------------------------------------
+  # RELAXED_PELT: For weak or noisy signals
+  # --------------------------------------------------------------------------
+  # Use for: Low concentration ranges, aging sensors, noisy environments
+  # Expected: Improved responsive frame detection at cost of some precision
+  relaxed_pelt:
+    description: >
+      Relaxed change-point detection for weak signals. Lower stability
+      threshold allows detection of subtle responses. Increased averaging
+      improves SNR for noisy data.
+    config_path: null
+    diff_threshold: 0.005     # Lower threshold = more sensitive detection
+    avg_top_n: 8              # More averaging for noise reduction
+    scan_full: true
+    top_k: 8                  # More candidates for selection
+
+  # --------------------------------------------------------------------------
+  # EXPLORATORY: Maximum sensitivity fallback
+  # --------------------------------------------------------------------------
+  # Use for: Very weak signals, troubleshooting, initial sensor characterization
+  # Expected: May include false positives, use for diagnostics
+  exploratory:
+    description: >
+      Aggressive settings for maximum sensitivity. Minimal filtering
+      to capture any detectable response. Use as last resort or for
+      initial sensor characterization.
+    config_path: null
+    diff_threshold: 0.0       # No stability filtering
+    avg_top_n: 12             # Maximum averaging
+    scan_full: false          # Disable full scan (use ROI only)
+    top_k: 4                  # Fewer candidates (focus on strongest)
+
+  # --------------------------------------------------------------------------
+  # PUBLICATION: Strict settings for final publication runs
+  # --------------------------------------------------------------------------
+  # Use for: Final data collection for papers, requires excellent signal
+  publication:
+    description: >
+      Strictest settings for publication-quality results. Only use
+      when sensor performance is verified and signal quality is high.
+    config_path: null
+    diff_threshold: 0.015     # Stricter stability requirement
+    avg_top_n: 4              # Less averaging (preserve dynamics)
+    scan_full: true
+    top_k: 10                 # More candidates for optimal selection
+
+# -----------------------------------------------------------------------------
+# Gas-Specific Default Paths
+# -----------------------------------------------------------------------------
+# Define default data locations for each gas type. These can be overridden
+# via CLI arguments (--data-root, --ref-path, --output-root).
+
+gas_defaults:
+  # Acetone (primary target analyte)
+  Acetone:
+    data_root: Joy_Data/Acetone
+    ref_path: Joy_Data/Acetone/air1.csv
+    output_root: output/acetone_topavg
+
+  # Ethanol
+  Ethanol:
+    data_root: Joy_Data/Multi mix vary-EtOH
+    ref_path: Joy_Data/ref MutiAuMIP-EtOH.csv
+    output_root: output/ethanol_topavg
+
+  # Isopropanol (IPA)
+  Isopropanol:
+    data_root: Joy_Data/Multi mix vary-IPA
+    ref_path: Joy_Data/ref AuMutiMIP-IPA.csv
+    output_root: output/isopropanol_topavg
+
+  # Methanol
+  Methanol:
+    data_root: Joy_Data/Multi mix vary-MeOH
+    ref_path: Joy_Data/ref AuMutiMIP-MeOH.csv
+    output_root: output/methanol_topavg
+
+  # Mixed VOC
+  MixVOC:
+    data_root: Joy_Data/Mixed gas
+    ref_path: Joy_Data/ref AuMutiMIP-MIX.csv
+    output_root: output/mixvoc_topavg
+
+# -----------------------------------------------------------------------------
+# Notification Settings (for n8n integration)
+# -----------------------------------------------------------------------------
+# Configure how the agent reports results. Used by external orchestrators.
+
+notifications:
+  enabled: false
+  on_success: true
+  on_failure: true
+  channels:
+    - type: file
+      path: output/agent_notifications.log
+    # Uncomment to enable email notifications:
+    # - type: email
+    #   recipients:
+    #     - researcher@university.edu
+    # Uncomment to enable Telegram notifications:
+    # - type: telegram
+    #   bot_token: ${TELEGRAM_BOT_TOKEN}
+    #   chat_id: ${TELEGRAM_CHAT_ID}
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+
+logging:
+  level: INFO                 # DEBUG, INFO, WARNING, ERROR
+  format: "[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
+  file: output/agent.log      # Log file path (null to disable)
+  max_bytes: 10485760         # 10 MB max log file size
+  backup_count: 5             # Number of backup log files
+
+# -----------------------------------------------------------------------------
+# Bayesian Optimization Settings (for adaptive experiment design)
+# -----------------------------------------------------------------------------
+# These settings control the closed-loop optimization for proposing
+# next experimental conditions.
+#
+# Reference: Shahriari et al. (2016) "Taking the Human Out of the Loop"
+
+bayesian_optimization:
+  enabled: false              # Set to true to enable BO suggestions
+  concentration_bounds: [1.0, 500.0]  # Min/max concentration in ppm
+  n_initial_samples: 5        # Random samples before BO kicks in
+  acquisition_function: EI    # EI (Expected Improvement) or UCB
+  exploration_weight: 2.0     # Higher = more exploration
+  state_file: output/bo_state.json  # Persist optimization state
+
+# -----------------------------------------------------------------------------
+# Anomaly Detection Settings (for sensor health monitoring)
+# -----------------------------------------------------------------------------
+# Configure thresholds for detecting sensor degradation and data anomalies.
+#
+# Reference: Montgomery (2012) "Statistical Quality Control"
+
+anomaly_detection:
+  enabled: true
+  
+  # Response time bounds (seconds)
+  expected_t90_range: [5.0, 120.0]
+  expected_t10_range: [5.0, 180.0]
+  
+  # Drift detection
+  baseline_drift_threshold: 0.1  # nm shift from baseline
+  sensitivity_drift_threshold: 0.2  # Relative change in slope
+  
+  # Control chart settings
+  control_chart_sigma: 3.0    # Number of sigma for control limits
+  cusum_k: 0.5                # CUSUM slack parameter
+  cusum_h: 5.0                # CUSUM decision interval
+  
+  # ML-based detection
+  use_isolation_forest: true
+  contamination_fraction: 0.1  # Expected anomaly rate
+  
+  # History tracking
+  history_file: output/anomaly_history.json
+
+# -----------------------------------------------------------------------------
+# File Watcher Settings (for autonomous data ingestion)
+# -----------------------------------------------------------------------------
+# Configure automatic detection and processing of new experimental data.
+
+file_watcher:
+  enabled: false              # Set to true for autonomous operation
+  watch_dirs:
+    - Joy_Data/Acetone
+    - Joy_Data/Ethanol
+  output_dir: output/auto
+  
+  # File patterns
+  file_pattern: ".*\\.csv$"   # Regex for matching data files
+  exclude_patterns:           # Files to ignore
+    - air
+    - ref
+    - reference
+    - calibration
+  
+  # Timing
+  poll_interval: 10.0         # Seconds between directory scans
+  stability_delay: 2.0        # Seconds to wait for file to stabilize
+  
+  # Processing
+  auto_process: true          # Automatically trigger agent
+  batch_mode: false           # Wait for complete batch
+  batch_timeout: 60.0         # Seconds to wait for batch
+
+# -----------------------------------------------------------------------------
+# Benchmarking Settings (for comparative evaluation)
+# -----------------------------------------------------------------------------
+# Configure benchmark comparisons between methods.
+
+benchmarking:
+  output_dir: output/benchmarks
+  
+  # Methods to compare
+  methods:
+    - name: autonomous_agent
+      enabled: true
+    - name: fixed_script
+      enabled: false
+      script_path: scripts/run_fixed_pipeline.py
+  
+  # Statistical analysis
+  significance_level: 0.05    # Alpha for hypothesis tests
+  effect_size_threshold: 0.5  # Minimum Cohen's d for practical significance

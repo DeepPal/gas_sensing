@@ -1,0 +1,9 @@
+# Documentation build dependencies
+# Install with: pip install -r requirements-docs.txt
+# Serve locally: mkdocs serve
+# Build static site: mkdocs build
+
+mkdocs>=1.5.0
+mkdocs-material>=9.5.0
+mkdocstrings[python]>=0.24.0
+mkdocs-autorefs>=0.5.0

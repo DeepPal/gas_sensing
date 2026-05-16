@@ -1,0 +1,531 @@
+"""
+src.inference.session_analyzer
+================================
+Automated post-session analysis: LOD/LOQ, calibration quality, drift,
+SNR statistics, and conformal interval statistics.
+
+Triggered automatically when a session stops (via spectraagent event bus)
+and its output is passed to the event bus / ReportWriter.
+
+LOD/LOQ derivation
+------------------
+Follows IUPAC 2012 / Eurachem Guide:
+
+    LOD = 3 · σ_blank_nm / m
+    LOQ = 10 · σ_blank_nm / m
+
+where σ_blank_nm is the standard deviation of calibration shift residuals
+(nm) from a linear fit, and m (nm/ppm) is the low-concentration sensitivity
+estimated from the Henry's-law (bottom third) region of the calibration curve.
+
+This correctly accounts for sensor sensitivity: a less sensitive sensor
+(smaller |m|) yields a higher (worse) LOD even with the same noise floor.
+
+If dedicated blank measurements (type="blank", concentration_ppm=0) are
+present in the event stream, σ_blank_nm is computed from those instead,
+and ``SessionAnalysis.lod_used_blanks`` is set to True.
+
+Public API
+----------
+- ``SessionAnalysis``  — dataclass of all computed statistics
+- ``SessionAnalyzer``  — .analyze(events, frame_count) -> SessionAnalysis
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import datetime
+import logging
+from typing import Any
+
+import numpy as np
+
+from src.scientific.lod import calculate_lod_3sigma, calculate_loq_10sigma, lod_bootstrap_ci
+from src.scientific.allan_deviation import AllanDeviationResult, allan_deviation
+
+log = logging.getLogger(__name__)
+
+_FRAMEWORK_VERSION = "1.0.0"  # bump on breaking API changes
+
+
+@dataclass
+class SessionAnalysis:
+    """All statistics computed from one measurement session."""
+
+    frame_count: int = 0
+
+    # Calibration quality
+    calibration_r2: float | None = None
+    calibration_rmse_ppm: float | None = None
+    calibration_n_points: int = 0
+
+    # IUPAC detection limits (IUPAC 2012 / Eurachem Guide triad)
+    # LOB = μ_blank + 1.645·σ_blank  (95th percentile of blank distribution)
+    # LOD = 3·σ_blank / m            (smallest detectable signal)
+    # LOQ = 10·σ_blank / m           (smallest quantifiable signal)
+    lob_ppm: float = float("nan")       # Limit of Blank (mandatory for publication)
+    lod_ppm: float = float("nan")
+    lod_ci_lower: float = float("nan")  # 95% bootstrap CI lower bound on LOD
+    lod_ci_upper: float = float("nan")  # 95% bootstrap CI upper bound on LOD
+    loq_ppm: float = float("nan")
+    loq_ci_lower: float = float("nan")  # 95% bootstrap CI lower bound on LOQ
+    loq_ci_upper: float = float("nan")  # 95% bootstrap CI upper bound on LOQ
+    lod_used_blanks: bool = False        # True when σ_blank_nm was from blank events
+
+    # Measurement statistics
+    mean_concentration_ppm: float | None = None
+    std_concentration_ppm: float | None = None
+    mean_ci_width_ppm: float | None = None
+    mean_snr: float = float("nan")
+
+    # Drift: linear trend in peak_wavelength over measurement frames
+    drift_rate_nm_per_frame: float | None = None
+    total_drift_nm: float | None = None
+
+    # Limit of Linearity (IUPAC 2012): highest concentration where calibration
+    # remains linear (Mandel's F-test p ≥ 0.05 on the truncated calibration range)
+    lol_ppm: float = float("nan")
+    """Limit of Linearity: highest concentration where the calibration curve
+    is statistically linear (Mandel's test, ICH Q2(R1) §4.2).
+    Above this concentration, a nonlinear (e.g. Langmuir) model is required."""
+
+    linearity: dict[str, Any] = field(default_factory=dict)
+    """Mandel's F-test result dict from the final linear subrange.
+    Keys: ``is_linear``, ``f_statistic``, ``p_value``, ``r2_linear``,
+    ``r2_quadratic``, ``recommendation``."""
+
+    # Response kinetics (ICH Q2(R1) §5.5)
+    response_time_t90_seconds: float | None = None
+    """Time (s) for sensor to reach 90% of steady-state response.
+    Populated from measurement events with a ``response_time_t90_s`` field,
+    or from a step-response analysis of the concentration time-series."""
+
+    response_time_t10_seconds: float | None = None
+    """Time (s) for sensor to recover to 10% above baseline (T10 / recovery time)."""
+
+    # Binding kinetics from exponential fit of Δλ transient (B1)
+    tau_63_s: float | None = None
+    """Time constant τ (s) of the 1:1 Langmuir association fit — time to 63.2%
+    of equilibrium. Estimated from the transient Δλ time series when timestamps
+    are available.  Published as the primary kinetic characterisation metric."""
+
+    tau_95_s: float | None = None
+    """Time to 95% of equilibrium response (s) = −τ·ln(0.05) ≈ 3τ.
+    Also known as T95 in biosensor literature."""
+
+    k_on_per_s: float | None = None
+    """Pseudo-first-order association rate constant k_obs = 1/τ (s⁻¹).
+    Note: k_obs = k_on·[A] + k_off; true bimolecular k_on requires a
+    concentration series."""
+
+    kinetics_delta_lambda_eq_nm: float | None = None
+    """Fitted equilibrium Δλ from the exponential model (nm)."""
+
+    kinetics_fit_r2: float | None = None
+    """R² of the exponential kinetics fit (0–1). Values < 0.90 indicate the
+    transient does not follow simple 1:1 Langmuir kinetics."""
+
+    # Allan deviation noise characterisation (mandatory for Sens. Actuators B)
+    # Computed from the peak-shift time series of the measurement session.
+    allan_deviation: AllanDeviationResult | None = None
+    """
+    Allan deviation analysis of the peak-shift time series.
+    Provides: tau_opt (optimal averaging time), sigma_min (noise floor),
+    noise_type (white / flicker / random_walk), and drift onset tau.
+    Required for publication: shows reviewers the fundamental noise floor
+    and validates that the reported LOD was measured at τ_opt.
+    Set to None if fewer than 10 frames were acquired.
+    """
+
+    # Interval coverage check (when ground truth is available)
+    interval_coverage: float | None = None
+
+    # Raw calibration series (forwarded to ReportWriter for plots)
+    calibration_concentrations: list[float] = field(default_factory=list)
+    calibration_shifts: list[float] = field(default_factory=list)
+
+    # Regulatory / audit metadata (ICH Q2(R1), ISO 11843, IUPAC 2012)
+    audit: dict[str, Any] = field(default_factory=dict)
+    """Immutable record of the analysis method, version, and key parameters.
+
+    Keys always present:
+      ``method``        — "IUPAC_2012_Eurachem"
+      ``lod_formula``   — "3·σ_blank_nm / m"
+      ``sigma_source``  — "blank_events" | "calibration_residuals"
+      ``n_bootstrap``   — bootstrap resamples used for LOD CI
+      ``framework_version`` — package version string (semver)
+    """
+
+    # Human-readable summary for event bus / log
+    summary_text: str = ""
+
+
+class SessionAnalyzer:
+    """Compute post-session statistics from a list of event dicts.
+
+    Each event dict may contain any subset of:
+        ``type``              : "calibration_point" | "measurement"
+        ``concentration_ppm`` : float
+        ``wavelength_shift``  : float (nm)
+        ``snr``               : float
+        ``peak_wavelength``   : float (nm) — measurement events only
+        ``ci_low``, ``ci_high``: float — measurement events only
+    """
+
+    def analyze(
+        self,
+        events: list[dict[str, Any]],
+        frame_count: int,
+    ) -> SessionAnalysis:
+        """Compute all session statistics.
+
+        Parameters
+        ----------
+        events      : list of event dicts accumulated during the session
+        frame_count : total number of acquired frames (may exceed len(events))
+
+        Returns
+        -------
+        SessionAnalysis
+        """
+        result = SessionAnalysis(frame_count=frame_count)
+
+        if not events:
+            result.summary_text = "No events recorded in this session."
+            return result
+
+        cal_events = [e for e in events if e.get("type") == "calibration_point"]
+        meas_events = [e for e in events if e.get("type") == "measurement"]
+
+        # ── Calibration quality ──────────────────────────────────────────
+        if len(cal_events) >= 3:
+            cal_concs = np.array([e["concentration_ppm"] for e in cal_events])
+            cal_shifts = np.array([e["wavelength_shift"] for e in cal_events])
+            result.calibration_concentrations = cal_concs.tolist()
+            result.calibration_shifts = cal_shifts.tolist()
+            result.calibration_n_points = len(cal_concs)
+
+            try:
+                coeffs = np.polyfit(cal_shifts, cal_concs, 1)
+                predicted = np.polyval(coeffs, cal_shifts)
+                ss_res = float(np.sum((cal_concs - predicted) ** 2))
+                ss_tot = float(np.sum((cal_concs - np.mean(cal_concs)) ** 2))
+                result.calibration_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
+                result.calibration_rmse_ppm = float(
+                    np.sqrt(np.mean((cal_concs - predicted) ** 2))
+                )
+            except Exception as exc:
+                log.debug("Calibration R² computation failed: %s", exc)
+
+        # ── LOD / LOQ (IUPAC 2012 / Eurachem Guide) ─────────────────────
+        # LOD = 3 · σ_blank_nm / |m|   LOQ = 10 · σ_blank_nm / |m|
+        # σ_blank_nm = noise in signal space (nm shift residuals):
+        #   - preferred: std of blank event shifts (type="blank" or conc=0)
+        #   - fallback:  std of residuals from a linear fit to calibration data
+        # m = sensitivity at low concentration (nm / ppm), estimated
+        #     from the Henry's-law (low-conc) portion of the curve.
+        # This properly accounts for sensor sensitivity: a flatter calibration
+        # curve (low m) correctly yields a higher (worse) LOD.
+        if result.calibration_n_points >= 3:
+            # Preferred: use dedicated blank measurements for σ_blank_nm
+            blank_events = [
+                e for e in events
+                if e.get("type") == "blank"
+                or (e.get("type") == "calibration_point" and float(e.get("concentration_ppm", -1)) == 0.0)
+            ]
+            blank_shifts = np.array([
+                e["wavelength_shift"] for e in blank_events
+                if e.get("wavelength_shift") is not None
+            ])
+
+            if len(blank_shifts) >= 2:
+                sigma_blank_nm = float(np.std(blank_shifts, ddof=1))
+                result.lod_used_blanks = True
+            else:
+                # Fallback: residual noise from a global linear fit to calibration data
+                signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)  # nm per ppm
+                signal_residuals_nm = cal_shifts - np.polyval(signal_coeffs, cal_concs)
+                sigma_blank_nm = float(np.std(signal_residuals_nm, ddof=1))
+
+            # Sensitivity m from the low-concentration Henry's-law regime
+            n_low = max(2, result.calibration_n_points // 3)
+            sorted_idx = np.argsort(cal_concs)
+            low_concs = cal_concs[sorted_idx[:n_low]]
+            low_shifts = cal_shifts[sorted_idx[:n_low]]
+            if np.ptp(low_concs) > 1e-9:
+                m_nm_per_ppm = float(np.polyfit(low_concs, low_shifts, 1)[0])
+            else:
+                signal_coeffs = np.polyfit(cal_concs, cal_shifts, 1)
+                m_nm_per_ppm = float(signal_coeffs[0])  # fallback: global slope
+
+            if abs(m_nm_per_ppm) > 1e-9:
+                abs_m = abs(m_nm_per_ppm)
+
+                # LOB = μ_blank + 1.645·σ_blank (one-sided 95th percentile of blank)
+                # In concentration space: blank_mean_nm / |m| + 1.645·σ_blank_nm / |m|
+                blank_mean_nm = float(np.mean(blank_shifts)) if len(blank_shifts) >= 2 else 0.0
+                result.lob_ppm = max(
+                    (abs(blank_mean_nm) + 1.645 * sigma_blank_nm) / abs_m, 1e-7
+                )
+
+                # LOD and LOQ point estimates (IUPAC 3σ/10σ via shared utility)
+                result.lod_ppm = max(calculate_lod_3sigma(sigma_blank_nm, abs_m), 1e-6)
+                result.loq_ppm = max(calculate_loq_10sigma(sigma_blank_nm, abs_m), 3e-6)
+
+                # Bootstrap 95% CI on LOD/LOQ using low-concentration data
+                # (Henry's law region gives the relevant sensitivity estimate).
+                # When σ_blank comes from dedicated blank events it is an
+                # independent measurement — hold it fixed so the CI captures
+                # only calibration slope uncertainty (not noise uncertainty).
+                # When σ_blank is estimated from OLS residuals, re-estimating
+                # each resample is correct (the noise estimate is not separable
+                # from the calibration data).
+                try:
+                    _, ci_lo, ci_hi = lod_bootstrap_ci(
+                        low_concs,
+                        low_shifts,
+                        baseline_noise_std=sigma_blank_nm,
+                        n_bootstrap=1000,
+                        confidence=0.95,
+                        fix_noise_std=result.lod_used_blanks,
+                    )
+                    result.lod_ci_lower = max(ci_lo, 1e-7)
+                    result.lod_ci_upper = max(ci_hi, result.lod_ci_lower)
+                    # LOQ CI scales by the same 10/3 factor as the point estimate
+                    scale = result.loq_ppm / result.lod_ppm
+                    result.loq_ci_lower = result.lod_ci_lower * scale
+                    result.loq_ci_upper = result.lod_ci_upper * scale
+                except Exception as exc:
+                    log.debug("LOD bootstrap CI failed: %s", exc)
+
+                # ── Hierarchy validation: LOB ≤ LOD ≤ LOQ ───────────────
+                # LOB > LOD means the blank mean signal is large relative to
+                # σ_blank — indicates drift, incomplete reference subtraction,
+                # or wrong reference spectrum.  This is a data-quality warning,
+                # not a code error. Log so it surfaces in spectraagent output.
+                _lob_ok = np.isfinite(result.lob_ppm)
+                _lod_ok = np.isfinite(result.lod_ppm)
+                if _lob_ok and _lod_ok and result.lob_ppm > result.lod_ppm + 1e-9:
+                    log.warning(
+                        "Hierarchy violation [%s]: LOB (%.4g ppm) > LOD (%.4g ppm). "
+                        "Blank mean shift = %.4g nm — check reference subtraction / sensor drift.",
+                        getattr(result, "analyte", "unknown"),
+                        result.lob_ppm,
+                        result.lod_ppm,
+                        blank_mean_nm,
+                    )
+
+        elif meas_events:
+            # Rough estimate when no calibration data: 3σ of concentration spread
+            concs = np.array(
+                [e["concentration_ppm"] for e in meas_events
+                 if e.get("concentration_ppm") is not None]
+            )
+            if len(concs) >= 3:
+                sigma = float(np.std(concs, ddof=1))
+                result.lod_ppm = max(3.0 * sigma, 1e-4)
+                result.loq_ppm = max(10.0 * sigma, 3e-4)
+
+        # ── Measurement statistics ───────────────────────────────────────
+        meas_concs = [
+            e["concentration_ppm"] for e in meas_events
+            if e.get("concentration_ppm") is not None
+        ]
+        if meas_concs:
+            result.mean_concentration_ppm = float(np.mean(meas_concs))
+            result.std_concentration_ppm = float(np.std(meas_concs))
+
+        ci_widths = [
+            e["ci_high"] - e["ci_low"]
+            for e in meas_events
+            if e.get("ci_low") is not None and e.get("ci_high") is not None
+        ]
+        if ci_widths:
+            result.mean_ci_width_ppm = float(np.mean(ci_widths))
+
+        all_snr = [e["snr"] for e in events if e.get("snr") is not None]
+        if all_snr:
+            result.mean_snr = float(np.mean(all_snr))
+
+        # ── Drift (linear trend separating instrumental from analyte signal) ──
+        # Preferred: use wavelength_shift residuals from per-frame mean shift,
+        # which decouples thermal/mechanical drift from real analyte binding.
+        # Fallback: raw peak_wavelength when shift data are absent.
+        shift_series = [
+            (i, e["wavelength_shift"])
+            for i, e in enumerate(meas_events)
+            if e.get("wavelength_shift") is not None
+        ]
+        peak_wl_series = [
+            (i, e["peak_wavelength"])
+            for i, e in enumerate(meas_events)
+            if e.get("peak_wavelength") is not None
+        ]
+        if len(shift_series) >= 3:
+            frames_arr = np.array([p[0] for p in shift_series], dtype=float)
+            shifts_arr = np.array([p[1] for p in shift_series])
+            # Remove analyte trend: residuals around the mean shift capture drift
+            shift_residuals = shifts_arr - float(np.mean(shifts_arr))
+            coeffs = np.polyfit(frames_arr, shift_residuals, 1)
+            result.drift_rate_nm_per_frame = float(coeffs[0])
+            result.total_drift_nm = float(shift_residuals[-1] - shift_residuals[0])
+        elif len(peak_wl_series) >= 3:
+            frames_arr = np.array([p[0] for p in peak_wl_series], dtype=float)
+            wls_arr = np.array([p[1] for p in peak_wl_series])
+            coeffs = np.polyfit(frames_arr, wls_arr, 1)
+            result.drift_rate_nm_per_frame = float(coeffs[0])
+            result.total_drift_nm = float(wls_arr[-1] - wls_arr[0])
+
+        # ── Limit of Linearity (LOL) via progressive Mandel's test ──────
+        # LOL = highest concentration where calibration remains statistically
+        # linear (Mandel p ≥ 0.05).  Requires ≥ 5 calibration points so that
+        # the minimum truncated subset still has 4 points for the F-test.
+        if result.calibration_n_points >= 5:
+            from src.scientific.lod import mandel_linearity_test
+            sorted_idx = np.argsort(cal_concs)
+            s_concs = cal_concs[sorted_idx]
+            s_shifts = cal_shifts[sorted_idx]
+            for n_keep in range(len(s_concs), 3, -1):
+                sub_c = s_concs[:n_keep]
+                sub_s = s_shifts[:n_keep]
+                try:
+                    lin_result = mandel_linearity_test(sub_c, sub_s)
+                    if lin_result.get("is_linear", False):
+                        result.lol_ppm = float(sub_c[-1])
+                        result.linearity = lin_result
+                        break
+                except Exception:
+                    continue
+
+        # ── Response kinetics (T90 / T10) ────────────────────────────────
+        # Preferred: pre-computed fields in measurement events (set by the
+        # real-time pipeline from a step-response fit).
+        # Fallback: no computation here — dynamic characterisation requires
+        # a known step stimulus and is left to experiment design.
+        t90_vals = [
+            float(e["response_time_t90_s"])
+            for e in meas_events
+            if e.get("response_time_t90_s") is not None
+        ]
+        t10_vals = [
+            float(e["response_time_t10_s"])
+            for e in meas_events
+            if e.get("response_time_t10_s") is not None
+        ]
+        if t90_vals:
+            result.response_time_t90_seconds = float(np.mean(t90_vals))
+        if t10_vals:
+            result.response_time_t10_seconds = float(np.mean(t10_vals))
+
+        # ── Allan deviation noise analysis ──────────────────────────────
+        # Use peak-shift time series from measurement events.
+        # dt is estimated from timestamps if available, else falls back to
+        # assuming 1 Hz acquisition (conservative; update via session config).
+        if len(shift_series) >= 10:
+            try:
+                shifts_for_adev = np.array([p[1] for p in shift_series], dtype=float)
+                # Estimate dt from timestamps in measurement events (preferred)
+                ts_vals = [
+                    float(e["timestamp_s"])
+                    for e in meas_events
+                    if e.get("timestamp_s") is not None
+                ]
+                if len(ts_vals) >= 2:
+                    dt_est = float(np.median(np.diff(ts_vals)))
+                    dt_est = max(dt_est, 0.001)  # guard against zero/negative
+                else:
+                    dt_est = 1.0  # conservative fallback: 1 Hz
+                result.allan_deviation = allan_deviation(shifts_for_adev, dt=dt_est)
+            except Exception as exc:
+                log.debug("Allan deviation computation failed: %s", exc)
+
+        # ── Binding kinetics τ₆₃/τ₉₅ from Δλ transient (B1) ─────────────
+        # Requires measurement events to carry a `timestamp_s` field (elapsed
+        # time since session start, in seconds).  Falls back gracefully when
+        # timestamps are absent.
+        shift_ts_pairs = [
+            (float(e["wavelength_shift"]), float(e["timestamp_s"]))
+            for e in meas_events
+            if e.get("wavelength_shift") is not None
+            and e.get("timestamp_s") is not None
+        ]
+        if len(shift_ts_pairs) >= 16:
+            try:
+                from src.features.lspr_features import estimate_response_kinetics
+                shifts_arr = np.array([p[0] for p in shift_ts_pairs], dtype=float)
+                times_arr = np.array([p[1] for p in shift_ts_pairs], dtype=float)
+                kf = estimate_response_kinetics(shifts_arr, times_arr)
+                result.tau_63_s = kf.tau_63_s
+                result.tau_95_s = kf.tau_95_s
+                result.k_on_per_s = kf.k_on_per_s
+                result.kinetics_delta_lambda_eq_nm = kf.delta_lambda_eq_nm
+                result.kinetics_fit_r2 = kf.fit_r2
+            except Exception as exc:
+                log.debug("Kinetics estimation failed: %s", exc)
+
+        # ── Summary text ─────────────────────────────────────────────────
+        lines = [f"Session summary: {frame_count} frames acquired."]
+        lines.append(f"Calibration: {result.calibration_n_points} points")
+        if result.calibration_r2 is not None:
+            lines.append(f"  R\u00b2 = {result.calibration_r2:.4f}")
+        if not np.isnan(result.lob_ppm):
+            lines.append(f"  LOB = {result.lob_ppm:.4f} ppm")
+        if not np.isnan(result.lod_ppm):
+            if not np.isnan(result.lod_ci_lower):
+                lines.append(
+                    f"  LOD = {result.lod_ppm:.4f} ppm "
+                    f"[95% CI {result.lod_ci_lower:.4f}–{result.lod_ci_upper:.4f}]"
+                )
+            else:
+                lines.append(f"  LOD = {result.lod_ppm:.4f} ppm")
+            lines.append(f"  LOQ = {result.loq_ppm:.4f} ppm")
+        if not np.isnan(result.lol_ppm):
+            lines.append(f"  LOL = {result.lol_ppm:.4f} ppm")
+        if result.response_time_t90_seconds is not None:
+            lines.append(f"  T90 = {result.response_time_t90_seconds:.2f} s")
+        if result.response_time_t10_seconds is not None:
+            lines.append(f"  T10 = {result.response_time_t10_seconds:.2f} s")
+        if result.tau_63_s is not None:
+            r2_str = f" (R²={result.kinetics_fit_r2:.3f})" if result.kinetics_fit_r2 is not None else ""
+            lines.append(
+                f"  τ₆₃ = {result.tau_63_s:.2f} s  "
+                f"τ₉₅ = {result.tau_95_s:.2f} s  "
+                f"k_obs = {result.k_on_per_s:.4f} s⁻¹{r2_str}"
+            )
+        if result.allan_deviation is not None:
+            ad = result.allan_deviation
+            lines.append(
+                f"Allan deviation: τ_opt={ad.tau_opt:.3g} s, "
+                f"σ_min={ad.sigma_min:.4g}, noise={ad.noise_type}"
+            )
+        if result.drift_rate_nm_per_frame is not None:
+            lines.append(
+                f"Drift rate: {result.drift_rate_nm_per_frame:.6f} nm/frame"
+            )
+        if not np.isnan(result.mean_snr):
+            lines.append(f"Mean SNR: {result.mean_snr:.1f}")
+        result.summary_text = "\n".join(lines)
+
+        # ── Audit trail ──────────────────────────────────────────────────
+        result.audit = {
+            "method": "IUPAC_2012_Eurachem",
+            "lod_formula": "3·σ_blank_nm / m",
+            "loq_formula": "10·σ_blank_nm / m",
+            "lob_formula": "(|μ_blank_nm| + 1.645·σ_blank_nm) / m",
+            "sigma_source": "blank_events" if result.lod_used_blanks else "calibration_residuals",
+            "sensitivity_region": "henry_law_low_third",
+            "n_bootstrap": 1000,
+            "bootstrap_confidence": 0.95,
+            "calibration_n_points": result.calibration_n_points,
+            "lol_ppm": result.lol_ppm if not np.isnan(result.lol_ppm) else None,
+            "lol_mandel_p_value": result.linearity.get("p_value") if result.linearity else None,
+            "frame_count": frame_count,
+            "framework_version": _FRAMEWORK_VERSION,
+            "analysis_timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "references": [
+                "IUPAC 2012 / Eurachem Guide",
+                "ICH Q2(R1) 2005",
+                "ICH Q2(R2) Appendix B 2022",
+            ],
+        }
+
+        return result

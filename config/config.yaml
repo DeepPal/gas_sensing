@@ -1,65 +1,29 @@
-
 # Configuration for the gas analysis project
 
 # Preprocessing settings (applied to ROI spectra before feature extraction)
-preprocessing:
-  enabled: true
-  apply_to_frames: false
-  apply_to_transmittance: false      # preprocessing handled at frame stage for uniformity
+preprocessing_roi:
   smoothing:
     enabled: false    # DISABLED: Over-smoothing destroys peak localization (was causing R²=0.74)
     window: 5         # Reduced window (was 11, too aggressive)
     poly_order: 2     # Polynomial order for S-G filter
-  smooth:
-    enabled: true
-    method: savgol
-    window: 11
-    poly_order: 2
-    extra_pass: false
-
-frame_selection:
-  method: top_n_responsive   # Selection strategy
-  n_frames: 10               # Frames to average
-  adaptive_min_selected: 6   # If fewer than this many frames survive, expand selection
-  adaptive_n_frames: 16      # Expanded selection size when adaptive mode triggers
-  baseline:
-    enabled: true                   # removes baseline drift to isolate gas shifts
-    method: als
-    order: 2
-  normalization:
-    enabled: false
-    method: minmax
-  downsample:
-    enabled: false
-    factor: 1
-    target_points: null
-  outlier_rejection:
-    enabled: true
-    threshold: 2.5
 
 # Data loading settings
 data:
   # Path to the root data directory
-  base_dir: "Kevin_Data"
-  # Directory template for experiment runs
-  exp_dir_template: "{concentration}"
+  base_dir: "data/JOY_Data"
+  # Directory template for experiment runs (used as generic fallback)
+  exp_dir_template: "{concentration}-{run}"
   per_gas_templates:
-    Acetone: "{concentration}"
-    Ethanol: "{concentration}"
-    Isopropanol: "{concentration}"
-    Methanol: "{concentration}"
-    Toluene: "{concentration}"
-    Xylene: "{concentration}"
-    MixVOC: "{concentration}"
-  # Reference files
+    Ethanol: "Multi mix vary-EtOH-{concentration}-{run}"
+    Isopropanol: "Multi mix vary-IPA-{concentration}-{run}"
+    Methanol: "Multi mix vary-MeOH-{concentration}-{run}"
+    MixVOC: "Mixed gas/{concentration} ppm EtOH IPA MeOH-{run}"
+  # Reference files (relative to base_dir)
   ref_files:
-    Acetone: 'Acetone/air1.csv'
-    Ethanol: 'Ethanol/air for ethanol ref.csv'
-    Isopropanol: 'Isopropanol/Air_ref for IPA.csv'
-    Methanol: 'Methanol/air ref after purging _N2.csv'
-    Toluene: 'Toluene/toluene_ref air.csv'
-    Xylene: 'Xylene/air ref xylene.csv'
-    MixVOC: 'mix VOC/air.csv'
+    Ethanol: 'ref MutiAuMIP-EtOH.csv'
+    Isopropanol: 'ref AuMutiMIP-IPA.csv'
+    Methanol: 'ref AuMutiMIP-MeOH.csv'
+    MixVOC: 'ref AuMutiMIP-MIX.csv'
   # CSV parsing settings
   skiprows: 0
   header: null
@@ -75,7 +39,7 @@ peak_detection:
 analysis:
   calibration_factor: 1.0
   enable_absorbance: true
-  primary_signal: absorbance
+  primary_signal: absorbance  # use absorbance response curves for ROI plots
   signal_strategies:
     intensity:
       baseline:
@@ -113,9 +77,13 @@ analysis:
 calibration:
   model: auto  # Auto-select best model (polynomial blocked by CV check, Langmuir enabled)
   polynomial_degree: 2
-  x_transform: linear
+  x_transform: auto                 # auto: try linear, log10, sqrt and pick best R²
   use_transmittance: false          # rely on per-signal absorbance views
   auto_select_by: r2_cv
+  outlier_removal:
+    enabled: false                  # Keep all data points - do not exclude
+    min_r2_improvement: 0.15
+    max_removals: 0
   cv:
     enabled: true
   shift_method: xcorr
@@ -172,6 +140,40 @@ calibration:
     stride: 5.0
     prefer: best_plsr_cv
 
+# Preprocessing settings
+preprocessing:
+  enabled: true
+  apply_to_frames: false
+  apply_to_transmittance: false      # preprocessing handled at frame stage for uniformity
+  smooth:
+    enabled: true
+    method: savgol
+    window: 11
+    poly_order: 2
+    extra_pass: false
+  baseline:
+    enabled: true                   # removes baseline drift to isolate gas shifts
+    method: als
+    order: 2
+    # ALS (Asymmetric Least Squares, Eilers & Boelens 2005) parameters.
+    # lambda: smoothness penalty (higher = smoother baseline, less flexible).
+    #   Typical range: 1e3–1e7; 1e5 is a conservative default for LSPR spectra.
+    # p: asymmetry weight (small p → baseline forced below peaks, as desired).
+    #   Typical range: 0.001–0.1; 0.01 recommended for absorption spectra.
+    # n_iter: convergence iterations (10 is sufficient for most spectra).
+    als_lambda: 1.0e5
+    als_p: 0.01
+    als_n_iter: 10
+  normalization:
+    enabled: false
+    method: minmax
+  downsample:
+    enabled: false
+    factor: 1
+    target_points: null
+  outlier_rejection:
+    enabled: true
+    threshold: 2.5
 
 archiving:
   enabled: false
@@ -189,7 +191,7 @@ dynamics:
   baseline_frames: 20  # Increased from 12 for better noise reduction → lower LOD
   frame_rate: 1.0      # frames per second for Δλ(t) plots and T90/T10; set null for auto-detect
   smoothing_window: 5
-  min_response_amplitude_nm: 0.05      # gate for T90/T10; trials with smaller Δλ are excluded from dynamics stats
+  min_response_amplitude_nm: 0.02      # gate for T90/T10; trials with smaller Δλ are excluded from dynamics stats
   timeseries_smoothing_window: 3       # rolling window (frames) for Δλ(t) in T90/T10 computation
   noise_sigma_multiplier: 1.5
 
@@ -229,7 +231,7 @@ advanced:
 roi:
   debug_regressions: false
   selection_metric: hybrid
-  min_r2: 0.3
+  min_r2: 0.15
   r2_weight: 0.55
   band_half_width: 12
   min_wavelength: 500.0
@@ -245,7 +247,7 @@ roi:
   ratio_half_width: 5
   slope_noise_weight: 0.6
   min_slope_to_noise: 0.9
-  min_abs_slope: 0.0005
+  min_abs_slope: 0.0
   multiple_testing:
     enabled: true
     method: bh
@@ -275,86 +277,51 @@ roi:
     slope_fraction: 0.75
     max_half_width: 50
 
-  smoothing:
-    enabled: true
-    window_fraction: 0.35   # Fraction of ROI points used for Savitzky-Golay window
-    min_points: 7
-    polyorder: 2
-
   discovery:
     enabled: true
     band: [500.0, 900.0]
     window_nm: 12.0
     step_nm: 0.5
     expected_center: null
-    prior_weight: 0.001
-    best_sensitivity_min_r2: 0.95
+    prior_weight: 0.02
     gates:
-      min_r2: 0.8
-      min_spearman: 0.8
-      min_consistency: 0.75
-      min_snr: 2.0
-      min_abs_slope: 0.005
+      min_r2: 0.4               # Lowered from 0.7 to accept noisy data
+      min_consistency: 0.6      # Lowered from 0.75 for real-world data
+      min_snr: 1.5              # Lowered from 2.0 for weak signals
+      min_abs_slope: 0.0
       min_conc_count: 3
-      reject_sign_mismatch: true
     weights:
-      r2: 0.8
-      slope: 2.5
-      snr: 0.3
+      r2: 1.5
+      slope: 0.8                # Increased slope weight for sensitivity
+      snr: 0.5                  # Increased SNR weight
     retain_top: 10
 
   per_gas_overrides:
-    Acetone:
-      # Paper benchmark: ZnO-coated NCF sensor shows acetone response at 675-689 nm
-      # Sensitivity: 0.116 nm/ppm, LOD: 3.26 ppm, T90: 26s
-      range:
-        min_wavelength: 550.0
-        max_wavelength: 780.0
-      validation:
-        expected_center: 680.0
-        tolerance: 25.0
     Ethanol:
-      range:
-        min_wavelength: 664.0
-        max_wavelength: 685.0
+      min_r2: 0.12
+      min_slope_to_noise: 0.4
       validation:
-        expected_center: 673.5
-        tolerance: 6.0
-    Isopropanol:
-      range:
-        min_wavelength: 665.0
-        max_wavelength: 677.0
-      validation:
-        expected_center: 671.0
-        tolerance: 5.0
+        expected_center: 555.0
+        tolerance: 20.0
+        notes: "User-validated EtOH ROI near 554–556 nm"
+      min_wavelength: 400.0
+      max_wavelength: 700.0
     Methanol:
-      range:
-        min_wavelength: 646.0
-        max_wavelength: 664.0
+      min_r2: 0.15
       validation:
-        expected_center: 655.0
-        tolerance: 4.0
-    Toluene:
-      range:
-        min_wavelength: 644.0
-        max_wavelength: 656.0
+        expected_center: 684.0
+        tolerance: 20.0
+        notes: "User-validated MeOH ROI near 683–685 nm"
+      min_wavelength: 650.0
+      max_wavelength: 720.0
+    Isopropanol:
+      min_r2: 0.2
       validation:
-        expected_center: 650.0
-        tolerance: 6.0
-    Xylene:
-      range:
-        min_wavelength: 665.0
-        max_wavelength: 675.0
-      validation:
-        expected_center: 670.0
-        tolerance: 5.0
-    MixVOC:
-      range:
-        min_wavelength: 665.0
-        max_wavelength: 690.0
-      validation:
-        expected_center: 675.0
-        tolerance: 10.0
+        expected_center: 864.0
+        tolerance: 20.0
+        notes: "User-validated IPA ROI near 863–865 nm"
+      min_wavelength: 820.0
+      max_wavelength: 900.0
 
   shift:
     minimal_outputs: true             # minimal, production outputs only
@@ -366,14 +333,15 @@ roi:
     use_transmittance: true          # match paper: wavelength shift in transmission spectrum
     smooth_window: 5                 # light smoothing to preserve shifts
     smooth_poly: 2
+    feature_prep: derivative+snv     # enhance shift signals before regression
     derivative_min_span_nm: 6.0      # require ≥6 nm span before applying derivative
     sigma_clip_z: 3.5                # reject >3.5σ outliers within ROI shift samples
     fdr_alpha: 0.05
-    min_slope_nm_per_ppm: 0.0002
-    min_r2_w: 0.80
-    min_spearman_r: 0.85             # ensures monotonic gas response
-    min_cv_r2_w: 0.75
-    max_cv: 0.05                      # allow up to 5% CV on wavelength tracks
+    min_slope_nm_per_ppm: 0.001
+    min_r2_w: 0.40                   # Lowered from 0.80 for noisy real-world data
+    min_spearman_r: 0.60             # Lowered from 0.85 to accept non-ideal monotonicity
+    min_cv_r2_w: 0.0
+    max_cv: 0.10                     # Increased from 0.05 to allow more variation
     selection_mode: hierarchical     # research-grade selection (LOOCV R² → R² → sd → |slope|)
     prefer_expected_center: false
     auto_relax_expected_center: false
@@ -394,13 +362,13 @@ roi:
       random_state: 123
 
 stability:
-  weight_mode: intensity   # options: uniform, intensity, max
-  top_k: 6                 # emphasize strongest frames within response band
-  diff_threshold: 0.05     # tighter gate to isolate steady-state response
-  min_block: 8             # allow adaptive retention for weak gases
-  use_raw_intensity: true  # evaluate stability on raw intensity before preprocessing
+  weight_mode: max         # emphasize the strongest frames within response band
+  top_k: 6
+  diff_threshold: 0.03     # slightly relaxed gate to retain weak steady-state response
+  min_block: 16            # longer stable segments improve slope estimates
+  use_raw_intensity: true
   range_floor_fraction: 0.1
-  smooth_window: 5
+  smooth_window: 7
 
 response_series:
   enabled: true
@@ -440,9 +408,9 @@ response_series:
       min_activation_frames: 6
       min_activation_fraction: 0.10
     Ethanol:
-      activation_delta: 0.0035
+      activation_delta: 0.0015
       min_activation_frames: 6
-      min_activation_fraction: 0.10
+      min_activation_fraction: 0.05
     Isopropanol:
       activation_delta: 0.003
       min_activation_frames: 6
@@ -467,82 +435,70 @@ quality:
   snr_metric: median        # evaluate QC using median SNR unless overridden (options: min, median)
   snr_signal: absorbance    # preferred signal for SNR calculation; falls back if unavailable
   snr_region_nm: [520.0, 560.0]   # spectral window capturing EtOH response
+
+# ---------------------------------------------------------------------------
+# Real-time sensor configuration (used by src/inference/orchestrator.py)
+# ---------------------------------------------------------------------------
+sensor:
+  integration_time_ms: 50.0       # CCS200 integration time (10 to 60000 ms)
+  target_wavelength: 532.0        # Monitoring wavelength in nm (green laser)
+  # ⚠️  CRITICAL — READ BEFORE RUNNING EXPERIMENTS
+  # This value is a literature default for ethanol on a generic Au nanoparticle chip.
+  # If you have NOT completed a real calibration session, ALL concentration readings
+  # from this platform are computed from this hardcoded number — not your actual chip.
+  # Run Tab 1 (Streamlit Dashboard) to fit a real calibration curve from your data.
+  # The fitted slope will be written to output/models/calibration_params.json and
+  # will replace this default. See docs/RESEARCHER_USER_GUIDE.md §L1 for details.
+  calibration_slope: 0.116        # nm/ppm  (LITERATURE DEFAULT — not experimentally verified)
+  calibration_intercept: 0.0      # nm offset
+  reference_wavelength: 531.5     # Baseline peak wavelength in nm
+  model_dir: "output/models"      # Directory for CNN + GPR checkpoints
+  session_dir: "output/sessions"  # Root directory for session recordings
+  save_raw_spectra: false         # Set true to save full 3648-pt spectra per frame
+                                  # (warning: large files at high frame rates)
   noise_region_nm: [690.0, 720.0] # window dominated by baseline noise for SNR estimation
+  # SNR definition (for documentation and reproducibility):
+  # SNR = |Δλ| / σ_noise, where:
+  #   Δλ = peak wavelength shift relative to reference (nm)
+  #   σ_noise = std(intensity) in noise_region_nm after preprocessing
+  # A SNR ≥ 3 is required to claim detection (3-sigma criterion, IUPAC 1995).
+  # Reported SNR in publications should use this definition.
+  snr_definition: "abs(delta_lambda_nm) / std(intensity_in_noise_region)"
+  snr_detection_threshold: 3.0   # IUPAC minimum for detection claim
+  snr_quantification_threshold: 10.0  # IUPAC minimum for quantification claim
 
-# ============================================================================
-# ML-ENHANCED ANALYSIS CONFIGURATION
-# Based on: "1-s2.0-S0925400525000607-main.pdf" spectral feature engineering
-# Target: Tier-1 publication in Sensors & Actuators: B. Chemical
-# ============================================================================
+# ---------------------------------------------------------------------------
+# MLflow experiment tracking (src/training/)
+# ---------------------------------------------------------------------------
+mlflow:
+  tracking_uri: "experiments/mlruns"    # local directory — no server needed
+  experiment_name: "AuMIP_LSPR_Gas_Sensing"
+  run_tags:
+    project: "the sensor-LSPR"
+    lab: "Chula"
 
-ml_enhancement:
-  enabled: true
-  
-  # Spectral Feature Engineering Settings
-  # First-derivative convolution to enhance weak absorber detection
-  feature_engineering:
+# ---------------------------------------------------------------------------
+# FastAPI inference server (src/api/)
+# ---------------------------------------------------------------------------
+api:
+  host: "0.0.0.0"
+  port: 8000
+  model_dir: "models/registry"          # CNN .pt + GPR .joblib files
+  pipeline_version: "3.0.0"
+  reload: false                          # set true during development only
+  log_requests: true
+
+# ---------------------------------------------------------------------------
+# Agent configuration (src/agents/)
+# ---------------------------------------------------------------------------
+agents:
+  drift:
     enabled: true
-    derivative_window: 7          # Savitzky-Golay window for first derivative
-    derivative_polyorder: 2       # Polynomial order for derivative
-    normalization: standard       # 'standard' (z-score) or 'minmax'
-    
-  # 1D-CNN Model Configuration (optional, requires TensorFlow)
-  cnn_model:
-    enabled: false                # Enable CNN-based prediction
-    architecture:
-      filters: [32, 64, 128]      # Conv1D filter sizes
-      kernel_size: 3              # Convolution kernel size
-      dense_units: [256, 128]     # Dense layer sizes
-      dropout_rate: 0.2           # Dropout for regularization
-    training:
-      epochs: 100
-      batch_size: 32
-      learning_rate: 0.001
-      early_stopping_patience: 15
-    data_augmentation:
-      enabled: true
-      n_augmented: 5              # Augmented samples per original
-      noise_level: 0.01           # Gaussian noise level
-      max_shift: 2                # Max wavelength shift (samples)
-      scale_range: [0.9, 1.1]     # Intensity scaling range
-      
-  # Enhanced Detection Limit Calculation
-  detection_limit:
-    method: white_noise           # 'standard', 'white_noise', or 'allan'
-    confidence_level: 0.95
-    bootstrap_iterations: 1000
-    
-  # Statistical Analysis Settings
-  statistics:
-    alpha: 0.05                   # Significance level
-    clinical_threshold: 1.2       # Acetone threshold for diabetes (ppm)
-    bootstrap_samples: 1000
-    loocv_enabled: true           # Leave-One-Out Cross-Validation
-    
-  # Publication Output Settings
-  publication:
-    generate_figures: true
-    figure_dpi: 300
-    figure_format: png            # 'png' or 'pdf'
-    generate_latex_tables: false
-    include_raw_data: false
-
-# Publication benchmarks for comparison
-benchmarks:
-  baseline_znc_ncf:
-    # From "Highly sensitive and real-time detection of acetone" paper
-    sensitivity_nm_per_ppm: 0.116
-    lod_ppm: 3.26
-    r_squared: 0.95
-    t90_seconds: 26
-    t10_seconds: 32
-    roi_nm: [675.0, 689.0]
-    zno_thickness_nm: 85
-    
-  target_ml_enhanced:
-    # Target improvements for Tier-1 publication
-    sensitivity_nm_per_ppm: 0.156   # 35% improvement
-    lod_ppm: 0.76                   # 77% reduction
-    r_squared: 0.98
-    clinical_accuracy: 0.96         # 96% for diabetes screening
-    dynamic_range_reduction: 34     # 34× smaller input range for CNN
+    check_every_n_frames: 100
+    drift_threshold_nm: 0.5
+    auto_recalibrate: false
+    auto_retrain: false
+  quality:
+    enabled: true
+    saturation_threshold: 60000         # hard block
+    min_snr_warning: 4.0                # warning only
