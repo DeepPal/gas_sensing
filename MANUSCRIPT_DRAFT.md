@@ -2,7 +2,7 @@
 
 
 
-## Machine Learning-Enhanced Spectral Feature Engineering for Sub-ppm Acetone Detection Using ZnO-Coated Optical Fiber Sensor: Toward Non-Invasive Diabetes Monitoring
+## Sensitivity-First Automated ROI Discovery for Sub-ppm Acetone Detection Using ZnO-Coated Optical Fiber Sensor: Toward Non-Invasive Diabetes Monitoring
 
 
 
@@ -24,36 +24,22 @@
 
 │                                                                        │
 
-│   ZnO-NCF Sensor          Feature Engineering           ML Analysis   │
-
-│   ┌─────────────┐        ┌────────────────┐         ┌──────────────┐  │
-
-│   │  ~~~NCF~~~  │   -->  │ dA/dλ + Conv   │   -->   │   1D-CNN     │  │
-
-│   │   (ZnO)    │        │ (SNR x10)      │         │ (MSE -90%)   │  │
-
-│   └─────────────┘        └────────────────┘         └──────────────┘  │
-
+│   ZnO-NCF Sensor      ROI Discovery Algorithm      Calibration         │
+│   ┌─────────────┐    ┌────────────────────────┐   ┌──────────────┐    │
+│   │  ~~~NCF~~~  │ → │  Scan 500-900 nm        │ → │ Δλ = S × C  │    │
+│   │   (ZnO)    │    │  Select max |slope|     │   │ R²=0.9945   │    │
+│   └─────────────┘    │  with R² ≥ 0.95        │   └──────────────┘    │
+│                       └────────────────────────┘                       │
 │                                                                        │
-
-│   Baseline: 3.26 ppm     Dynamic Range: 34x        Result: 0.75 ppm  │
-
-│                          Reduction                  (77% improvement) │
-
+│  Baseline: 675-689 nm  → Discovered: 595-625 nm  → LoD: 0.75 ppm     │
+│  (Lit. ROI, 3.26 ppm)    (Algorithm, 4.3× better)  (sub-ppm)         │
 │                                                                        │
-
 │   ┌──────────────────────────────────────────────────────────────┐    │
-
 │   │  Clinical Application: Non-invasive Diabetes Screening       │    │
-
 │   │  Healthy: 0.2-1.8 ppm    |    Diabetic: 1.25-2.5 ppm        │    │
-
-│   │  Detection threshold now achievable with 0.75 ppm LoD        │    │
-
+│   │  LoD of 0.75 ppm enables reliable diabetic vs healthy screen │    │
 │   └──────────────────────────────────────────────────────────────┘    │
-
 │                                                                        │
-
 └────────────────────────────────────────────────────────────────────────┘
 
 ```
@@ -68,11 +54,11 @@
 
 
 
-- First application of spectral feature engineering to optical fiber VOC sensors
+- First sensitivity-first automated ROI discovery algorithm for optical fiber VOC sensors
 
-- 95% reduction in detection limit (3.26 ppm to 0.17 ppm) for breath acetone through data-driven ROI optimization
+- 4.3× reduction in detection limit (3.26 ppm → 0.75 ppm) via data-driven spectral window optimization
 
-- Near-perfect calibration (R² = 0.9997, Spearman ρ = 1.0) with LOOCV validation
+- Near-perfect calibration (R² = 0.9945, Spearman ρ = 1.0) with LOOCV validation (R²_CV = 0.97)
 
 - Room-temperature operation with clinically relevant sub-ppm detection capability
 
@@ -108,7 +94,7 @@
 
 
 
-**Keywords:** optical fiber sensors; spectral feature engineering; machine learning; acetone biomarker; diabetes monitoring; convolutional neural network; ZnO nanostructures
+**Keywords:** optical fiber sensors; automated ROI discovery; sensitivity-first optimization; acetone biomarker; diabetes monitoring; evanescent field sensing; ZnO nanostructures
 
 
 
