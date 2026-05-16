@@ -49,6 +49,11 @@ def get_model_registry(request: Request) -> Any:
     return registry  # None is acceptable — models are optional
 
 
+def get_version_store(request: Request) -> "Any | None":
+    """Return the shared ``ModelVersionStore`` from application state, or None."""
+    return getattr(request.app.state, "version_store", None)
+
+
 def get_config(request: Request) -> dict:
     """Return the loaded configuration dict from application state."""
     cfg = getattr(request.app.state, "config", {})

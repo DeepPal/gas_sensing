@@ -218,7 +218,7 @@ class LangmuirDeconvolver:
         if Kd is None:
             self._Kd = np.full((N, M), np.inf)
         else:
-            self._Kd = np.asarray(Kd, dtype=float)
+            self._Kd = np.asarray(Kd, dtype=float)  # type: ignore[assignment]
         self._bounds = [conc_bounds] * len(analytes)
         self._reg = regularisation
         self._method = method

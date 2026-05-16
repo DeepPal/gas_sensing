@@ -7,13 +7,17 @@ updates:
       day: "monday"
       time: "02:00"
       timezone: "UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "python"
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      python-deps:
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -22,13 +26,17 @@ updates:
       day: "monday"
       time: "03:00"
       timezone: "UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "github-actions"
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/spectraagent/webapp/frontend"
@@ -37,10 +45,14 @@ updates:
       day: "monday"
       time: "04:00"
       timezone: "UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "frontend"
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      npm-deps:
+        patterns:
+          - "*"

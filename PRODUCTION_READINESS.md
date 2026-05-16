@@ -2,7 +2,7 @@
 
 **Status:** 🟢 **Deployment-ready for single-machine research lab use**
 
-**Last Updated:** 2026-04-02
+**Last Updated:** 2026-05-15
 
 ---
 
@@ -17,6 +17,13 @@ The SpectraAgent sensing platform is now configured for production deployment on
 - ✅ **Scientist-first design** (reproducibility, data integrity, uncertainty quantification)
 
 All code is **type-safe** (mypy: 0 errors), **well-tested** (fast-lane and reliability CI), and documented for operational use.
+
+### Security Gate Status (2026-05-15)
+- ✅ **Dependency audit** (`pip-audit`) — runs on every push
+- ✅ **Secret scanning** (Gitleaks) — runs on every push and PR
+- ✅ **CodeQL analysis** (Python + JavaScript) — runs on every push
+- ✅ **Dependency review** — advisory on PRs (dependency graph may not be pre-computed on fresh repos; findings surface as PR warnings)
+- ✅ **npm vulnerability scan** — vite HIGH CVE (GHSA-4w7w-66w2-5vf9) patched
 
 ### Canonical Status Tracking
 
@@ -509,7 +516,7 @@ All deferred work is properly documented, scaffolded, and ready for implementati
 
 ---
 
-**Last Updated:** 2026-04-02  
+**Last Updated:** 2026-05-15  
 **Status:** Production Grade  
 **Maintenance:** No breaking changes scheduled  
 **Next Review:** Q2 2026

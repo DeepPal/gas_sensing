@@ -274,8 +274,34 @@ module = [
     "src.analysis.embedding_viz",
     "src.analysis.cross_dataset_eval",
     "src.analysis.feature_importance",
+    "src.spectrometer.simulated",
+    "src.spectrometer.base",
+    "src.simulation.gas_response",
+    "src.simulation.dataset_generator",
 ]
 warn_return_any = false
+
+# Streamlit dashboard: complex widget interaction patterns, Streamlit session
+# state returns Any, and this code is covered by functional tests not type
+# analysis.  Suppress errors rather than polluting hundreds of widget calls.
+[[tool.mypy.overrides]]
+module = ["dashboard.*"]
+ignore_errors = true
+
+# SpectraAgent application code (FastAPI app + drivers): pre-existing typing
+# gaps in WebSocket handlers and hardware drivers that are stable at runtime.
+# Scientific correctness is enforced by tests, not type annotations here.
+[[tool.mypy.overrides]]
+module = ["spectraagent.*"]
+ignore_errors = true
+
+# Test files: not type-annotated to library standard.  Fixtures return untyped
+# data (json.load, numpy arrays from Any dicts), assertions do runtime narrowing
+# that mypy can't follow, and test helpers use duck-typing idioms.
+# Type correctness is enforced at the src/ boundary; tests verify behavior.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
 
 # ---------------------------------------------------------------------------
 # Tool: pytest

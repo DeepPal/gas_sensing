@@ -501,7 +501,7 @@ class SpectralSimulator:
                     # Active exposure
                     existing = current_conc.get(ev.analyte_name, 0.0)
                     current_conc[ev.analyte_name] = existing + ev.concentration_ppm
-                    elapsed_by_event[ev.analyte_name] = t - ev.start_time_s
+                    elapsed_by_event[ev.analyte_name] = float(t - ev.start_time_s)
 
             # Use the effective elapsed time for kinetics
             # For multiple simultaneous analytes, use the one with longest elapsed
@@ -511,7 +511,7 @@ class SpectralSimulator:
             spectrum, shifts = self.spectrum_at_state(
                 current_conc,
                 elapsed_since_exposure_s=elapsed,
-                temp_c=current_temp,
+                temp_c=float(current_temp),
                 humidity_pct=humidity_pct,
                 add_noise=add_noise,
             )

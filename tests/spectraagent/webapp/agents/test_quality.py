@@ -103,15 +103,91 @@ def test_saturated_frame_emits_error_event(wl, saturated_spectrum):
     loop.close()
 
 
-def test_low_snr_frame_returns_true_with_warn(wl, flat_noise_spectrum):
+def test_low_snr_frame_returns_false_with_warn(wl, flat_noise_spectrum):
+    # C6: SNR below threshold is a hard block — frame must be discarded.
     bus, loop = _bus()
     q = bus.subscribe()
     result = QualityAgent(bus).process(1, wl, flat_noise_spectrum)
     _flush(loop)
     event = q.get_nowait()
-    assert result is True        # frame still processed
+    assert result is False       # hard block — C6
     assert event.level == "warn"
     assert event.data["quality"] == "low_snr"
+    loop.close()
+
+
+# -----------------------------------------------------------------------
+# C1: NaN / Inf and too-short array hard blocks
+# -----------------------------------------------------------------------
+
+
+def test_nan_intensities_returns_false(wl):
+    """C1: frame with NaN values must be hard-blocked."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    bad = np.full(len(wl), np.nan)
+    result = QualityAgent(bus).process(1, wl, bad)
+    _flush(loop)
+    event = q.get_nowait()
+    assert result is False
+    assert event.level == "error"
+    assert event.data["quality"] == "non_finite"
+    loop.close()
+
+
+def test_inf_intensities_returns_false(wl):
+    """C1: frame with Inf values must be hard-blocked."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    bad = np.full(len(wl), np.inf)
+    result = QualityAgent(bus).process(1, wl, bad)
+    _flush(loop)
+    event = q.get_nowait()
+    assert result is False
+    assert event.level == "error"
+    assert event.data["quality"] == "non_finite"
+    loop.close()
+
+
+def test_mixed_nan_inf_reports_count(wl):
+    """C1: n_non_finite in event data matches the number of bad pixels."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    bad = np.zeros(len(wl))
+    bad[10] = np.nan
+    bad[20] = np.inf
+    QualityAgent(bus).process(1, wl, bad)
+    _flush(loop)
+    event = q.get_nowait()
+    assert event.data["n_non_finite"] == 2
+    loop.close()
+
+
+def test_too_short_array_returns_false():
+    """C1: array with fewer than 4 pixels must be hard-blocked."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    tiny_wl = np.array([700.0, 710.0, 720.0])
+    tiny_i = np.array([0.1, 0.2, 0.1])
+    result = QualityAgent(bus).process(1, tiny_wl, tiny_i)
+    _flush(loop)
+    event = q.get_nowait()
+    assert result is False
+    assert event.level == "error"
+    assert event.data["quality"] == "too_short"
+    loop.close()
+
+
+def test_nan_check_precedes_saturation(wl):
+    """C1: NaN check fires before saturation check — event quality='non_finite', not 'saturated'."""
+    bus, loop = _bus()
+    q = bus.subscribe()
+    bad = np.full(len(wl), 70_000.0)
+    bad[0] = np.nan
+    QualityAgent(bus).process(1, wl, bad)
+    _flush(loop)
+    event = q.get_nowait()
+    assert event.data["quality"] == "non_finite"
     loop.close()
 
 

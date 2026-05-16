@@ -530,6 +530,17 @@ next_conc = planner.suggest_next(measured_concentrations, measured_responses)
 
 ---
 
+## Project Status
+
+| Document | Purpose |
+|----------|---------|
+| [CHANGELOG.md](CHANGELOG.md) | Versioned change history |
+| [REMAINING_WORK.md](REMAINING_WORK.md) | Tracked open work items |
+| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Deployment readiness checklist |
+| [.github/workflows/security.yml](.github/workflows/security.yml) | Security gate definitions |
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ENGINEERING_STANDARDS.md](docs/ENGINEERING_STANDARDS.md).

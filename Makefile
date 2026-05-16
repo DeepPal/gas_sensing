@@ -209,6 +209,7 @@ evidence-pack:
 industry-eval-bundle:
 	$(PYTHON) scripts/build_industry_evaluation_bundle.py --output-dir output/industry-eval/local --session-id local-industry-eval
 
+
 .PHONY: ci-diagnostics
 ci-diagnostics:
 	$(PYTHON) scripts/collect_ci_diagnostics.py --output output/test-results/ci-diagnostics-local.md

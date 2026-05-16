@@ -6,10 +6,12 @@ QualityAgent — per-frame SNR and saturation gate.
 Called synchronously from the acquisition loop (20 Hz).
 Emits one AgentEvent per frame.
 
-Quality rules (spec Section 4):
-- max(intensities) > 60 000 counts → level="error", hard block (return False)
-- SNR < 3                          → level="warn",  frame processed (return True)
-- Normal                           → level="ok",    frame processed (return True)
+Quality rules:
+- NaN or Inf values           → level="error", hard block (return False)  [C1]
+- Array too short (< 4)       → level="error", hard block (return False)  [C1]
+- max(intensities) > 60 000   → level="error", hard block (return False)
+- SNR < threshold             → level="warn",  hard block (return False)  [C6]
+- Normal                      → level="ok",    frame processed (return True)
 
 SNR estimate: peak_intensity / std(off-peak noise floor).
 Noise floor = first and last 5% of pixels (off-peak regions).
@@ -108,6 +110,30 @@ class QualityAgent:
 
         Always emits exactly one AgentEvent regardless of outcome.
         """
+        # ── C1: Integrity checks — must come before any np.max / np.mean ──
+        if len(intensities) < 4:
+            self._bus.emit(AgentEvent(
+                source="QualityAgent",
+                level="error",
+                type="quality",
+                data={"frame": frame_num, "snr": 0.0, "saturation_pct": 0.0,
+                      "quality": "too_short", "n_pixels": len(intensities)},
+                text=f"Frame {frame_num} — only {len(intensities)} pixels, expected ≥4. Discarded.",
+            ))
+            return False
+
+        if not np.all(np.isfinite(intensities)):
+            n_bad = int(np.sum(~np.isfinite(intensities)))
+            self._bus.emit(AgentEvent(
+                source="QualityAgent",
+                level="error",
+                type="quality",
+                data={"frame": frame_num, "snr": 0.0, "saturation_pct": 0.0,
+                      "quality": "non_finite", "n_non_finite": n_bad},
+                text=f"Frame {frame_num} — {n_bad} NaN/Inf pixel(s). Discarded.",
+            ))
+            return False
+
         max_i = float(np.max(intensities))
         sat_pct = float(np.mean(intensities > self._sat_threshold) * 100.0)
 
@@ -132,6 +158,9 @@ class QualityAgent:
 
         snr = _compute_snr(wavelengths, intensities)
 
+        # ── C6: SNR is a hard block, not a soft warning ──────────────────
+        # Low-SNR frames contain contaminated signal that propagates silently
+        # through peak detection and GPR calibration, inflating uncertainty.
         if snr < self._snr_threshold:
             self._bus.emit(AgentEvent(
                 source="QualityAgent",
@@ -145,10 +174,10 @@ class QualityAgent:
                 },
                 text=(
                     f"Frame {frame_num} — SNR={snr:.1f} "
-                    f"(below {self._snr_threshold}). Processed with warning."
+                    f"(below {self._snr_threshold}). Frame discarded."
                 ),
             ))
-            return True
+            return False
 
         self._frames_since_ok_emit += 1
         if self._frames_since_ok_emit >= self._ok_emit_every:

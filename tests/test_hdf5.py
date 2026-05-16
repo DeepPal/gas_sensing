@@ -250,3 +250,52 @@ class TestArchiveReader:
             assert ar.read_frames() == []
             assert ar.read_dark() is None
             assert ar.read_reference() is None
+
+    # -------------------------------------------------------------------
+    # C8: Environment metadata in HDF5 archives
+    # -------------------------------------------------------------------
+
+    def test_python_version_stored(self, tmp_h5: Path) -> None:
+        """C8: HDF5 archive must record the Python version used to create it."""
+        import sys
+        with open_archive_writer(tmp_h5):
+            pass
+        with h5py.File(str(tmp_h5), "r") as f:
+            pv = f.attrs["python_version"]
+        expected = (
+            f"{sys.version_info.major}.{sys.version_info.minor}"
+            f".{sys.version_info.micro}"
+        )
+        assert pv == expected
+
+    def test_os_platform_stored(self, tmp_h5: Path) -> None:
+        """C8: HDF5 archive must record the OS platform."""
+        import platform
+        with open_archive_writer(tmp_h5):
+            pass
+        with h5py.File(str(tmp_h5), "r") as f:
+            assert "os_platform" in f.attrs
+            assert len(str(f.attrs["os_platform"])) > 0
+
+    def test_numpy_version_stored(self, tmp_h5: Path) -> None:
+        """C8: numpy package version must be recorded for reproducibility."""
+        with open_archive_writer(tmp_h5):
+            pass
+        with h5py.File(str(tmp_h5), "r") as f:
+            assert "pkg_numpy" in f.attrs
+            assert str(f.attrs["pkg_numpy"]) != ""
+
+    def test_scipy_version_stored(self, tmp_h5: Path) -> None:
+        """C8: scipy package version must be recorded."""
+        with open_archive_writer(tmp_h5):
+            pass
+        with h5py.File(str(tmp_h5), "r") as f:
+            assert "pkg_scipy" in f.attrs
+
+    def test_env_metadata_does_not_overwrite_schema_version(self, tmp_h5: Path) -> None:
+        """C8: adding env metadata must not clobber the existing schema_version attr."""
+        with open_archive_writer(tmp_h5, gas_name="Test"):
+            pass
+        with h5py.File(str(tmp_h5), "r") as f:
+            assert f.attrs["schema_version"] == "1.0"
+            assert "python_version" in f.attrs  # both must coexist

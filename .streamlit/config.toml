@@ -18,7 +18,7 @@ messageFormat = "%(asctime)s | %(levelname)-8s | %(name)s: %(message)s"
 # Port and address
 port = 8501
 headless = true
-runOnSave = true
+runOnSave = false
 
 # Session state timeout — log users out after 8 hours
 maxUploadSize = 200

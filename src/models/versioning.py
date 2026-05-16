@@ -297,6 +297,22 @@ class ModelVersionStore:
         shutil.rmtree(version_dir)
         log.info("Deleted version %s/%s", name, version_id)
 
+    def active_version(self, name: str) -> str | None:
+        """Return the promoted version ID for *name*, or None if none is promoted.
+
+        Reads the ``{name}_latest`` marker file written by :meth:`promote`.
+        Falls back to scanning manifests for ``is_promoted=True`` if the marker
+        is absent (e.g. store created by an older version of this class).
+        """
+        marker = self._root / f"{name}{self._LATEST_MARKER}"
+        if marker.exists():
+            vid = marker.read_text(encoding="utf-8").strip()
+            return vid or None
+        for record in self.list_versions(name):
+            if record.is_promoted:
+                return record.version_id
+        return None
+
     def summary(self, name: str) -> str:
         """Human-readable summary of all versions for *name*."""
         versions = self.list_versions(name)

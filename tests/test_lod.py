@@ -19,6 +19,7 @@ from src.scientific.lod import (
     calculate_lod_3sigma,
     calculate_loq_10sigma,
     calculate_sensitivity,
+    lod_bootstrap_ci,
     mandel_linearity_test,
     robust_sensitivity,
     sensor_performance_summary,
@@ -614,3 +615,100 @@ class TestTemperatureCorrection:
         # Both should produce valid LOD
         assert s_corrected["lod_ppm"] is not None
         assert s_uncorrected["lod_ppm"] is not None
+
+
+# ---------------------------------------------------------------------------
+# C9: lod_bootstrap_ci — outlier screening
+# ---------------------------------------------------------------------------
+
+class TestLodBootstrapCiOutlierScreening:
+    """C9: IQR screening on OLS residuals prevents outliers from inflating CI."""
+
+    @staticmethod
+    def _clean_data(n: int = 8) -> tuple[np.ndarray, np.ndarray]:
+        """Perfectly linear calibration data, no outliers."""
+        c = np.linspace(0.5, 5.0, n)
+        r = -0.05 * c + 0.0          # sensitivity = -0.05 nm/ppm
+        return c, r
+
+    def test_returns_three_floats(self):
+        c, r = self._clean_data()
+        result = lod_bootstrap_ci(c, r, n_bootstrap=200, random_state=0)
+        assert len(result) == 3
+        assert all(isinstance(v, float) for v in result)
+
+    def test_lod_positive(self):
+        c, r = self._clean_data()
+        lod, lo, hi = lod_bootstrap_ci(c, r, n_bootstrap=200, random_state=0)
+        assert lod > 0.0
+
+    def test_ci_ordered(self):
+        """lo ≤ lod ≤ hi."""
+        c, r = self._clean_data()
+        lod, lo, hi = lod_bootstrap_ci(c, r, n_bootstrap=200, random_state=0)
+        assert lo <= lod <= hi
+
+    def test_outlier_screening_narrows_ci(self):
+        """Injecting an outlier widens CI; screening recovers the narrow CI.
+
+        C9: Without screening, one bad point inflates the bootstrap distribution
+        3–5× relative to clean data.  With screening the CI should be close to
+        the clean-data CI.
+        """
+        c, r = self._clean_data(n=10)
+
+        # Inject one severe outlier at position 5
+        c_bad = c.copy()
+        r_bad = r.copy()
+        r_bad[5] = r_bad[5] + 0.5   # huge residual relative to noise level
+
+        lod_clean, lo_clean, hi_clean = lod_bootstrap_ci(
+            c, r, n_bootstrap=500, random_state=1
+        )
+        lod_unscreened, lo_un, hi_un = lod_bootstrap_ci(
+            c_bad, r_bad, n_bootstrap=500, random_state=1, screen_outliers=False
+        )
+        lod_screened, lo_sc, hi_sc = lod_bootstrap_ci(
+            c_bad, r_bad, n_bootstrap=500, random_state=1, screen_outliers=True
+        )
+
+        ci_clean = hi_clean - lo_clean
+        ci_unscreened = hi_un - lo_un
+        ci_screened = hi_sc - lo_sc
+
+        # Unscreened CI must be wider than clean (outlier inflates variance)
+        assert ci_unscreened > ci_clean * 1.5, (
+            f"Expected outlier to inflate CI: clean={ci_clean:.4f}, "
+            f"unscreened={ci_unscreened:.4f}"
+        )
+        # Screened CI must be substantially narrower than unscreened
+        assert ci_screened < ci_unscreened * 0.7, (
+            f"Screening should narrow CI: unscreened={ci_unscreened:.4f}, "
+            f"screened={ci_screened:.4f}"
+        )
+
+    def test_screen_outliers_false_disables_screening(self):
+        """screen_outliers=False passes data through unchanged."""
+        c, r = self._clean_data(n=10)
+        r[5] += 0.5
+        lod_on, _, _ = lod_bootstrap_ci(c, r, n_bootstrap=100, random_state=0, screen_outliers=True)
+        lod_off, _, _ = lod_bootstrap_ci(c, r, n_bootstrap=100, random_state=0, screen_outliers=False)
+        # Results must differ when there is an outlier
+        assert lod_on != pytest.approx(lod_off, rel=0.01)
+
+    def test_small_dataset_skips_screening(self):
+        """screen_outliers is a no-op when n < 6 — too few points to screen safely."""
+        c = np.array([0.5, 1.0, 2.0, 3.0, 4.0])   # n=5 < 6
+        r = -0.05 * c
+        # Should not raise; returns a valid result
+        lod, lo, hi = lod_bootstrap_ci(c, r, n_bootstrap=100, random_state=0)
+        assert lod > 0.0
+        assert lo <= lod <= hi
+
+    def test_all_outliers_removed_gracefully(self):
+        """If screening would leave < 4 points, it is skipped rather than crashing."""
+        # 5 points with 3 extreme outliers → screening would leave only 2: skip it
+        c = np.array([0.5, 1.0, 2.0, 3.0, 4.0, 5.0])
+        r = np.array([-0.025, -0.05, -0.10, 5.0, 6.0, 7.0])  # last 3 are huge outliers
+        lod, lo, hi = lod_bootstrap_ci(c, r, n_bootstrap=100, random_state=0)
+        assert np.isfinite(lod)

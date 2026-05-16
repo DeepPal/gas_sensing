@@ -130,11 +130,15 @@ def _load_physics_plugin(name: str) -> AbstractSensorPhysicsPlugin:
 # ---------------------------------------------------------------------------
 
 
+_HW_READ_TIMEOUT_S: float = 30.0  # hard timeout per read_spectrum() call (C5)
+
+
 def _acquisition_loop(
     driver: AbstractHardwareDriver,
     app: FastAPI,
 ) -> None:
     """Daemon thread: read spectra, run quality/drift agents, broadcast to WS clients."""
+    import concurrent.futures
     import time
 
     import numpy as np
@@ -142,10 +146,49 @@ def _acquisition_loop(
     wl_list = driver.get_wavelengths().tolist()
     wl_np = np.array(wl_list)
     frame_num = 0
+    consecutive_timeouts = 0
+
+    # C5: run read_spectrum() in a worker thread so the acquisition loop can
+    # enforce a hard deadline.  On timeout, we abandon the stuck thread (it
+    # may be blocked inside a hardware DLL), recreate the executor, and
+    # continue — the worker thread will eventually unblock when the DLL
+    # returns an error code, keeping leaked threads bounded.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="acq-hw")
 
     while True:
         try:
-            intensities = driver.read_spectrum()
+            fut = executor.submit(driver.read_spectrum)
+            intensities = fut.result(timeout=_HW_READ_TIMEOUT_S)
+            consecutive_timeouts = 0
+        except concurrent.futures.TimeoutError:
+            consecutive_timeouts += 1
+            log.error(
+                "Hardware read_spectrum() timed out after %.0f s (consecutive: %d). "
+                "Abandoning stuck thread and continuing.",
+                _HW_READ_TIMEOUT_S,
+                consecutive_timeouts,
+            )
+            bus = getattr(app.state, "agent_bus", None)
+            if bus is not None:
+                from spectraagent.webapp.agent_bus import AgentEvent
+                bus.emit(AgentEvent(
+                    source="AcquisitionLoop",
+                    level="error",
+                    type="hardware",
+                    data={"consecutive_timeouts": consecutive_timeouts,
+                          "timeout_s": _HW_READ_TIMEOUT_S},
+                    text=(
+                        f"Hardware read timed out after {_HW_READ_TIMEOUT_S:.0f} s "
+                        f"({consecutive_timeouts} consecutive). Check device connection."
+                    ),
+                ))
+            # Abandon the stuck executor thread; create a fresh one.
+            executor.shutdown(wait=False)
+            executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="acq-hw"
+            )
+            time.sleep(1.0)
+            continue
         except Exception as exc:
             log.warning("Acquisition error: %s", exc)
             time.sleep(1.0)
@@ -365,6 +408,11 @@ def start(
     )
     app.state.pipeline = RealTimePipeline(pipeline_cfg)
     app.state.session_events = []
+
+    # C2: Wire ModelVersionStore so /predict responses carry the promoted version ID.
+    from src.models.versioning import ModelVersionStore
+    app.state.version_store = ModelVersionStore("output/model_versions")
+
     typer.echo("RealTimePipeline wired")
 
     # Step 5b: Create SensorMemory and wire Claude API agents

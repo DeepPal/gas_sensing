@@ -48,7 +48,6 @@ services:
       - ./data:/app/data:ro
       - ./output:/app/output
       - ./config:/app/config:ro
-      - ./output/models:/app/output/models
     environment:
       <<: *common-env
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
