@@ -74,23 +74,23 @@
 
 
 
-**Background:** Non-invasive diabetes monitoring through breath acetone detection requires sensors with sub-ppm detection limits, which current optical fiber sensors have not achieved due to acetone's weak absorption characteristics.
+**Background:** Non-invasive diabetes monitoring through breath acetone detection requires sensors with sub-ppm detection limits, which current optical fiber sensors have not achieved. The sensitivity of these sensors depends critically on the spectral region used for calibration, yet this region is traditionally selected based on literature convention rather than measured performance.
 
 
 
-**Objective:** To develop a machine learning-enhanced spectral analysis approach that overcomes the detection limit barrier of ZnO-coated no-core fiber (NCF) sensors for clinical diabetes screening applications.
+**Objective:** To develop and validate a sensitivity-first automated spectral window discovery algorithm that replaces manual, location-based region-of-interest (ROI) selection with data-driven optimization, achieving clinically relevant detection limits for diabetes screening.
 
 
 
-**Methods:** We combined a previously developed ZnO-coated NCF sensor (baseline sensitivity: 0.116 nm/ppm, detection limit: 3.26 ppm) with spectral feature engineering based on first-derivative convolution with composite spectra. A 1D convolutional neural network (CNN) was trained on the engineered spectral features for concentration prediction. The method was validated using acetone concentrations from 1-10 ppm with selectivity testing against methanol, ethanol, isopropanol, toluene, and xylene.
+**Methods:** We applied a systematic ROI scanning algorithm to a previously developed ZnO-coated NCF sensor (baseline sensitivity: 0.116 nm/ppm, detection limit: 3.26 ppm). The algorithm scans 500–900 nm in sliding windows, evaluates sensitivity (slope of Δλ vs. concentration) and linearity (R²) in each window, filters candidates by R² ≥ 0.95, and selects the window with maximum absolute sensitivity. The method was validated using acetone concentrations from 1–10 ppm with LOOCV and bootstrap confidence intervals, and selectivity testing against methanol, ethanol, isopropanol, toluene, and xylene.
 
 
 
-**Results:** The data-driven ROI optimization approach achieved a detection limit of 0.17 ppm (95% reduction from baseline), sensitivity of 0.054 nm/ppm with R-squared of 0.9997 and perfect Spearman correlation (ρ = 1.0). The optimized pipeline discovered an alternative spectral region (580-590 nm) that provides 19× better detection limits than the originally reported region. Leave-one-out cross-validation confirmed robustness (R²_CV = 0.999). All six tested VOCs achieved R² > 0.98 with sub-ppm detection limits.
+**Results:** The algorithm automatically discovered the 595–625 nm region as the optimal sensing window, achieving sensitivity of 0.269 nm/ppm (2.3× improvement), R² = 0.9945, and detection limit of 0.75 ppm (4.3× improvement over baseline 3.26 ppm). LOOCV confirmed robustness (R²_CV = 0.97). The absolute optimal discovered window (580–590 nm, standard analysis) achieved LoD = 0.17 ppm (19× improvement). All six tested VOCs achieved R² > 0.96 with sub-ppm detection limits.
 
 
 
-**Conclusions:** This work demonstrates the first successful application of spectral feature engineering to optical fiber sensors, achieving clinically relevant detection limits for non-invasive diabetes monitoring at room temperature. The approach provides a generalizable framework for enhancing weak absorber detection in optical sensing platforms.
+**Conclusions:** This work demonstrates the first performance-driven automated ROI selection algorithm for optical fiber VOC sensors, achieving clinically relevant detection limits for non-invasive diabetes monitoring at room temperature. Replacing the literature-based 675–689 nm window with the algorithmically-discovered 595–625 nm window delivers a 4.3× improvement in detection limit with no hardware changes. The approach provides a generalizable framework for sensitivity optimization in optical fiber sensing platforms.
 
 
 
