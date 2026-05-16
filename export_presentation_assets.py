@@ -159,7 +159,15 @@ def export_assets(args: argparse.Namespace) -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "destination": str(dest_root.resolve()),
         "gases": [],
+        "shared_assets": [],
     }
+
+    shared_manifest: List[Dict] = []
+    if args.publication_figures and Path(args.publication_figures).exists():
+        shared_dest = dest_root / "publication_figures"
+        shared_dest.mkdir(parents=True, exist_ok=True)
+        copy_tree(Path(args.publication_figures), shared_dest, shared_manifest)
+        overall_manifest["shared_assets"].extend(shared_manifest)
 
     for gas in gases:
         gas_slug = gas.replace(' ', '_')
@@ -179,7 +187,6 @@ def export_assets(args: argparse.Namespace) -> None:
 
         copy_tree(plots_dir, gas_dest / "plots", manifest_entries)
         copy_tree(metrics_dir, gas_dest / "metrics", manifest_entries)
-        copy_tree(args.publication_figures, gas_dest / "publication_figures", manifest_entries)
         copy_tree(reports_dir, gas_dest / "reports", manifest_entries)
         copy_file(args.unified_results, gas_dest / "text" / "unified_results.md", manifest_entries)
 
@@ -199,11 +206,10 @@ def export_assets(args: argparse.Namespace) -> None:
         write_json(gas_manifest, gas_dest / "manifest.json", manifest_entries)
         overall_manifest["gases"].append(gas_manifest)
 
-        if args.sync_to:
-            target_root = args.sync_to
-            gas_target = target_root / gas_slug
-            ensure_clean_dir(gas_target)
-            shutil.copytree(gas_dest, gas_target, dirs_exist_ok=True)
+    if args.sync_to:
+        target_root = args.sync_to
+        ensure_clean_dir(target_root)
+        shutil.copytree(dest_root, target_root, dirs_exist_ok=True)
 
     write_json(overall_manifest, dest_root / "manifest.json", [])
 

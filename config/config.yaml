@@ -16,6 +16,12 @@ preprocessing:
     window: 11
     poly_order: 2
     extra_pass: false
+
+frame_selection:
+  method: top_n_responsive   # Selection strategy
+  n_frames: 10               # Frames to average
+  adaptive_min_selected: 6   # If fewer than this many frames survive, expand selection
+  adaptive_n_frames: 16      # Expanded selection size when adaptive mode triggers
   baseline:
     enabled: true                   # removes baseline drift to isolate gas shifts
     method: als
@@ -269,6 +275,12 @@ roi:
     slope_fraction: 0.75
     max_half_width: 50
 
+  smoothing:
+    enabled: true
+    window_fraction: 0.35   # Fraction of ROI points used for Savitzky-Golay window
+    min_points: 7
+    polyorder: 2
+
   discovery:
     enabled: true
     band: [500.0, 900.0]
@@ -278,11 +290,13 @@ roi:
     prior_weight: 0.001
     best_sensitivity_min_r2: 0.95
     gates:
-      min_r2: 0.6
+      min_r2: 0.8
+      min_spearman: 0.8
       min_consistency: 0.75
       min_snr: 2.0
       min_abs_slope: 0.005
       min_conc_count: 3
+      reject_sign_mismatch: true
     weights:
       r2: 0.8
       slope: 2.5
@@ -381,9 +395,9 @@ roi:
 
 stability:
   weight_mode: intensity   # options: uniform, intensity, max
-  top_k: 4                 # emphasize strongest frames within response band
+  top_k: 6                 # emphasize strongest frames within response band
   diff_threshold: 0.05     # tighter gate to isolate steady-state response
-  min_block: 12            # require ≥12-frame stable segments before averaging
+  min_block: 8             # allow adaptive retention for weak gases
   use_raw_intensity: true  # evaluate stability on raw intensity before preprocessing
   range_floor_fraction: 0.1
   smooth_window: 5

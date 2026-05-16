@@ -1,6 +1,6 @@
 {
   "gas": "Methanol",
-  "timestamp": "2026-02-10T16:31:36.773389",
+  "timestamp": "2026-02-12T12:41:18.019067",
   "pipeline_version": "CODEMAP_aligned_v1.0",
   "roi_range": [
     835.0,
@@ -307,7 +307,7 @@
         845.0
       ]
     },
-    "n_candidates": 345,
+    "n_candidates": 179,
     "top_10_candidates": [
       {
         "roi_center": 587.5,
@@ -582,10 +582,10 @@
     "achieved_spearman": -0.7745966692414834
   },
   "provenance": {
-    "generated_at": "2026-02-10T16:31:36.666932",
-    "git_commit": "aff19078a8547cefd4a16b4d02bb8d0f72f1e367",
+    "generated_at": "2026-02-12T12:41:17.931994",
+    "git_commit": "ad9cb58d6292bb28da28a8dfed31c7744bee3b42",
     "config_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\config\\config.yaml",
-    "config_sha256": "eabbcbef3616648cbea17ab082a8619829f64cd1d004eaaf505d7b87facfedb4",
+    "config_sha256": "56b6261fa47e67c17f4e92b567fbe25f405c5a361f96b0f874e9e59d427b2929",
     "data_dir": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Methanol",
     "reference_file": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\Kevin_Data\\Methanol\\air ref after purging _N2.csv",
     "roi_range_nm": [

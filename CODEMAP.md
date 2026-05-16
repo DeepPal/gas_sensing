@@ -1,7 +1,7 @@
 # Scientific Code Map: ML-Enhanced Optical Fiber Gas Sensing Pipeline
 
-**Version:** 2.0 (Publication-Ready)  
-**Last Updated:** 2025-11-26  
+**Version:** 2.4 (Unified CLI Refresh)  
+**Last Updated:** 2026-02-11  
 **Target Journal:** Sensors & Actuators: B. Chemical  
 **DOI:** [To be assigned]
 
@@ -32,23 +32,27 @@ This codebase implements a **publication-quality spectral gas sensing calibratio
 
 ### 1.2 Key Achievements
 
-| Metric | Baseline | Achieved | Method |
-|--------|----------|----------|--------|
-| Detection Limit | 3.26 ppm | **0.75 ppm** | ROI optimization |
-| R-squared | 0.95 | **0.9945** | Centroid tracking |
-| Spearman ρ | ~0.95 | **1.00** | Monotonic response |
-| LOOCV R² | N/A | **0.9735** | Cross-validated |
+| Metric | Reference Benchmark (ZnO NCF) | Current Best (Acetone unless noted) | Notes |
+|--------|-------------------------------|--------------------------------------|-------|
+| Detection Limit | 3.26 ppm | **0.75 ppm** (Acetone @ 595–625 nm) | Derived from residual σ and slope (Figure 4 CSV) |
+| R-squared | 0.95 | **0.9958** (Xylene @ 710–735 nm) | Other gases vary; weakest is Methanol (0.11) |
+| Spearman ρ | ~0.95 | **1.00** (Acetone, Xylene) | Ethanol/Toluene currently show sign inversions |
+| LOOCV R² | N/A | **0.9735** (Acetone) | Negative for EtOH/IPA/Toluene → flagged for rework |
 
-### 1.3 Supported Analytes
+> Takeaway: Acetone and Xylene already meet the publication targets. Ethanol, Methanol, Isopropanol, and Toluene still require ROI/selection tuning and stronger preprocessing gates (see §6 and §9).
 
-| Analyte | Optimal ROI (nm) | LoD (ppm) | R² |
-|---------|------------------|-----------|-----|
-| **Acetone** | 595-625 *(canon)* | 0.75 | 0.9945 |
-| Methanol | 575-600 | 0.36 | 0.9987 |
-| Ethanol | 515-525 | 0.79 | 0.9939 |
-| Isopropanol | 665-690 | 0.75 | 0.9945 |
-| Toluene | 830-850 | 1.08 | 0.9886 |
-| Xylene | 710-735 | 0.65 | 0.9958 |
+### 1.3 Supported Analytes (Current Scientific Outputs)
+
+| Analyte | Selected ROI (nm) | Sensitivity (nm/ppm) | LoD (ppm) | R² | LOOCV R² |
+|---------|-------------------|----------------------|-----------|-----|-----------|
+| **Acetone** | 595–625 | 0.2692 | **0.75** | 0.9945 | 0.9735 |
+| Ethanol | 645–670 | 0.3084 | 8.78 | 0.5661 | -0.9378 |
+| Methanol | 835–845 | 0.0119 | 28.22 | 0.1122 | -0.7780 |
+| Isopropanol | 580–590 | 0.0552 | 4.81 | 0.8132 | -0.8240 |
+| Toluene | 840–860 | 0.1645 | 6.66 | 0.6942 | -1.5247 |
+| Xylene | 710–735 | 0.1562 | **0.65** | **0.9958** | **0.9756** |
+
+Values pulled from `output/publication_figures/Figure4_performance_table.csv` (regenerated via `python scripts/generate_publication_figures.py`). Any edits to the preprocessing or gating logic must be revalidated by rerunning the CLI to update this table.
 
 ---
 
@@ -207,128 +211,119 @@ For NCF: N ≈ L / (2π × r_core × tanθ)
 
 ## 4. Project Architecture
 
-### 4.1 Directory Structure
+### 4.1 Directory Structure (Code_Acetone_paper_3)
 
 ```
-Code_Acetone_paper_2/
+Code_Acetone_paper_3/
 │
-├── 📁 config/                          # Configuration files
-│   ├── config.yaml                     # Main pipeline configuration (535 lines)
-│   └── config_loader.py                # YAML loading utilities
-│
-├── 📁 gas_analysis/                    # Core analysis package
-│   ├── __init__.py                     # Package initialization
-│   │
-│   ├── 📁 core/                        # Core pipeline modules
-│   │   ├── pipeline.py                 # Main pipeline (368,671 bytes, ~10,000 lines)
-│   │   ├── dynamics.py                 # T90/T10 response times (16,716 bytes)
-│   │   ├── preprocessing.py            # Signal preprocessing (12,178 bytes)
-│   │   ├── responsive_frame_selector.py # Frame selection (13,163 bytes)
-│   │   └── run_each_gas.py             # CLI entry point (5,575 bytes)
-│   │
-│   ├── 📁 ml/                          # ML enhancement modules
-│   │   ├── __init__.py                 # ML package exports (2,557 bytes)
-│   │   ├── spectral_feature_engineering.py  # Feature engineering (28,485 bytes)
-│   │   ├── cnn_spectral_model.py       # 1D-CNN model (23,841 bytes)
-│   │   ├── statistical_analysis.py     # Statistical tests (27,334 bytes)
-│   │   └── publication_plots.py        # Journal-quality plots (23,618 bytes)
-│   │
-│   ├── 📁 advanced/                    # Advanced analysis
-│   │   ├── deconvolution_ica.py        # ICA spectral deconvolution
-│   │   └── mcr_als.py                  # MCR-ALS multivariate analysis
-│   │
-│   ├── data_loader.py                  # Data loading utilities (6,812 bytes)
-│   ├── analyzer.py                     # Analysis orchestration (5,564 bytes)
-│   ├── feature_extraction.py           # Feature extraction (5,681 bytes)
-│   └── visualization.py                # Plotting utilities (6,382 bytes)
-│
-├── 📁 Kevin_Data/                      # Experimental data (40,006 items)
-│   ├── Acetone/                        # 7,650 CSV files
-│   ├── Ethanol/                        # 7,980 CSV files
-│   ├── Methanol/                       # 6,240 CSV files
-│   ├── Isopropanol/                    # 7,039 CSV files
-│   ├── Toluene/                        # 2,268 CSV files
-│   ├── Xylene/                         # 5,954 CSV files
-│   └── mix VOC/                        # 2,875 CSV files
-│
-├── 📁 output/                          # Pipeline outputs (111 items)
-│   ├── {gas}_scientific/               # Scientific pipeline outputs
-│   │   ├── plots/                      # Publication figures
-│   │   ├── metrics/                    # JSON calibration metrics
-│   │   └── reports/                    # Markdown reports
-│   └── world_class_analysis/           # Comprehensive multi-gas results
-│
-├── 📁 Acetone_Paper_Logic/             # Publication strategy documents
-│   ├── Advanced_Implementation_Guide.md
-│   ├── Tier1_Publication_Architecture.md
-│   └── One_Page_Professor_Summary.md
-│
-├── 📁 scripts/                         # Standalone analysis scripts
-│   ├── cross_gas_selectivity.py
-│   ├── generate_selectivity_report.py
-│   └── multi_roi_analysis.py
-│
-├── 📁 tests/                           # Unit tests
-│   ├── test_deconvolution.py
-│   └── test_environment.py
-│
-├── 🐍 run_scientific_pipeline.py       # MAIN: Validated scientific pipeline (81,750 bytes)
-├── 🐍 run_ml_enhanced_pipeline.py      # ML-enhanced analysis (31,717 bytes)
-├── 🐍 run_world_class_analysis.py      # Multi-gas comprehensive analysis (26,121 bytes)
-│
-├── 📄 MANUSCRIPT_DRAFT.md              # Publication manuscript (47,802 bytes)
-├── 📄 VALIDATED_RESULTS.md             # Experimental results summary
-├── 📄 COVER_LETTER.md                  # Journal submission letter
-├── 📄 REVIEWER_RESPONSE_TEMPLATE.md    # Revision response template
-├── 📄 requirements.txt                 # Python dependencies
-└── 📄 README.md                        # Project documentation
+├── pipeline.py                  # Unified CLI: run/export/refresh/check (primary entry point)
+├── run_scientific_pipeline.py   # Scientific analysis engine (invoked by pipeline.py)
+├── export_presentation_assets.py
+├── scripts/
+│   ├── generate_publication_figures.py  # Figures 1–5 + manifest CSV/JSON
+│   └── generate_presentation_diagrams.py
+├── config/
+│   ├── config.yaml               # Central configuration (ROI gates, stability, minimal outputs)
+│   └── config_loader.py
+├── Kevin_Data/                   # Raw spectra (per gas, 0.1–10 ppm ladders)
+├── output/
+│   ├── scientific/<Gas>/         # Plots/, metrics/calibration_metrics.json, reports/
+│   ├── world_class/              # Comparative outputs
+│   ├── publication_figures/      # Figure1–5 PNG/PDF + CSV + manifest
+│   └── dist/presentation_assets/ # Export bundles synced into PPT repo
+├── Kevin_acetone_ppt/
+│   ├── config/presentation_scientific.yaml  # Slide mapping to generated assets
+│   └── generated_assets/exported/           # Auto-synced figures for Google Slides/PPTX
+├── docs & manuscripts (README.md, MANUSCRIPT_DRAFT.md, VALIDATED_RESULTS.md, etc.)
+└── tooling (Dockerfile, environment.yml, tests/, .windsurf/workflows/, etc.)
 ```
+
+> Legacy `gas_analysis/*` packages remain archived but the day-to-day workflow is entirely driven by `pipeline.py`. Any refresh or export should call the CLI rather than invoking old scripts directly.
 
 ### 4.2 Module Dependency Graph
 
 ```
-                    ┌─────────────────────────────────┐
-                    │     run_scientific_pipeline.py  │
-                    │         (Main Entry Point)      │
-                    └─────────────┬───────────────────┘
+                    ┌───────────────────────────────┐
+                    │         pipeline.py           │
+                    │ (run / export / refresh CLI)  │
+                    └─────────────┬─────────────────┘
                                   │
-          ┌───────────────────────┼───────────────────────┐
-          │                       │                       │
-          ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   config.yaml   │    │  gas_analysis/  │    │   Kevin_Data/   │
-│  Configuration  │    │     core/       │    │   Raw Spectra   │
-└─────────────────┘    └────────┬────────┘    └─────────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌───────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  pipeline.py  │    │  dynamics.py    │    │ preprocessing.py│
-│ ROI Discovery │    │ T90/T10 Times   │    │ Smoothing/Norm  │
-│ Calibration   │    │ Response Curves │    │ Baseline Corr   │
-└───────────────┘    └─────────────────┘    └─────────────────┘
-        │
-        ▼
-┌───────────────────────────────────────────────────────────────┐
-│                        gas_analysis/ml/                       │
-├───────────────────┬───────────────────┬───────────────────────┤
-│ spectral_feature_ │ cnn_spectral_     │ statistical_          │
-│ engineering.py    │ model.py          │ analysis.py           │
-│                   │                   │                       │
-│ • First derivative│ • 1D-CNN (457K)   │ • Paired t-test       │
-│ • Convolution     │ • Data augment    │ • Effect sizes        │
-│ • SNR enhancement │ • Uncertainty est │ • Bootstrap CI        │
-│ • LoD calculation │ • LOOCV           │ • ROC-AUC             │
-└───────────────────┴───────────────────┴───────────────────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │   output/{gas}_*/     │
-                    │  plots/ metrics/      │
-                    │  reports/             │
-                    └───────────────────────┘
+              ┌───────────────────┼────────────────────────┐
+              │                   │                        │
+              ▼                   ▼                        ▼
+   config/config.yaml   run_scientific_pipeline.py   export_presentation_assets.py
+              │                   │                        │
+              ▼                   ▼                        ▼
+        ROI/shift gates    Frame/ROI/Δλ analysis       dist/presentation_assets/
+        Stability settings  Metrics + plots writer     (synced to PPT repo)
+              │                   │
+              ▼                   ▼
+        Kevin_Data/<Gas>/  output/scientific/<Gas>/...
+              │                   │
+              ▼                   ▼
+      scripts/generate_publication_figures.py  ──►  output/publication_figures/
+              │
+              ▼
+      Kevin_acetone_ppt/generated_assets/exported/
 ```
+
+> ML-oriented modules in `gas_analysis/ml/` remain available for advanced studies, but the validated publication workflow above is fully deterministic and runs through the unified CLI.
+
+### 4.3 End-to-End Logical Flow (Data → Results)
+
+```
+[1] Data Discovery & Loading
+    ├─ scan_experiment_root(): enumerate Kevin_Data/<Gas>/<Conc>ppm/T*/frame_*.csv
+    ├─ load_spectrum(): parse wavelength,intensity columns
+    └─ load reference spectrum (air/N₂) for each gas
+         │
+         ▼
+[2] Frame Conditioning & Stability Gating
+    ├─ find_stable_block(): identify steady-state exposure window
+    ├─ find_response_peak_frames(): top-k responsive frames within configured ROI range
+    └─ average_selected_frames(): interpolate onto common grid, add transmittance & absorbance
+         │
+         ▼
+[3] Canonical Spectrum Generation
+    ├─ select_canonical_per_concentration(): one averaged spectrum per concentration
+    ├─ baseline_correct_canonical(): ALS baseline removal
+    └─ normalization / outlier rejection (per config)
+         │
+         ▼
+[4] ROI Discovery & Feature Tracking
+    ├─ scan_roi_windows(): sliding windows (500–900 nm, multiple widths, step 0.5–5 nm)
+    ├─ find_peak_wavelength(): centroid/minimum/derivative methods
+    └─ collect candidates with metrics (R², Spearman ρ, slope, LoD, score)
+         │ (hierarchical gating: min R², min ρ, benchmark sensitivity)
+         ▼
+[5] Calibration & Metrics
+    ├─ calibrate_wavelength_shift(): Δλ = S·C + b, slope/CI/LOD computed from residual noise
+    ├─ calibrate_absorbance(): ΔA fallback modes (raw/window_avg/differential)
+    ├─ multi_roi_fusion / robust fits (if enabled)
+    └─ detection_probability(), manifest of best method + ROI metadata
+         │
+         ▼
+[6] Validation & Uncertainty Quantification
+    ├─ compute_loocv(): leave-one-out CV, RMSE, R²_cv
+    ├─ bootstrap CI (500–1000 iterations) on slope and ROI stability
+    ├─ detection limit (3σ / slope) & LOQ (10σ / slope)
+    └─ spearmanr(): monotonicity check
+         │
+         ▼
+[7] Reporting & Artifact Generation
+    ├─ write calibration_metrics.json + roi_candidates.json + provenance.json
+    ├─ save plots (Δλ vs C, ROI heatmap, residuals, diagnostics)
+    ├─ generate_publication_figures.py → Figure1–5 PNG/PDF + Figure4 CSV + manifest
+    └─ generate_summary_markdown() + Figure summary used by PPT automation
+         │
+         ▼
+[8] Export & Presentation
+    ├─ pipeline.py export → dist/presentation_assets/<Gas>/
+    ├─ Sync to Kevin_acetone_ppt/generated_assets/exported/
+    └─ Slides automation / Google Slides ingest uses manifest hashes for provenance
+```
+
+This flow mirrors the eight CODEMAP pipeline steps (data → preprocessing → canonical spectra → ROI → calibration → validation → reporting → presentation) and should be used when explaining the logical path from raw detector counts to publication-ready figures.
 
 ---
 
@@ -584,11 +579,11 @@ Coverage ≈ 1 - 2α for large B
 
 ---
 
-## 7. ML Enhancement Modules
+## 7. ML Enhancement Modules (Optional)
 
 ### 7.1 Spectral Feature Engineering
 
-**File:** `gas_analysis/ml/spectral_feature_engineering.py` (28,485 bytes)
+**File:** `gas_analysis/ml/spectral_feature_engineering.py` (archived, 28,485 bytes)
 
 **Purpose:** Enhance weak absorber signals through mathematical transformations.
 
@@ -628,7 +623,7 @@ class SpectralFeatureEngineering:
 
 ### 7.2 1D-CNN Model Architecture
 
-**File:** `gas_analysis/ml/cnn_spectral_model.py` (23,841 bytes)
+**File:** `gas_analysis/ml/cnn_spectral_model.py` (archived, 23,841 bytes)
 
 **Architecture Specification:**
 
@@ -672,7 +667,7 @@ class SpectralFeatureEngineering:
 
 ### 7.3 Statistical Analysis Module
 
-**File:** `gas_analysis/ml/statistical_analysis.py` (27,334 bytes)
+**File:** `gas_analysis/ml/statistical_analysis.py` (archived, 27,334 bytes)
 
 **Implemented Tests:**
 
@@ -722,145 +717,17 @@ class ClinicalMetrics:
 
 ## 8. Configuration Reference
 
-### 8.1 Main Configuration (`config/config.yaml`)
+### 7.1 Main Configuration (`config/config.yaml`)
 
-```yaml
-# =============================================================================
-# PREPROCESSING CONFIGURATION
-# =============================================================================
-preprocessing:
-  smooth:
-    method: savgol           # Savitzky-Golay filter
-    window: 11               # Window size (must be odd)
-    polyorder: 2             # Polynomial order
-  
-  baseline:
-    method: als              # Asymmetric Least Squares
-    lam: 1e5                 # Smoothness parameter
-    p: 0.01                  # Asymmetry parameter
-  
-  normalization:
-    method: minmax           # Min-max scaling
-    range: [0, 1]            # Output range
+The current configuration emphasises **minimal outputs**, hierarchical ROI selection, and strict gating before anything propagates into publication figures.
 
-# =============================================================================
-# ROI DISCOVERY CONFIGURATION
-# =============================================================================
-roi:
-  min_wavelength: 500        # Search range start (nm)
-  max_wavelength: 900        # Search range end (nm)
-  
-  discovery:
-    widths: [10, 15, 20, 25, 30]  # ROI widths to test (nm)
-    center_step: 5           # Center scanning step (nm)
-    min_r2: 0.8              # Minimum R² to accept
-    monotonicity_weight: 0.3 # Weight for Spearman ρ
-  
-  shift:
-    methods: [centroid, minimum, gaussian, xcorr]
-    primary: centroid        # Primary method
-    secondary: minimum       # Fallback method
+- **Preprocessing & Stability** (`preprocessing.*`, `stability.*`, `response_series.*`): Savitzky–Golay smoothing is enabled only where it preserves peak localization; baseline correction uses ALS, and stability gates require ≥12-frame steady blocks with top‑k averaging (`stability.top_k = 4`, `diff_threshold = 0.05`).
+- **ROI Discovery** (`roi.*`): Global scan across 500–900 nm with adaptive thresholds, bootstrap/permutation gating, and per-gas overrides aligning with reference expectations. Selection mode is `hierarchical` with `shift.min_spearman_r = 0.85`, `min_r2_w = 0.80`, and `best_sensitivity_min_r2 = 0.95`.
+- **Calibration** (`calibration.*`): Auto-selects models by CV R², enables robust fitting, bootstrap CI (500 iterations), and LOOCV enforcement. Multivariate/PLSR paths are disabled by default, keeping the canonical Δλ fit front and center.
+- **Outputs** (`shift.minimal_outputs = true`, `output.*`): Only essential plots/JSON/markdown artifacts are emitted under `output/scientific/<Gas>/`, with provenance (git SHA, config hash) captured by `run_scientific_pipeline.py`.
+- **ML Enhancements**: Hooks remain (`ml_enhancement.*`) but CNN inference is off; instead, improvements are routed through the deterministic pipeline plus optional world-class analysis.
 
-# =============================================================================
-# GAS-SPECIFIC OVERRIDES
-# =============================================================================
-gases:
-  Acetone:
-    expected_roi: [675, 689]  # From reference paper
-    expected_center: 682.0
-    concentration_unit: ppm
-    
-  Ethanol:
-    expected_roi: [664, 685]
-    expected_center: 673.5
-    
-  Methanol:
-    expected_roi: [646, 664]
-    expected_center: 655.0
-    
-  Isopropanol:
-    expected_roi: [650, 675]
-    expected_center: 662.0
-    
-  Toluene:
-    expected_roi: [665, 675]
-    expected_center: 670.0
-    
-  Xylene:
-    expected_roi: [665, 675]
-    expected_center: 670.0
-
-# =============================================================================
-# CALIBRATION CONFIGURATION
-# =============================================================================
-calibration:
-  min_r2: 0.7                # Minimum acceptable R²
-  min_points: 3              # Minimum data points
-  
-  fitting:
-    primary: ols             # Ordinary least squares
-    robust: [theil_sen, ransac]  # Robust alternatives
-    weights: inverse_variance    # WLS weighting
-  
-  validation:
-    method: loocv            # Leave-one-out CV
-    bootstrap_iterations: 1000
-    ci_level: 0.95           # 95% confidence
-
-# =============================================================================
-# FRAME SELECTION CONFIGURATION
-# =============================================================================
-frame_selection:
-  method: top_n_responsive   # Selection strategy
-  n_frames: 10               # Frames to average
-  
-  response_metric:
-    method: roi_weighted     # ROI-weighted response
-    baseline_frames: 20      # Frames for baseline
-    
-  stability:
-    min_frames: 50           # Minimum frames required
-    variance_threshold: 0.1  # Max acceptable variance
-
-# =============================================================================
-# ML ENHANCEMENT CONFIGURATION
-# =============================================================================
-ml_enhancement:
-  enabled: true
-  
-  feature_engineering:
-    derivative_order: 1      # First derivative
-    window_length: 7         # Savitzky-Golay window
-    convolution: true        # Enable convolution
-    
-  cnn:
-    enabled: false           # Optional 1D-CNN
-    model_path: null         # Pre-trained model
-    
-  targets:
-    sensitivity_improvement: 0.35   # 35% target
-    lod_reduction: 0.77             # 77% target
-    r_squared_target: 0.98
-
-# =============================================================================
-# OUTPUT CONFIGURATION
-# =============================================================================
-output:
-  base_dir: output
-  
-  plots:
-    format: png
-    dpi: 300
-    publication_quality: true
-    
-  metrics:
-    format: json
-    include_raw_data: false
-    
-  reports:
-    format: markdown
-    include_equations: true
-```
+Refer to @config/config.yaml#1-400 for the exact YAML; any change in ROI gates, frame selection, or detection thresholds must be documented here before re-running `pipeline.py refresh`.
 
 ---
 
@@ -868,73 +735,72 @@ output:
 
 ### 9.1 Output Directory Structure
 
-```
-output/{gas}_scientific/
-│
-├── 📁 plots/                           # Publication-quality figures
-│   ├── calibration_curve.png           # Main Δλ vs C calibration
-│   ├── spectral_overlay.png            # Concentration-dependent spectra
-│   ├── roi_scan_results.png            # ROI optimization heatmap
-│   ├── residual_analysis.png           # Regression diagnostics
-│   ├── peak_tracking.png               # Peak position vs concentration
-│   ├── absorbance_calibration.png      # ΔA calibration
-│   ├── comprehensive_diagnostic.png    # Multi-panel summary
-│   └── method_comparison.png           # Δλ vs ΔA comparison
-│
-├── 📁 metrics/                         # Machine-readable results
-│   └── calibration_metrics.json        # Complete calibration data
-│
-├── 📁 reports/                         # Human-readable summaries
-│   └── summary.md                      # Markdown analysis report
-│
-└── 📁 aggregated/                      # Processed spectra
-    └── canonical_{concentration}ppm.csv
+```bash
+output/
+├── scientific/<Gas>/
+│   ├── plots/                        # Δλ vs C curve, ROI scan, residuals, etc.
+│   ├── metrics/calibration_metrics.json  # Canonical metrics (roi_range, slope, r², LOD, CI)
+│   ├── metrics/roi_candidates.json       # ROI scan candidates + gating metadata
+│   ├── reports/summary.md               # Markdown narrative (science + QA notes)
+│   └── provenance.json                  # git SHA, config hash, timestamps
+├── world_class/                        # Multi-gas comparative outputs (LOOCV, ML assists)
+├── publication_figures/                # Regenerated Figure1–5 PNG/PDF + Figure4 CSV + manifest
+└── dist/presentation_assets/           # Bundles synced into Kevin_acetone_ppt/generated_assets/
 ```
 
 ### 9.2 Calibration Metrics JSON Schema
 
+Current JSON (excerpt from `output/scientific/Acetone/metrics/calibration_metrics.json`):
+
 ```json
 {
   "gas": "Acetone",
-  "timestamp": "2025-11-26T13:42:05.775764",
+  "timestamp": "2026-02-10T16:25:19.196693",
   "pipeline_version": "CODEMAP_aligned_v1.0",
-  
-  "roi_range": [580.0, 590.0],
-  "expected_center": 682.0,
+  "roi_range": [595.0, 625.0],
+  "expected_center": 680.0,
   "n_concentrations": 4,
   "concentrations": [1.0, 3.0, 5.0, 10.0],
-  
   "calibration_wavelength_shift": {
     "centroid": {
-      "slope": 0.05429,
+      "concentrations": [1.0, 3.0, 5.0, 10.0],
+      "peak_wavelengths": [607.4220, 608.0331, 608.3900, 609.8745],
+      "delta_lambda": [0.0, 0.6111, 0.9679, 2.4525],
+      "reference_wavelength": 607.4220,
+      "slope": 0.2692369482162307,
       "slope_unit": "nm/ppm",
-      "intercept": -0.05289,
-      "r2": 0.9997,
-      "r_value": 0.9998,
-      "p_value": 0.00015,
-      "std_err": 0.00066,
+      "intercept": -0.27099085414596136,
+      "r2": 0.9944792461322035,
       "spearman_r": 1.0,
-      "spearman_p": 0.0,
-      "lod_ppm": 0.173,
-      "loq_ppm": 0.578,
-      "slope_ci_95": [0.0533, 0.0546],
-      "n_points": 4
+      "noise_std": 0.06709690904165484,
+      "lod_ppm": 0.7476341135886859,
+      "slope_ci_95": [0.23620494359306576, 0.275715532586085],
+      "r2_cv": 0.9735069303894721,
+      "rmse_cv": 0.14698379677513887,
+      "method": "centroid",
+      "roi_range": [595.0, 625.0]
     }
   },
-  
+  "best_method_wavelength_shift": "centroid",
   "loocv_validation": {
-    "r2_cv": 0.9991,
-    "rmse_cv": 0.0053
+    "wavelength_shift": {
+      "r2_cv": 0.9735069303894721,
+      "rmse_cv": 0.14698379677513887,
+      "n_folds": 4
+    }
   },
-  
   "roi_scan": {
-    "n_candidates": 385,
-    "best_roi": [580.0, 590.0],
-    "best_r2": 0.9997,
-    "best_score": 0.9998
+    "best_roi": [595.0, 625.0],
+    "best_center": 610.0,
+    "best_width": 30,
+    "best_method": "centroid",
+    "best_r2": 0.9944792461322035,
+    "n_candidates": 495
   }
 }
 ```
+
+Downstream consumers (figures, PPT, ML diagnostics) should rely on this schema rather than legacy variants from Code_Acetone_paper_2.
 
 ---
 
@@ -1033,75 +899,48 @@ LoQ = 10 × σ / S
 
 ---
 
-## 11. Usage Reference
+## 11. Usage Reference (Unified CLI)
 
-### 11.1 Running the Scientific Pipeline
+### 11.1 Core Commands
 
 ```bash
-# Single gas analysis
-python run_scientific_pipeline.py --gas Acetone
+# Run the validated scientific pipeline for a single gas
+python pipeline.py run scientific --gas Acetone
 
-# All gases sequentially
-for gas in Acetone Ethanol Methanol Isopropanol Toluene Xylene; do
-    python run_scientific_pipeline.py --gas $gas
-done
+# Run all gases + world-class + export (skip PPT if desired)
+python pipeline.py refresh --skip-ppt
+
+# Export presentation bundles only
+python pipeline.py export --gases Acetone,Ethanol --dest dist/presentation_assets
+
+# Health check: data, scientific outputs, export bundles
+python pipeline.py check --require-scientific --require-export
 ```
 
-### 11.2 Command Line Arguments
+### 11.2 Figure + Manifest Regeneration
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--gas` | Required | Gas name (Acetone, Ethanol, etc.) |
-| `--frames` | 10 | Number of frames to select per trial |
-| `--output-dir` | `output/` | Output directory |
-| `--config` | `config/config.yaml` | Configuration file |
-
-### 11.3 Python API Usage
-
-```python
-from gas_analysis.core.pipeline import GasSensingPipeline
-
-# Initialize pipeline
-pipeline = GasSensingPipeline(config_path='config/config.yaml')
-
-# Run analysis
-results = pipeline.run_analysis(
-    data_dir='Kevin_Data/Acetone',
-    reference_file='Kevin_Data/Acetone/air1.csv',
-    output_dir='output/acetone_scientific',
-    n_frames_select=10
-)
-
-# Access results
-print(f"Sensitivity: {results['calibration']['slope']:.4f} nm/ppm")
-print(f"R-squared: {results['calibration']['r2']:.4f}")
-print(f"LoD: {results['calibration']['lod_ppm']:.2f} ppm")
-```
-
-### 11.4 Common Workflows
-
-**Single Gas Analysis:**
 ```bash
-python unified_pipeline.py --mode scientific --gas Acetone
+# Regenerate publication figures (PNG/PDF), CSV, and manifest
+python scripts/generate_publication_figures.py \
+    --scientific-root output/scientific \
+    --figures-dir output/publication_figures
 ```
 
-**Multi-Gas Comparative Study:**
-```bash
-python unified_pipeline.py --mode comparative
-```
+Outputs land in `output/publication_figures/` and are automatically referenced by `pipeline.py export` (and synced into `Kevin_acetone_ppt/generated_assets/exported/`). Always rerun this script after modifying preprocessing, ROI gating, or metrics logic.
 
-**Publication Figure Generation:**
-```python
-from gas_analysis.ml.publication_plots import PublicationPlots
+### 11.3 Optional ML / Advanced Analyses
 
-plots = PublicationPlots()
-plots.generate_all_figures('output/acetone_scientific')
-```
+Legacy modules under `gas_analysis/ml/` can still be invoked manually (e.g., for CNN benchmarking or spectral feature experiments), but they are not part of the default publication workflow. Any ML-enhanced results must document the exact configuration and be regenerated via the CLI before inclusion in figures.
 
-**Debug Mode with Verbose Logging:**
-```bash
-python unified_pipeline.py --mode scientific --gas Acetone --verbose
-```
+### 11.4 Troubleshooting Workflow
+
+1. `python pipeline.py check --require-scientific --require-export` – ensure prerequisites exist.
+2. `python pipeline.py run scientific --gas <Gas>` – regenerate scientific outputs.
+3. `python scripts/generate_publication_figures.py ...` – refresh Figure 1–5, CSV, manifest.
+4. `python pipeline.py export` – sync assets into `dist/presentation_assets/`.
+5. (Optional) rerun `python pipeline.py refresh` to rebuild the PPT.
+
+Logs for each pipeline run are stored in `pipeline_logs/` and include provenance (git SHA, config hash) for auditability.
 
 **Batch Processing (All Gases):**
 ```python

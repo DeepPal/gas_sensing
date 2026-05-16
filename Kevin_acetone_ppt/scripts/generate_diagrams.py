@@ -6,6 +6,7 @@ Professional publication-quality figures with improved styling
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Circle, Rectangle
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from pathlib import Path
 
 import seaborn as sns
@@ -16,12 +17,19 @@ from scipy import stats
 import json
 import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = Path(__file__).parent.parent / "generated_assets"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-
 DATA_DIR = Path(__file__).parent.parent / "data"
-RESULTS_DIR = Path(__file__).parent.parent / "Kevin_Acetone_Paper_Results"
+SCIENTIFIC_DIR = PROJECT_ROOT / "output" / "scientific"
+PUBLICATION_DIR = PROJECT_ROOT / "output" / "publication_figures"
+FIGURE4_TABLE = PUBLICATION_DIR / "Figure4_performance_table.csv"
+DEFAULT_REFERENCE = {
+    "lod": 3.26,
+    "sensitivity": 0.116,
+    "r2": 0.95,
+}
 
 
 LOD_FACTOR = 3.0
@@ -45,22 +53,80 @@ def _parse_roi_nm(text: str) -> tuple[float, float] | None:
 
 
 def _load_multigas_results() -> pd.DataFrame:
-    path = DATA_DIR / "multigas_results.csv"
-    if not path.exists():
+    primary = DATA_DIR / "multigas_results.csv"
+    df: pd.DataFrame | None = None
+    if primary.exists():
+        try:
+            df = pd.read_csv(primary)
+        except Exception:
+            df = None
+    if (df is None or df.empty) and FIGURE4_TABLE.exists():
+        try:
+            df = pd.read_csv(FIGURE4_TABLE)
+        except Exception:
+            df = None
+    if df is None or df.empty:
         return pd.DataFrame()
-    return pd.read_csv(path)
+
+    df = df.copy()
+
+    def _find_col(*candidates: str) -> str | None:
+        for cand in candidates:
+            for col in df.columns:
+                if col.lower().strip() == cand.lower().strip():
+                    return col
+        return None
+
+    rename_map: dict[str, str] = {}
+
+    for target, candidates in (
+        ("VOC", ("VOC", "Gas", "gas")),
+        ("Optimal ROI (nm)", ("Optimal ROI (nm)", "ROI (nm)")),
+        ("LoD (ppm)", ("LoD (ppm)", "lod_ppm", "lod")),
+        ("Sensitivity (nm/ppm)", ("Sensitivity (nm/ppm)", "sensitivity")),
+        ("R²", ("R²", "r_squared", "r2")),
+        ("Spearman ρ", ("Spearman ρ", "spearman", "spearman_rho")),
+    ):
+        col = _find_col(*candidates)
+        if col and col != target:
+            rename_map[col] = target
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    roi_start_col = _find_col("roi_start_nm", "roi_start")
+    roi_end_col = _find_col("roi_end_nm", "roi_end")
+    if roi_start_col and roi_end_col:
+        def _fmt_roi(row) -> str:
+            try:
+                lo = float(row[roi_start_col])
+                hi = float(row[roi_end_col])
+            except (ValueError, TypeError):
+                return ""
+            if not np.isfinite(lo) or not np.isfinite(hi):
+                return ""
+            lo, hi = (lo, hi) if lo <= hi else (hi, lo)
+            return f"{lo:.0f}-{hi:.0f}"
+
+        df["Optimal ROI (nm)"] = df.apply(_fmt_roi, axis=1)
+
+    # If ROI string missing but Figure4 ROI column exists, seed from there
+    roi_col = _find_col("ROI (nm)")
+    if "Optimal ROI (nm)" not in df.columns and roi_col:
+        df["Optimal ROI (nm)"] = df[roi_col]
+
+    return df
 
 
 def _load_acetone_canonical_spectra(conc_ppm: float) -> pd.DataFrame:
-    path = RESULTS_DIR / "acetone_scientific" / "canonical_spectra" / f"{conc_ppm:.1f}ppm.csv"
+    path = SCIENTIFIC_DIR / "Acetone" / "canonical_spectra" / f"{conc_ppm:.1f}ppm.csv"
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
 
 
 def _load_voc_canonical_spectra(voc: str, conc_ppm: float) -> pd.DataFrame:
-    folder = f"{voc.lower()}_scientific"
-    path = RESULTS_DIR / folder / "canonical_spectra" / f"{conc_ppm:.1f}ppm.csv"
+    path = SCIENTIFIC_DIR / voc.capitalize() / "canonical_spectra" / f"{conc_ppm:.1f}ppm.csv"
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
@@ -123,21 +189,40 @@ def _load_comparison_table() -> dict:
 
 
 def _load_acetone_calibration_metrics() -> dict:
-    path = RESULTS_DIR / "acetone_scientific" / "metrics" / "calibration_metrics.json"
+    path = SCIENTIFIC_DIR / "Acetone" / "metrics" / "calibration_metrics.json"
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _load_figure4_row(gas: str) -> dict:
+    if not FIGURE4_TABLE.exists():
+        return {}
+    try:
+        df = pd.read_csv(FIGURE4_TABLE)
+    except Exception:
+        return {}
+    if "Gas" not in df.columns:
+        return {}
+    mask = df["Gas"].astype(str).str.strip().str.lower() == gas.lower()
+    if not mask.any():
+        return {}
+    row = df[mask].iloc[0].to_dict()
+    return row
 
 
 def _get_key_numbers() -> dict:
     reference_metrics = _load_reference_metrics()
-    comparison = _load_comparison_table()
-    acetone = _load_acetone_calibration_metrics()
+    acetone_metrics = _load_acetone_calibration_metrics()
+    figure4_row = _load_figure4_row("Acetone")
 
     centroid = (
-        acetone.get("calibration_wavelength_shift", {})
+        acetone_metrics.get("calibration_wavelength_shift", {})
         .get("centroid", {})
-        if isinstance(acetone, dict)
+        if isinstance(acetone_metrics, dict)
         else {}
     )
 
@@ -147,40 +232,28 @@ def _get_key_numbers() -> dict:
     noise_this = centroid.get("noise_std")
     r2_cv = centroid.get("r2_cv")
 
-    lod_this_raw = comparison.get("LoD", {}).get("this")
-    sens_this_raw = comparison.get("Sensitivity", {}).get("this")
-    r2_this_raw = comparison.get("R²", {}).get("this")
-    r2_cv_raw = comparison.get("LOOCV R²", {}).get("this")
+    if not isinstance(lod_this, (int, float)) and figure4_row:
+        lod_this = _first_float(figure4_row.get("LoD (ppm)"))
+    if not isinstance(sens_this, (int, float)) and figure4_row:
+        sens_this = _first_float(figure4_row.get("Sensitivity (nm/ppm)"))
+    if not isinstance(r2_this, (int, float)) and figure4_row:
+        r2_this = _first_float(figure4_row.get("R²"))
+    if not isinstance(r2_cv, (int, float)) and figure4_row:
+        r2_cv = _first_float(figure4_row.get("LOOCV R²"))
 
-    if not isinstance(lod_this, (int, float)):
-        lod_this = _first_float(lod_this_raw)
-    if not isinstance(sens_this, (int, float)):
-        sens_this = _first_float(sens_this_raw)
-    if not isinstance(r2_this, (int, float)):
-        r2_this = _first_float(r2_this_raw)
-    if not isinstance(r2_cv, (int, float)):
-        r2_cv = _first_float(r2_cv_raw)
-
-    lod_paper_raw = comparison.get("LoD", {}).get("paper")
-    sens_paper_raw = comparison.get("Sensitivity", {}).get("paper")
-    r2_paper_raw = comparison.get("R²", {}).get("paper")
-    lod_paper = _first_float(lod_paper_raw)
-    sens_paper = _first_float(sens_paper_raw)
-    r2_paper = _first_float(r2_paper_raw)
+    lod_paper = DEFAULT_REFERENCE["lod"]
+    sens_paper = DEFAULT_REFERENCE["sensitivity"]
+    r2_paper = DEFAULT_REFERENCE["r2"]
 
     improvement_factor = None
     if isinstance(lod_paper, (int, float)) and isinstance(lod_this, (int, float)) and lod_this > 0:
         improvement_factor = lod_paper / lod_this
 
-    # Infer "this work" noise if missing using LoD = k*sigma/|S|  => sigma = LoD*|S|/k
     if not isinstance(noise_this, (int, float)):
         if isinstance(lod_this, (int, float)) and isinstance(sens_this, (int, float)):
             noise_this = (lod_this * abs(sens_this)) / LOD_FACTOR
 
-    # Infer reference noise using LoD = k*sigma/S  => sigma = LoD*S/k
-    noise_paper = None
-    if isinstance(lod_paper, (int, float)) and isinstance(sens_paper, (int, float)):
-        noise_paper = (lod_paper * abs(sens_paper)) / LOD_FACTOR
+    noise_paper = (lod_paper * abs(sens_paper)) / LOD_FACTOR if lod_paper and sens_paper else None
 
     zno_thickness = reference_metrics.get("ZnO Thickness")
 
@@ -557,7 +630,7 @@ def create_baseline_vs_optimized_roi():
 
 
 def create_roi_discovery_annotated():
-    base_img_path = RESULTS_DIR / "acetone_scientific" / "plots" / "roi_scan_results.png"
+    base_img_path = SCIENTIFIC_DIR / "Acetone" / "plots" / "roi_scan_results.png"
     if not base_img_path.exists():
         return
 
@@ -1479,6 +1552,191 @@ def create_sg_demo():
     plt.close()
     print("✓ sg_processing_demo.png")
 
+
+def create_feature_engineering_progression():
+    concentrations = [1.0, 5.0, 10.0]
+    spectra = []
+    required_cols = {"wavelength", "intensity", "transmittance"}
+    for conc in concentrations:
+        df = _load_acetone_canonical_spectra(conc)
+        if df.empty or not required_cols.issubset(set(df.columns)):
+            continue
+        wl = df["wavelength"].to_numpy(dtype=float)
+        intensity = df["intensity"].to_numpy(dtype=float)
+        trans = np.clip(df["transmittance"].to_numpy(dtype=float), 1e-9, None)
+        absorbance = -np.log10(trans)
+        spectra.append({
+            "conc": conc,
+            "wl": wl,
+            "intensity": intensity,
+            "trans": trans,
+            "absorbance": absorbance,
+        })
+    if not spectra:
+        return
+
+    wl = spectra[0]["wl"]
+    ref_abs = spectra[0]["absorbance"]
+
+    win = 31
+    if win >= wl.size:
+        win = wl.size - 1 if wl.size % 2 == 0 else wl.size
+    if win < 5:
+        win = 5 if wl.size >= 5 else wl.size - (1 - wl.size % 2)
+    if win % 2 == 0:
+        win -= 1
+    if win < 3:
+        return
+
+    for spec in spectra:
+        spec["derivative"] = savgol_filter(spec["absorbance"], window_length=win, polyorder=2, deriv=1)
+        conv = np.convolve(spec["absorbance"], spec["derivative"], mode='same')
+        spec["convolution"] = (conv - np.mean(conv)) / (np.std(conv) + 1e-9)
+        spec["delta_abs"] = spec["absorbance"] - ref_abs
+        spec["roi_metric"] = None
+
+    metrics = _load_acetone_calibration_metrics()
+    centroid = (
+        metrics.get("calibration_wavelength_shift", {}).get("centroid", {})
+        if isinstance(metrics, dict)
+        else {}
+    )
+    roi_opt = centroid.get("roi_range") if isinstance(centroid, dict) else None
+    try:
+        roi_opt_tuple = (float(roi_opt[0]), float(roi_opt[1])) if roi_opt and len(roi_opt) == 2 else None
+    except (TypeError, ValueError):
+        roi_opt_tuple = None
+    literature_roi = (675.0, 689.0)
+
+    panels = [
+        ("Raw Intensity I(λ)", "intensity", 'Counts (a.u.)', 'Lamp ripple + drift dominate'),
+        ("Transmittance T = I/I₀", "trans", 'Unitless', 'Normalization removes source spectrum'),
+        ("Absorbance A = -log₁₀(T)", "absorbance", 'Absorbance (a.u.)', 'Dynamic range linearized'),
+        ("ΔAbsorbance relative to 1 ppm", "delta_abs", 'ΔAbs', 'Sub-ppm change emerges after preprocessing'),
+        ("Derivative dA/dλ (Savitzky–Golay)", "derivative", 'a.u./nm', 'Baseline removed → transitions only'),
+        ("Convolution A ⊗ dA/dλ (weighted feature)", "convolution", 'Normalized', 'ROI weighting highlights stable shift'),
+    ]
+    n_w_panels = len(panels)
+    fig, axes = plt.subplots(
+        n_w_panels + 1,
+        1,
+        figsize=(12.5, 17),
+        gridspec_kw={'height_ratios': [1] * n_w_panels + [0.65]},
+        sharex=False,
+        facecolor='white',
+    )
+    for ax in axes[:-1]:
+        ax.sharex(axes[0])
+    theme_palette = [COLORS['primary'], COLORS['secondary'], COLORS['warning'], COLORS['purple']]
+    colors_map = [theme_palette[i % len(theme_palette)] for i in range(len(spectra))]
+    line_handles: list = []
+    line_labels: list[str] = []
+    for idx, (ax, (title, key, ylabel, annotation)) in enumerate(zip(axes[:-1], panels)):
+        for spec, color in zip(spectra, colors_map):
+            (line,) = ax.plot(
+                spec["wl"],
+                spec[key],
+                color=color,
+                lw=2.2 if key in {"delta_abs", "derivative", "convolution"} else 1.8,
+                label=f"{spec['conc']:.0f} ppm" if idx == 0 else None,
+            )
+            if idx == 0:
+                line_handles.append(line)
+                line_labels.append(f"{spec['conc']:.0f} ppm")
+        ax.set_ylabel(ylabel, fontweight='bold')
+        ax.set_title(title, fontsize=12, fontweight='bold', color=COLORS['dark'])
+        ax.grid(alpha=0.25, linestyle='--')
+        if key in {"derivative", "convolution", "delta_abs"}:
+            vals = np.concatenate([spec[key] for spec in spectra])
+            lo, hi = np.percentile(vals, [2, 98])
+            pad = (hi - lo) * 0.3 if hi > lo else 0.1
+            ax.set_ylim(lo - pad, hi + pad)
+        ax.text(
+            0.01,
+            0.9,
+            annotation,
+            transform=ax.transAxes,
+            fontsize=9,
+            color=COLORS['dark'],
+            bbox=dict(boxstyle='round', facecolor='white', edgecolor=COLORS['gray'], alpha=0.85),
+        )
+        if literature_roi:
+            ax.axvspan(*literature_roi, color=COLORS['gray'], alpha=0.12, label='Literature ROI' if idx == 0 else None)
+        if roi_opt_tuple:
+            ax.axvspan(*roi_opt_tuple, color=COLORS['success'], alpha=0.18, label='Optimized ROI' if idx == 0 else None)
+        if roi_opt_tuple and spec.get("roi_metric") is None:
+            mask = (spec["wl"] >= roi_opt_tuple[0]) & (spec["wl"] <= roi_opt_tuple[1])
+        else:
+            mask = (spec["wl"] >= literature_roi[0]) & (spec["wl"] <= literature_roi[1])
+        # store roi metric per spec once
+        for spec in spectra:
+            if spec["roi_metric"] is None:
+                span = roi_opt_tuple if roi_opt_tuple else literature_roi
+                if span:
+                    mask_metric = (spec["wl"] >= span[0]) & (spec["wl"] <= span[1])
+                    if np.any(mask_metric):
+                        spec["roi_metric"] = float(np.mean(spec["convolution"][mask_metric]))
+                    else:
+                        spec["roi_metric"] = 0.0
+
+    roi_handles: list = []
+    if literature_roi:
+        roi_handles.append(mpatches.Patch(color=COLORS['gray'], alpha=0.2, label='Literature ROI'))
+    if roi_opt_tuple:
+        roi_handles.append(mpatches.Patch(color=COLORS['success'], alpha=0.25, label='Optimized ROI'))
+
+    legend = fig.legend(
+        line_handles + roi_handles,
+        line_labels + [h.get_label() for h in roi_handles],
+        loc='upper center',
+        ncol=max(1, len(line_handles) + len(roi_handles)),
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.985),
+        columnspacing=1.4,
+        handlelength=2.5,
+    )
+    if legend and legend.get_frame():
+        legend.get_frame().set_facecolor('white')
+        legend.get_frame().set_alpha(0.95)
+
+    roi_ax = inset_axes(axes[-2], width="35%", height="45%", loc='upper left', borderpad=2)
+    span = roi_opt_tuple if roi_opt_tuple else literature_roi
+    if span:
+        mask = (wl >= span[0] - 10) & (wl <= span[1] + 10)
+        for spec, color in zip(spectra, colors_map):
+            roi_ax.plot(spec["wl"][mask], spec["convolution"][mask], color=color, lw=2)
+        roi_ax.set_title('Zoom on Optimized ROI', fontsize=9)
+        roi_ax.set_xlabel('λ (nm)', fontsize=8)
+        roi_ax.set_ylabel('Weight', fontsize=8)
+        roi_ax.grid(alpha=0.3, linestyle='--')
+
+    axes[-2].set_xlabel('Wavelength (nm)', fontweight='bold')
+
+    trend_ax = axes[-1]
+    trend_ax.set_title('ROI Feature vs Concentration (scalar trend)', fontsize=12, fontweight='bold', color=COLORS['dark'])
+    conc_vals = np.array([spec['conc'] for spec in spectra], dtype=float)
+    roi_vals = np.array([spec.get('roi_metric', 0.0) for spec in spectra], dtype=float)
+    order = np.argsort(conc_vals)
+    conc_sorted = conc_vals[order]
+    roi_sorted = roi_vals[order]
+    trend_ax.plot(conc_sorted, roi_sorted, marker='o', color=COLORS['primary'], lw=2.5)
+    if conc_sorted.size >= 2:
+        coeffs = np.polyfit(conc_sorted, roi_sorted, 1)
+        fit = np.polyval(coeffs, conc_sorted)
+        trend_ax.plot(conc_sorted, fit, linestyle='--', color=COLORS['secondary'], label=f"Fit slope = {coeffs[0]:.3f}")
+    trend_ax.set_xlabel('Concentration (ppm)', fontweight='bold')
+    trend_ax.set_ylabel('Mean ROI feature (a.u.)', fontweight='bold')
+    trend_ax.grid(alpha=0.3, linestyle='--')
+    if conc_sorted.size >= 2:
+        trend_ax.legend(loc='upper left')
+
+    fig.suptitle('Feature Engineering Progression (Multi-Concentration Acetone)', fontsize=15, fontweight='bold')
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    _save_figure('feature_engineering_progression')
+    plt.close()
+    print("✓ feature_engineering_progression.png")
+
+
 def create_classification_metrics():
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), facecolor='white')
     path = DATA_DIR / "clinical_classification_metrics.json"
@@ -1534,8 +1792,6 @@ def create_classification_metrics():
     print("✓ roc_confusion.png")
 
 def create_performance_metrics_card():
-    fig, ax = plt.subplots(figsize=(13, 4), facecolor='white')
-    ax.axis('off')
     key = _get_key_numbers()
     lod_this = key.get('lod_this')
     r2_this = key.get('r2_this')
@@ -1545,21 +1801,46 @@ def create_performance_metrics_card():
     r2_text = f"{r2_this:.4f}" if isinstance(r2_this, (int, float)) else "N/A"
     r2cv_text = f"{r2_cv:.4f}" if isinstance(r2_cv, (int, float)) else "N/A"
     factor_text = f"{factor:.0f}×" if isinstance(factor, (int, float)) else "N/A"
+
     metrics = [
-        ('Detection Limit', lod_text, COLORS['success']),
-        ('Improvement', f'{factor_text}', COLORS['secondary']),
-        ('R²', r2_text, COLORS['primary']),
-        ('LOOCV R²', r2cv_text, COLORS['warning']),
+        ('Detection Limit', lod_text, 'Breath-range sensitivity', COLORS['success']),
+        ('Improvement', factor_text, 'vs reference analysis', COLORS['secondary']),
+        ('R²', r2_text, 'calibration fit', COLORS['primary']),
+        ('LOOCV R²', r2cv_text, 'generalization', COLORS['warning']),
     ]
-    for i, (label, value, color) in enumerate(metrics):
-        x = 0.1 + i*0.22
-        box = FancyBboxPatch((x, 0.25), 0.18, 0.5, boxstyle="round,rounding_size=0.05",
-                             transform=ax.transAxes, facecolor='white', edgecolor=color, linewidth=2)
-        ax.add_patch(box)
-        ax.text(x+0.09, 0.55, label, fontsize=11, ha='center', va='center', color=COLORS['gray'])
-        ax.text(x+0.09, 0.4, value, fontsize=16, fontweight='bold', ha='center', va='center', color=color)
-    ax.text(0.5, 0.85, 'Performance Summary', fontsize=16, fontweight='bold', color=COLORS['dark'],
-            ha='center', transform=ax.transAxes)
+
+    fig, ax = plt.subplots(figsize=(12.5, 4.5), facecolor='white')
+    ax.axis('off')
+    ax.text(0.02, 0.92, 'Performance Summary', fontsize=17, fontweight='bold', color=COLORS['dark'])
+    ax.text(0.02, 0.83, 'ZnO–NCF + data-driven ROI (controlled chamber)', fontsize=11, color=COLORS['gray'])
+
+    for i, (label, value, subtitle, color) in enumerate(metrics):
+        left = 0.02 + i * 0.24
+        width = 0.22
+        # drop shadow
+        shadow = FancyBboxPatch(
+            (left + 0.005, 0.085), width, 0.6,
+            boxstyle="round,rounding_size=0.025",
+            transform=ax.transAxes,
+            facecolor='#D0D5DD',
+            edgecolor='none',
+            alpha=0.3,
+        )
+        ax.add_patch(shadow)
+        card = FancyBboxPatch(
+            (left, 0.1), width, 0.6,
+            boxstyle="round,rounding_size=0.025",
+            transform=ax.transAxes,
+            facecolor='white',
+            edgecolor='none',
+        )
+        ax.add_patch(card)
+        ax.plot([left + 0.015, left + 0.015], [0.13, 0.65], transform=ax.transAxes, color=color, linewidth=3)
+        ax.text(left + 0.04, 0.6, label, fontsize=12, fontweight='bold', color=COLORS['dark'], transform=ax.transAxes)
+        ax.text(left + 0.04, 0.48, value, fontsize=21, fontweight='bold', color=color, transform=ax.transAxes)
+        ax.text(left + 0.04, 0.36, subtitle, fontsize=10.5, color=COLORS['gray'], transform=ax.transAxes)
+
+    ax.text(0.02, 0.04, '* Analytical LoD and R² reported for controlled chamber measurements', fontsize=9.5, color=COLORS['gray'])
     plt.tight_layout()
     _save_figure('performance_metrics')
     plt.close()
@@ -1611,6 +1892,7 @@ def main():
     create_virtual_sensor_array_radar()
     create_calibration_robustness_tests()
     create_feature_eng()
+    create_feature_engineering_progression()
     create_abstract()
     create_loocv_parity_acetone()
     create_measurement_timeline()

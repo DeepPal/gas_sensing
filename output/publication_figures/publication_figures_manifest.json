@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-02-12T13:55:03.271440",
+  "artifacts": [
+    {
+      "name": "Figure1_multigas_calibration.png",
+      "png_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure1_multigas_calibration.png",
+      "pdf_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure1_multigas_calibration.pdf",
+      "sha256_png": "5fc413e873f8861ad90e151b1ed7c4d07adb9eed5b4b75d42d45bd7955b205fe",
+      "sha256_pdf": "436e5a767c12aa902aef8546be9add3b0ecc20a21b962788efbf2106b98966cc",
+      "sources": [
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Acetone\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Ethanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Isopropanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Methanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Toluene\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Xylene\\metrics\\calibration_metrics.json"
+      ],
+      "description": "Multi-gas calibration curves with 95% CI bands and LOOCV annotations"
+    },
+    {
+      "name": "Figure2_selectivity_comparison.png",
+      "png_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure2_selectivity_comparison.png",
+      "pdf_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure2_selectivity_comparison.pdf",
+      "sha256_png": "0d954685c184fae3c246be63f0f052eab9269886f261cdba89dfbe36602950e4",
+      "sha256_pdf": "403a12cd6b07200c5443dcfd724f628bc8e5bb6bf4c405a5bf251d09db23dfc4",
+      "sources": [
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Acetone\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Ethanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Isopropanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Methanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Toluene\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Xylene\\metrics\\calibration_metrics.json"
+      ],
+      "description": "Selectivity comparison with detection probabilities annotated"
+    },
+    {
+      "name": "Figure3_roi_discovery.png",
+      "png_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure3_roi_discovery.png",
+      "pdf_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure3_roi_discovery.pdf",
+      "sha256_png": "67dd9fd582f35cb33ab59abeffeb9c5d3de33b4e959b74348b2cae1b9701fbf5",
+      "sha256_pdf": "a930f2ac27be66bb2035955477baebe8833deaded5679941fc33418a02b42bc2",
+      "sources": [
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Acetone\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Ethanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Isopropanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Methanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Toluene\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Xylene\\metrics\\calibration_metrics.json"
+      ],
+      "description": "ROI discovery summary with LoD-coded bars and top candidate overlays"
+    },
+    {
+      "name": "Figure4_performance_table.png",
+      "png_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure4_performance_table.png",
+      "pdf_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure4_performance_table.pdf",
+      "sha256_png": "ad456a7b7198a661342830262b66364062e9c648d70395612dcb23a6748e3aed",
+      "sha256_pdf": "c09b3b92b21fb6a9cdbedced02f7dfbd5eb2a67f5add5db6d611b2707029426f",
+      "sources": [
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Acetone\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Ethanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Isopropanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Methanol\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Toluene\\metrics\\calibration_metrics.json",
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\scientific\\Xylene\\metrics\\calibration_metrics.json"
+      ],
+      "description": "Performance summary table covering ROI, sensitivity, R\u00b2, LoD, Spearman, LOOCV"
+    },
+    {
+      "name": "Figure5_ml_comparison.png",
+      "png_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure5_ml_comparison.png",
+      "pdf_path": "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\publication_figures\\Figure5_ml_comparison.pdf",
+      "sha256_png": "a4a6cdcd29caf0193a6e65850feeae72b8a6bf32e3dfec2131fe1b2fe3e98bcb",
+      "sha256_pdf": "23b4e1cffc4ff9a2d924cdb23d704d7025e39dc7919ac9f4c9aedddb07b661f1",
+      "sources": [
+        "C:\\Users\\deepp\\Desktop\\Chula_Work\\PRojects\\kevin gas sensing_AI improve\\Code_Acetone_paper_3\\output\\world_class_analysis\\comprehensive_results.json"
+      ],
+      "description": "Standard vs ML-enhanced comparison across sensitivity, R\u00b2, and LoD"
+    }
+  ]
+}
